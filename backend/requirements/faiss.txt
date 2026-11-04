@@ -1,0 +1,2 @@
+# Add in retrieval/QA upgrade stage; the current MVP uses NumPy for vector search.
+faiss-cpu

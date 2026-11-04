@@ -1,0 +1,6 @@
+# faster-whisper releases currently installed call av.open(metadata_errors=...).
+# PyAV 19 removed that argument; cap PyAV until the installed faster-whisper release supports it.
+av>=11,<19
+faster-whisper>=1.1.0
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*

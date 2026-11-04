@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VSKR – Hỏi đáp video bài giảng</title>
+<style>
+  :root {
+    --canvas: #e8edf1;
+    --surface: #ffffff;
+    --ink: #16202b;
+    --muted: #5b6877;
+    --line: #cfd7de;
+    --accent: #0b6e6e;
+    --accent-ink: #ffffff;
+    --track: #1b2733;
+    --marker: #f0a92e;
+    --warn-bg: #fff4dc;
+    --warn-ink: #6b4a00;
+    --err: #a3261f;
+    --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --read: Georgia, Cambria, "Times New Roman", serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --canvas: #0f161d;
+      --surface: #18222c;
+      --ink: #e7edf2;
+      --muted: #9aa7b4;
+      --line: #2b3946;
+      --accent: #3fb7b0;
+      --accent-ink: #06201f;
+      --track: #0a1016;
+      --warn-bg: #3a2f12;
+      --warn-ink: #f3d68a;
+      --err: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font: 16px/1.5 var(--ui);
+  }
+  header {
+    padding: 18px 24px 4px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  header h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: 0.01em; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 0.95rem; }
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 24px;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 16px 24px 48px;
+    align-items: start;
+  }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 12px 14px 40px; } header { padding: 14px 14px 0; } }
+
+  .stage { position: sticky; top: 16px; }
+  @media (max-width: 960px) { .stage { position: static; } }
+  .player-wrap { background: #000; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; }
+  .player-wrap iframe, .player-wrap > div { width: 100%; height: 100%; }
+  .player-msg { color: #fff; padding: 24px; font-size: 0.95rem; }
+
+  .timeline-box { margin-top: 10px; }
+  .timeline-title { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+  .timeline { position: relative; height: 26px; background: var(--track); border-radius: 4px; }
+  .timeline .mk {
+    position: absolute; top: 3px; bottom: 3px; min-width: 7px;
+    background: var(--marker); border: 0; border-radius: 2px; padding: 0; cursor: pointer;
+  }
+  .timeline .mk:hover, .timeline .mk:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; filter: brightness(1.1); }
+  .timeline .empty { position: absolute; inset: 0; display: grid; place-items: center; color: #8d9aa7; font-size: 0.8rem; }
+
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .tab {
+    font: inherit; font-size: 0.88rem; padding: 5px 10px; border-radius: 4px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+  form { display: grid; gap: 10px; }
+  textarea {
+    width: 100%; min-height: 64px; resize: vertical; font: inherit; color: var(--ink);
+    background: var(--canvas); border: 1px solid var(--line); border-radius: 4px; padding: 10px;
+  }
+  textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  select { font: inherit; padding: 7px 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+  .primary {
+    font: inherit; font-weight: 600; padding: 8px 18px; border-radius: 4px; border: 0;
+    background: var(--accent); color: var(--accent-ink); cursor: pointer;
+  }
+  .primary:disabled { opacity: 0.55; cursor: progress; }
+  .hint { color: var(--muted); font-size: 0.85rem; }
+
+  #result { margin-top: 16px; display: none; }
+  .answer { font-family: var(--read); font-size: 1.08rem; line-height: 1.65; white-space: pre-wrap; }
+  .answer.nf { color: var(--muted); font-style: italic; }
+  .err { color: var(--err); }
+  button.cite {
+    font: inherit; font-size: 0.78rem; font-weight: 600; min-width: 1.5em; padding: 0 5px; margin: 0 1px;
+    border-radius: 3px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer;
+    vertical-align: 0.15em;
+  }
+  button.cite:hover { background: var(--accent); color: var(--accent-ink); }
+  .timing { margin-top: 8px; font-size: 0.8rem; color: var(--muted); }
+  .warn { margin-top: 10px; padding: 8px 10px; border-radius: 4px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.88rem; }
+
+  .sources { margin-top: 16px; display: grid; gap: 10px; }
+  .src { border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; }
+  .src.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .src-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+  .src-head strong { font-weight: 600; }
+  .src-head .t { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .src-actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+  .play {
+    font: inherit; font-size: 0.85rem; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--accent);
+    background: var(--accent); color: var(--accent-ink); cursor: pointer;
+  }
+  .src a { font-size: 0.85rem; color: var(--accent); }
+  .src p { margin: 6px 0 0; font-size: 0.9rem; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .src p.open { display: block; }
+  .src .more { font: inherit; font-size: 0.8rem; color: var(--accent); background: none; border: 0; padding: 0; margin-top: 2px; cursor: pointer; }
+  .tag { font-size: 0.78rem; padding: 1px 6px; border-radius: 3px; background: var(--warn-bg); color: var(--warn-ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hỏi đáp video bài giảng</h1>
+  <p>Đặt câu hỏi bằng tiếng Việt. Mỗi câu trả lời có nguồn, bấm vào nguồn để video nhảy đúng thời điểm.</p>
+</header>
+
+<main>
+  <section class="stage" aria-label="Video">
+    <div class="player-wrap"><div id="player"><div class="player-msg">Đang tải danh sách video…</div></div></div>
+    <div class="timeline-box">
+      <div class="timeline-title"><span id="tl-title">Vị trí các nguồn trong video</span><span id="tl-dur"></span></div>
+      <div class="timeline" id="timeline"><div class="empty">Chưa có câu hỏi</div></div>
+    </div>
+    <div class="tabs" id="tabs"></div>
+  </section>
+
+  <section aria-label="Hỏi đáp">
+    <div class="panel">
+      <form id="form">
+        <label for="q" class="hint">Câu hỏi</label>
+        <textarea id="q" placeholder="Ví dụ: Khai báo biến trong Python như thế nào?"></textarea>
+        <div class="row">
+          <button class="primary" id="go" type="submit">Hỏi</button>
+          <label class="hint" for="mode">Cách tìm</label>
+          <select id="mode">
+            <option value="">Theo cấu hình</option>
+            <option value="vector">Vector</option>
+            <option value="bm25">Từ khóa (BM25)</option>
+            <option value="hybrid">Kết hợp (hybrid)</option>
+          </select>
+        </div>
+      </form>
+      <div id="result"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60; const p = (n) => String(n).padStart(2, "0"); return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`; };
+
+let player = null, videos = [], current = null, lastSources = [], pendingJump = null, ytApiReady = false;
+
+function isYouTube(v) {
+  try { const h = new URL(v.url).hostname.toLowerCase(); return h === "youtu.be" || h.endsWith("youtube.com") || h.endsWith("youtube-nocookie.com"); }
+  catch { return false; }
+}
+
+function setupPlayer() {
+  if (!current) return;
+  if (!isYouTube(current)) {
+    if (player && player.destroy) player.destroy();
+    player = null;
+    $("#player").innerHTML = `<div class="player-msg">Nền tảng này chưa hỗ trợ phát/nhảy thời điểm ngay trong trang.<br><a href="${esc(current.url)}" target="_blank" rel="noopener">Mở video trên nền tảng gốc</a></div>`;
+    $("#tl-title").textContent = "Thời điểm nguồn (mở video gốc để đối chiếu)";
+    return;
+  }
+  if (!ytApiReady) return;
+  if (player && player.destroy) player.destroy();
+  $("#player").innerHTML = '<div id="yt-player"></div>';
+  player = new YT.Player("yt-player", {
+    videoId: current.video_id,
+    playerVars: { rel: 0, modestbranding: 1, origin: location.origin },
+    events: {
+      onReady: () => { if (pendingJump) { jump(pendingJump.vid, pendingJump.start); pendingJump = null; } },
+      onError: () => { $("#tl-title").textContent = "Video không cho nhúng; hãy mở liên kết nguồn."; },
+    },
+  });
+}
+
+async function init() {
+  try {
+    const r = await fetch("/api/videos");
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    videos = await r.json();
+  } catch (e) {
+    $("#player").innerHTML = `<div class="player-msg">Chưa dùng được: ${esc(e.message)}<br>Hãy chạy ingest, asr, index rồi mở lại trang.</div>`;
+    return;
+  }
+  if (!videos.length) { $("#player").innerHTML = `<div class="player-msg">Chưa có video nào.</div>`; return; }
+  current = videos[0];
+  renderTabs();
+  drawTimeline();
+  setupPlayer();
+  const s = document.createElement("script");
+  s.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(s);
+}
+
+window.onYouTubeIframeAPIReady = () => {
+  ytApiReady = true;
+  setupPlayer();
+};
+
+function renderTabs() {
+  const box = $("#tabs");
+  box.innerHTML = "";
+  if (videos.length < 2) return;
+  videos.forEach((v, i) => {
+    const b = document.createElement("button");
+    b.className = "tab"; b.type = "button";
+    b.textContent = `Video ${i + 1}: ${v.title || v.video_id}`;
+    b.setAttribute("aria-pressed", v.video_id === current.video_id);
+    b.onclick = () => { switchVideo(v.video_id, 0); };
+    box.appendChild(b);
+  });
+}
+
+function switchVideo(vid, start) {
+  current = videos.find((v) => v.video_id === vid) || current;
+  if (isYouTube(current) && player && player.loadVideoById) player.loadVideoById({ videoId: vid, startSeconds: start });
+  else setupPlayer();
+  renderTabs();
+  drawTimeline();
+}
+
+function jump(vid, start) {
+  const target = videos.find((v) => v.video_id === vid);
+  if (target && !isYouTube(target)) {
+    const source = lastSources.find((s) => s.video_id === vid && s.start === start);
+    if (source) window.open(source.link, "_blank", "noopener");
+    return;
+  }
+  if (!player || !player.seekTo) { pendingJump = { vid, start }; return; }
+  if (current.video_id !== vid) switchVideo(vid, start);
+  else { player.seekTo(start, true); player.playVideo(); }
+  document.querySelectorAll(".src").forEach((el) => el.classList.toggle("active", el.dataset.vid === vid && Number(el.dataset.start) === start));
+}
+
+function drawTimeline() {
+  const tl = $("#timeline");
+  const dur = current && current.duration;
+  $("#tl-dur").textContent = dur ? `0:00 – ${fmt(dur)}` : "";
+  const mine = lastSources.filter((s) => s.video_id === current.video_id);
+  if (!lastSources.length) { tl.innerHTML = `<div class="empty">Chưa có câu hỏi</div>`; return; }
+  if (!mine.length || !dur) { tl.innerHTML = `<div class="empty">Không có nguồn nào ở video này</div>`; return; }
+  tl.innerHTML = "";
+  mine.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "mk"; b.type = "button";
+    b.style.left = (s.start / dur) * 100 + "%";
+    b.style.width = Math.max(((s.end - s.start) / dur) * 100, 0.8) + "%";
+    b.title = `Nguồn ${s.n}: ${s.label}`;
+    b.setAttribute("aria-label", `Nguồn ${s.n}, ${s.label}`);
+    b.onclick = () => jump(s.video_id, s.start);
+    tl.appendChild(b);
+  });
+}
+
+function linkify(text, sources) {
+  const have = new Set(sources.map((s) => s.n));
+  const re = /\[\s*(?:Nguồn\s*)?(\d+(?:\s*[,;]\s*(?:Nguồn\s*)?\d+)*)\s*\]/gi;
+  return esc(text).replace(re, (m, inner) => {
+    const nums = inner.match(/\d+/g).map(Number);
+    if (!nums.every((n) => have.has(n))) return m;
+    return nums.map((n) => `<button type="button" class="cite" data-n="${n}">${n}</button>`).join("");
+  });
+}
+
+function renderResult(d) {
+  lastSources = d.sources;
+  const box = $("#result");
+  box.style.display = "block";
+  let html = `<div class="answer ${d.found ? "" : "nf"}">${linkify(d.answer, d.sources)}</div>`;
+  if (d.found && !d.cited) html += `<div class="warn">Mô hình không ghi rõ nguồn cho câu trả lời này. Dưới đây là các đoạn gần nhất tìm được, hãy tự đối chiếu.</div>`;
+  if (d.sources.length) {
+    html += `<div class="sources">`;
+    d.sources.forEach((s) => {
+      html += `<div class="src" data-vid="${esc(s.video_id)}" data-start="${s.start}" id="src-${s.n}">
+        <div class="src-head">
+          <strong>Nguồn ${s.n}</strong><span>${esc(s.title || s.video_id)}</span><span class="t">${esc(s.label)}</span>
+          ${s.cited ? "" : `<span class="tag">chưa được dẫn</span>`}
+          <span class="src-actions">
+            <button class="play" type="button" data-jump="${s.n}">Phát từ ${fmt(s.start)}</button>
+            <a href="${esc(s.link)}" target="_blank" rel="noopener">Mở video nguồn</a>
+          </span>
+        </div>
+        <p>${esc(s.text)}</p><button class="more" type="button">Xem đầy đủ</button>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  html += `<div class="timing">Tìm đoạn: ${d.timing.retrieve_s}s · Trả lời: ${d.timing.llm_s}s · Cách tìm: ${esc(d.mode)}</div>`;
+  box.innerHTML = html;
+  drawTimeline();
+}
+
+$("#result").addEventListener("click", (e) => {
+  const cite = e.target.closest("button.cite");
+  const play = e.target.closest("button.play");
+  const more = e.target.closest("button.more");
+  const n = cite ? Number(cite.dataset.n) : play ? Number(play.dataset.jump) : null;
+  if (n) { const s = lastSources.find((x) => x.n === n); if (s) jump(s.video_id, s.start); }
+  if (more) { const p = more.previousElementSibling; p.classList.toggle("open"); more.textContent = p.classList.contains("open") ? "Thu gọn" : "Xem đầy đủ"; }
+});
+
+$("#form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = $("#q").value.trim();
+  if (!q) return;
+  const btn = $("#go");
+  btn.disabled = true; btn.textContent = "Đang tìm…";
+  const box = $("#result");
+  box.style.display = "block";
+  box.innerHTML = `<p class="hint">Đang tìm trong video và soạn câu trả lời…</p>`;
+  try {
+    const r = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, mode: $("#mode").value || null }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    renderResult(d);
+  } catch (err) {
+    box.innerHTML = `<p class="err">Không trả lời được: ${esc(err.message)}</p>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Hỏi";
+  }
+});
+
+$("#q").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#form").requestSubmit(); });
+init();
+</script>
+</body>
+</html>

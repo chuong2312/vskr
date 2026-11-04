@@ -1,0 +1,74 @@
+# Mọi thành phần thay được bằng cách sửa file này, không cần sửa code.
+paths:
+  data_dir: data            # tương đối so với thư mục dự án
+
+asr:
+  engine: faster-whisper
+  # Nếu tên "large-v3-turbo" báo lỗi với bản faster-whisper của bạn, thử
+  # "deepdml/faster-whisper-large-v3-turbo-ct2" hoặc "large-v3".
+  model: large-v3-turbo
+  device: cuda
+  compute_type: float16      # nếu thiếu VRAM: int8_float16
+  language: vi
+  vad_filter: true
+  beam_size: 5
+  condition_on_previous_text: false
+  initial_prompt: ""         # để trống làm baseline; thử thuật ngữ chuyên ngành như một thí nghiệm riêng
+  unload_ollama_first: true  # trước khi chạy ASR, bảo Ollama nhả model khỏi VRAM (tránh OOM khi hai bên cùng dùng GPU 8GB)
+
+frames:                      # chỉ dùng cho OCR (giai đoạn mở rộng); cần video tải bằng --with-video
+  scene_threshold: 27.0      # ngưỡng ContentDetector của PySceneDetect (thấp hơn = nhạy hơn)
+  frame_skip: 0              # tăng lên (vd 2) để quét nhanh hơn, đổi lại có thể sót cảnh
+  interval_s: 8              # lấy mẫu định kỳ, bù cho cảnh gõ code liên tục không có "cắt cảnh"
+  scene_offset_s: 1.0        # lấy frame sau đầu cảnh một chút để tránh frame đang chuyển
+  min_gap_s: 2.0
+  hash_dist: 4               # lọc frame trùng (dHash, số bit khác); đếm số frame còn lại rồi chỉnh
+  max_frames: 2000
+  max_width: 1280
+
+ocr:
+  provider: paddleocr
+  lang: vi
+  device: gpu
+  max_frames: 2000
+  score_threshold: 0.5
+  unload_ollama_first: true
+
+vlm:
+  provider: transformers
+  model: Qwen/Qwen2.5-VL-3B-Instruct
+  device: cuda
+  load_in_4bit: true
+  max_new_tokens: 96
+  max_frames: 200
+  unload_ollama_first: true
+
+chunk:
+  window_s: 50
+  overlap_s: 10
+  min_chars: 20
+  use_screen_text: true      # chỉ có tác dụng khi video có file screen_text.json (OCR, giai đoạn sau)
+
+embedding:
+  model: intfloat/multilingual-e5-small
+  query_prefix: "query: "
+  passage_prefix: "passage: "
+  device: cpu                # cpu để khỏi tranh VRAM với LLM; đo rồi mới đổi
+  batch_size: 32
+  max_seq_length: 512
+
+retrieval:
+  mode: vector               # vector | bm25 | hybrid
+  top_k: 5
+  candidate_k: 20
+  rrf_k: 60
+  min_vector_score: null     # ví dụ 0.80; để null cho đến khi bạn tự đo phân bố điểm
+
+llm:
+  provider: ollama
+  base_url: http://localhost:11434   # Docker Compose tự ghi đè thành http://ollama:11434 (biến VSKR__LLM__BASE_URL)
+  model: qwen3.5:4b             # mặc định nhẹ hơn cho máy 24 GB RAM; 9b vẫn có thể chọn lại
+  temperature: 0.1
+  num_ctx: 4096
+  keep_alive: 30s              # nhả RAM/VRAM sớm sau khi trả lời
+  timeout_s: 300

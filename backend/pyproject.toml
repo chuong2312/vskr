@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vskr"
+version = "0.1.0"
+description = "Video Semantic Knowledge Retrieval"
+requires-python = ">=3.12"
+
+[project.scripts]
+vskr = "vskr.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

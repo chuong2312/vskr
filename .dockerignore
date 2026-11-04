@@ -1,0 +1,11 @@
+.git
+.agents
+.aws
+.codex
+.venv
+__pycache__
+*.py[cod]
+data
+cache
+.env
+*.zip

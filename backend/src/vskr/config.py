@@ -16,7 +16,7 @@ def _apply_env_overrides(cfg):
     """Ghi đè cấu hình bằng biến môi trường dạng VSKR__<MỤC>__<KHÓA>=<giá trị YAML>.
 
     Ví dụ: VSKR__LLM__BASE_URL=http://ollama:11434, VSKR__ASR__DEVICE=cpu, VSKR__RETRIEVAL__TOP_K=8.
-    Dùng cho Docker/thí nghiệm để khỏi sửa models.yaml. Giá trị được đọc như YAML (true, 8, 0.5, null...)."""
+    Dùng khi phát triển/thí nghiệm để khỏi sửa models.yaml. Giá trị được đọc như YAML (true, 8, 0.5, null...)."""
     for name, raw in os.environ.items():
         if not name.startswith(ENV_PREFIX):
             continue

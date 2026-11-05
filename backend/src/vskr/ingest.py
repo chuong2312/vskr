@@ -8,7 +8,7 @@ from .util import write_json
 
 def resolve_source(vdir, meta):
     """Tìm file nguồn (video/âm thanh gốc) của một video. meta['source_file'] chỉ lưu TÊN file
-    (tương đối so với thư mục video) để chuyển dữ liệu giữa máy/Docker không bị gãy đường dẫn.
+    (tương đối so với thư mục video) để chuyển dữ liệu giữa máy/môi trường chạy không gãy đường dẫn.
     Tương thích bản cũ lưu đường dẫn tuyệt đối: nếu đường dẫn đó không còn, dùng tên file trong vdir."""
     name = meta.get("source_file")
     if not name:

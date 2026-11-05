@@ -1,4 +1,4 @@
-"""Test cho các chỗ đã sửa/thêm: phát hiện 'không tìm thấy', ghi đè cấu hình bằng env (Docker),
+"""Test cho các chỗ đã sửa/thêm: phát hiện 'không tìm thấy', ghi đè cấu hình bằng env,
 xuất SRT, tìm file nguồn khi đường dẫn đổi (host <-> container), chỉ mục lệch embedding."""
 import os
 import shutil
@@ -106,7 +106,7 @@ class TestResolveSource(unittest.TestCase):
         self.assertEqual(resolve_source(self.tmp, {"source_file": "source.mp4"}), self.tmp / "source.mp4")
 
     def test_old_absolute_path_from_another_machine(self):
-        # meta.json tạo ở WSL (/home/..) rồi mở trong Docker (/app/data/..): đường dẫn tuyệt đối cũ không còn.
+        # meta.json tạo trên máy khác: đường dẫn tuyệt đối cũ không còn, vẫn khôi phục bằng tên file.
         meta = {"source_file": "/home/someone/vskr/data/videos/vid1/source.mp4"}
         self.assertEqual(resolve_source(self.tmp, meta), self.tmp / "source.mp4")
 

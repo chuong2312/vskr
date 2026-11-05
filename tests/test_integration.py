@@ -65,6 +65,12 @@ class TestPipeline(unittest.TestCase):
             self.assertTrue(hits, mode)
             self.assertEqual(hits[0]["chunk"]["start"], 0, mode)
 
+    def test_default_mode_is_hybrid(self):
+        self.assertEqual(self.cfg["retrieval"]["mode"], "hybrid")
+        hits = self._retriever().search("khai báo biến python")
+        self.assertTrue(hits)
+        self.assertEqual(hits[0]["chunk"]["start"], 0)
+
     def test_bm25_no_match_returns_empty(self):
         self.assertEqual(self._retriever().search("zzzz qqqq", mode="bm25"), [])
 

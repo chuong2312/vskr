@@ -7,6 +7,7 @@ VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ m�
 - `backend/src/vskr`: package Python của ứng dụng. Image core có Python 3.12, FFmpeg, yt-dlp + Deno, faster-whisper, PySceneDetect, E5-small, BM25/RRF và FastAPI. Embedding chạy CPU; ASR dùng GPU.
 - `ollama`: Qwen theo `configs/models.yaml`. Chỉ nạp LLM khi hỏi đáp; ASR yêu cầu Ollama nhả model khỏi VRAM trước khi chạy.
 - Dữ liệu nằm trong `./data`, cache model và yt-dlp trong `./cache`, còn Ollama lưu model trong volume Docker `ollama`.
+- Tìm kiếm mặc định là **hybrid**: vector E5 tìm theo ngữ nghĩa + BM25 tìm từ khóa, sau đó RRF hợp nhất thứ hạng. Có thể chọn riêng `vector` hoặc `bm25` để so sánh. Với kho hiện tại chỉ 12 chunks, NumPy quét trực tiếp là đủ; FAISS để dành khi dữ liệu lớn hơn.
 
 PySceneDetect được cài dưới tên package `scenedetect-headless` và import trong Python là `scenedetect`. Nó tìm điểm đổi cảnh; FFmpeg trích frame. Đây không phải package `pyscenecut`.
 
@@ -117,32 +118,44 @@ Sửa `configs/models.yaml`; compose mount thư mục config và `backend/src` t
 
 ## Phạm vi hiện tại
 
-Đã có code MVP cho ingest, faster-whisper, trích frame, E5, BM25/RRF, Ollama QA và trang demo. Chưa xác nhận thành công đầu-cuối trên video thật bằng Docker ở môi trường này; tiêu chí giai đoạn 1 chỉ đạt sau khi bạn chạy theo hướng dẫn, kiểm tra transcript, `realtime_factor`, câu trả lời có nguồn và thời điểm nguồn mở đúng. OCR/PaddleOCR, VLM, xử lý tài liệu, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật trong luồng MVP.
+Đã kiểm chứng core venv trên video mẫu: faster-whisper GPU tạo transcript, E5 lập index và Qwen/Ollama trả lời có nguồn. Theo log người dùng gửi, cùng core pipeline cũng chạy trong Docker và API `/api/status` trả `ready: true`; bước còn cần xác nhận thủ công là bấm nguồn trong trình duyệt để kiểm tra video nhảy đúng timestamp. OCR/PaddleOCR, VLM, xử lý tài liệu, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật trong luồng MVP.
 
 ## Cấu trúc dự án
 
 ```text
-backend/
-├── src/vskr/          # package Python
-├── requirements/      # dependency groups theo chức năng
-└── pyproject.toml     # metadata và entry point của package
-configs/               # cấu hình model và pipeline
-docker/                # Dockerfile core
-tests/                 # test của backend
-web/                   # trang demo MVP hiện tại
-data/                  # video, transcript và index (không đưa vào image)
-cache/                 # cache model và tải xuống (không đưa vào image)
-docker-compose.yml     # dịch vụ local: vskr + ollama
+vskr/
+├── backend/
+│   ├── src/vskr/          # mã nguồn Python
+│   ├── requirements/      # dependencies chia theo nhóm chức năng
+│   └── pyproject.toml     # metadata và entry point CLI
+├── configs/models.yaml    # cấu hình model và pipeline
+├── docker/                # Dockerfile theo nhóm service
+├── scripts/               # tiện ích phát triển local (venv)
+├── tests/                 # unit/integration tests
+├── web/                   # giao diện demo MVP
+├── data/                  # video, transcript, index (local, không commit)
+├── cache/                 # model/download cache (local, không commit)
+├── docker-compose.yml     # orchestration local: vskr + ollama
+├── requirements.lock.txt  # phiên bản đã freeze cho core venv
+├── .env.example           # mẫu biến môi trường; copy thành .env
+└── README.md
 ```
 
-Khi phát triển Python trực tiếp ngoài Docker, tạo virtualenv, cài các nhóm requirements cần dùng rồi cài package ở chế độ editable:
+`data/`, `cache/`, `.venv/` và `.env` là dữ liệu/môi trường local, không đưa vào Git hoặc Docker build context. Không xóa chúng nếu còn cần video, model đã tải hoặc môi trường venv.
+
+## Phát triển bằng venv trước Docker
+
+Đây là môi trường thử nghiệm trên WSL; Docker Compose vẫn là cách chạy/đóng gói cuối cùng. Dùng Python 3.12 để khớp với `Dockerfile.core`. Nếu máy đang dùng Python khác, có thể cài bản riêng bằng [uv](https://docs.astral.sh/uv/guides/install-python/); không cần thay Python hệ thống:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements/base.txt -r backend/requirements/video.txt \
-  -r backend/requirements/asr.txt -r backend/requirements/embedding.txt
-pip install --no-deps -e backend
+uv python install 3.12
+uv venv --python 3.12 .venv
+source scripts/activate-venv.sh
+uv pip install -r backend/requirements/base.txt -r backend/requirements/video.txt
+uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+uv pip install -r backend/requirements/asr.txt -r backend/requirements/embedding.txt
+uv pip install --editable backend --no-deps
+vskr doctor --gpu-test
 ```
 
-Với máy local dùng GPU, cài PyTorch/CUDA và thư viện CTranslate2 phù hợp theo hướng dẫn tương ứng trước khi chạy ASR; Docker Compose vẫn là đường chạy chính được hướng dẫn ở đây.
+`scripts/activate-venv.sh` kích hoạt `.venv`, trỏ mã nguồn Python và model cache về repo, đồng thời nạp đường dẫn cuBLAS/cuDNN mà faster-whisper cần. PyTorch CPU là đủ cho E5 vì embedding đang chạy CPU; faster-whisper dùng GPU qua CTranslate2. Chỉ chạy ASR thật sau khi `doctor --gpu-test` báo OK. OCR/Paddle và VLM/PyTorch CUDA sẽ được thử trong môi trường tách riêng theo từng giai đoạn để tránh xung đột thư viện.

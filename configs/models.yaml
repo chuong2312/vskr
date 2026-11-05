@@ -58,7 +58,7 @@ embedding:
   max_seq_length: 512
 
 retrieval:
-  mode: vector               # vector | bm25 | hybrid
+  mode: hybrid               # mặc định kết hợp vector + BM25 bằng RRF
   top_k: 5
   candidate_k: 20
   rrf_k: 60

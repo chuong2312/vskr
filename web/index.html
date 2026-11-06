@@ -19,7 +19,6 @@
     --warn-ink: #6b4a00;
     --err: #a3261f;
     --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-    --read: Georgia, Cambria, "Times New Roman", serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -64,7 +63,8 @@
   .stage { position: sticky; top: 16px; }
   @media (max-width: 960px) { .stage { position: static; } }
   .player-wrap { background: #000; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; }
-  .player-wrap iframe, .player-wrap > div { width: 100%; height: 100%; }
+  .player-wrap iframe, .player-wrap > div, .player-wrap video { width: 100%; height: 100%; }
+  .player-wrap video { display: block; object-fit: contain; background: #000; }
   .player-msg { color: #fff; padding: 24px; font-size: 0.95rem; }
 
   .timeline-box { margin-top: 10px; }
@@ -100,9 +100,33 @@
   }
   .primary:disabled { opacity: 0.55; cursor: progress; }
   .hint { color: var(--muted); font-size: 0.85rem; }
+  .ingest-panel { margin-bottom: 14px; }
+  .ingest-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ingest-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 0.85rem; }
+  .field {
+    width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px;
+    background: var(--canvas); color: var(--ink); font: inherit;
+  }
+  .field:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type="file"].field { padding: 5px; }
+  input[type="file"]::file-selector-button {
+    margin-right: 8px; padding: 5px 9px; border: 0; border-radius: 3px;
+    background: var(--line); color: var(--ink); font: inherit; cursor: pointer;
+  }
+  #ingest-status { min-height: 1.3em; }
+  #ingest-status.error { color: var(--err); }
+  @media (max-width: 600px) { .ingest-fields { grid-template-columns: 1fr; } }
 
   #result { margin-top: 16px; display: none; }
-  .answer { font-family: var(--read); font-size: 1.08rem; line-height: 1.65; white-space: pre-wrap; }
+  .answer {
+    font-family: var(--ui);
+    font-size: 1rem;
+    line-height: 1.7;
+    letter-spacing: normal;
+    word-spacing: normal;
+    white-space: pre-line;
+    overflow-wrap: break-word;
+  }
   .answer.nf { color: var(--muted); font-style: italic; }
   .err { color: var(--err); }
   button.cite {
@@ -149,6 +173,24 @@
   </section>
 
   <section aria-label="Hỏi đáp">
+    <div class="panel ingest-panel">
+      <form id="ingest-form">
+        <strong>Thêm video để hỏi đáp</strong>
+        <div class="ingest-fields">
+          <label for="video-url">Dán link video
+            <input class="field" id="video-url" type="url" placeholder="https://…" autocomplete="url">
+          </label>
+          <label for="video-file">Hoặc chọn file video
+            <input class="field" id="video-file" type="file" accept="video/*">
+          </label>
+        </div>
+        <p class="hint">Chọn một trong hai. Nhận MP4, MOV, MKV, WebM, AVI; tối đa 30 phút và 1 GB. Xử lý có thể mất vài phút.</p>
+        <div class="row">
+          <button class="primary" id="ingest-go" type="submit">Thêm và xử lý</button>
+          <span class="hint" id="ingest-status" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+    </div>
     <div class="panel">
       <form id="form">
         <label for="q" class="hint">Câu hỏi</label>
@@ -181,8 +223,32 @@ function isYouTube(v) {
   catch { return false; }
 }
 
+function isUploaded(v) { return Boolean(v && v.source_type === "upload" && v.file_url); }
+
+function ensureYouTubeApi() {
+  if (ytApiReady || document.querySelector('script[data-youtube-api="true"]')) return;
+  const s = document.createElement("script");
+  s.dataset.youtubeApi = "true";
+  s.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(s);
+}
+
 function setupPlayer() {
   if (!current) return;
+  if (isUploaded(current)) {
+    if (player && player.destroy) player.destroy();
+    $("#player").innerHTML = `<video id="local-player" controls playsinline preload="metadata" src="${esc(current.file_url)}"></video>`;
+    player = $("#local-player");
+    player.addEventListener("loadedmetadata", () => {
+      if (pendingJump && pendingJump.vid === current.video_id) {
+        player.currentTime = pendingJump.start;
+        player.play().catch(() => {});
+        pendingJump = null;
+      }
+    });
+    $("#tl-title").textContent = "Vị trí các nguồn trong video đã tải lên";
+    return;
+  }
   if (!isYouTube(current)) {
     if (player && player.destroy) player.destroy();
     player = null;
@@ -190,7 +256,7 @@ function setupPlayer() {
     $("#tl-title").textContent = "Thời điểm nguồn (mở video gốc để đối chiếu)";
     return;
   }
-  if (!ytApiReady) return;
+  if (!ytApiReady) { ensureYouTubeApi(); return; }
   if (player && player.destroy) player.destroy();
   $("#player").innerHTML = '<div id="yt-player"></div>';
   player = new YT.Player("yt-player", {
@@ -217,14 +283,12 @@ async function init() {
   renderTabs();
   drawTimeline();
   setupPlayer();
-  const s = document.createElement("script");
-  s.src = "https://www.youtube.com/iframe_api";
-  document.head.appendChild(s);
+  if (videos.some(isYouTube)) ensureYouTubeApi();
 }
 
 window.onYouTubeIframeAPIReady = () => {
   ytApiReady = true;
-  setupPlayer();
+  if (isYouTube(current)) setupPlayer();
 };
 
 function renderTabs() {
@@ -243,14 +307,31 @@ function renderTabs() {
 
 function switchVideo(vid, start) {
   current = videos.find((v) => v.video_id === vid) || current;
-  if (isYouTube(current) && player && player.loadVideoById) player.loadVideoById({ videoId: vid, startSeconds: start });
-  else setupPlayer();
+  if (isYouTube(current) && player && player.loadVideoById) {
+    player.loadVideoById({ videoId: vid, startSeconds: start });
+  } else {
+    setupPlayer();
+  }
   renderTabs();
   drawTimeline();
 }
 
 function jump(vid, start) {
   const target = videos.find((v) => v.video_id === vid);
+  if (target && isUploaded(target)) {
+    if (current.video_id !== vid) {
+      pendingJump = { vid, start };
+      switchVideo(vid, 0);
+    } else if (player && player.tagName === "VIDEO") {
+      if (player.readyState >= 1) {
+        player.currentTime = start;
+        player.play().catch(() => {});
+      } else {
+        pendingJump = { vid, start };
+      }
+    }
+    return;
+  }
   if (target && !isYouTube(target)) {
     const source = lastSources.find((s) => s.video_id === vid && s.start === start);
     if (source) window.open(source.link, "_blank", "noopener");
@@ -327,6 +408,77 @@ $("#result").addEventListener("click", (e) => {
   const n = cite ? Number(cite.dataset.n) : play ? Number(play.dataset.jump) : null;
   if (n) { const s = lastSources.find((x) => x.n === n); if (s) jump(s.video_id, s.start); }
   if (more) { const p = more.previousElementSibling; p.classList.toggle("open"); more.textContent = p.classList.contains("open") ? "Thu gọn" : "Xem đầy đủ"; }
+});
+
+function setIngestStatus(message, isError = false) {
+  const status = $("#ingest-status");
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+}
+
+async function refreshVideos(selectVideoId = null) {
+  const r = await fetch("/api/videos");
+  if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+  videos = await r.json();
+  if (!videos.length) return;
+  current = videos.find((v) => v.video_id === selectVideoId) || current || videos[0];
+  renderTabs();
+  drawTimeline();
+  setupPlayer();
+}
+
+async function waitForIngest(jobId) {
+  while (true) {
+    const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+    const job = await r.json();
+    if (!r.ok) throw new Error(job.detail || r.statusText);
+    setIngestStatus(job.message || "Đang xử lý…");
+    if (job.status === "error") throw new Error(job.message || "Xử lý video thất bại.");
+    if (job.status === "done") {
+      await refreshVideos(job.video_id);
+      setIngestStatus(`Đã thêm “${job.title || job.video_id}”. Bạn có thể hỏi ngay.`);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+}
+
+$("#video-url").addEventListener("input", () => {
+  if ($("#video-url").value.trim()) $("#video-file").value = "";
+});
+$("#video-file").addEventListener("change", () => {
+  if ($("#video-file").files.length) $("#video-url").value = "";
+});
+
+$("#ingest-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const url = $("#video-url").value.trim();
+  const file = $("#video-file").files[0];
+  if (Boolean(url) === Boolean(file)) {
+    setIngestStatus("Hãy nhập một link hoặc chọn một file video.", true);
+    return;
+  }
+  if (file && file.size > 1024 ** 3) {
+    setIngestStatus("File vượt giới hạn 1 GB.", true);
+    return;
+  }
+
+  const button = $("#ingest-go");
+  button.disabled = true;
+  setIngestStatus("Đang gửi video vào hàng đợi…");
+  const payload = new FormData();
+  if (url) payload.append("url", url);
+  else payload.append("file", file);
+  try {
+    const r = await fetch("/api/ingest", { method: "POST", body: payload });
+    const result = await r.json();
+    if (!r.ok) throw new Error(result.detail || r.statusText);
+    await waitForIngest(result.job_id);
+  } catch (error) {
+    setIngestStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 $("#form").addEventListener("submit", async (e) => {

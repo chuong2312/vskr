@@ -11,7 +11,7 @@ from unittest import mock
 
 from vskr import qa
 from vskr.config import load_config
-from vskr.ingest import resolve_source
+from vskr.ingest import check_duration, resolve_source
 from vskr.util import fmt_srt_time, source_link, to_srt
 
 
@@ -113,6 +113,17 @@ class TestResolveSource(unittest.TestCase):
     def test_missing(self):
         self.assertIsNone(resolve_source(self.tmp, {"source_file": "nope.mp4"}))
         self.assertIsNone(resolve_source(self.tmp, {}))
+
+
+class TestIngestDurationLimit(unittest.TestCase):
+    def test_accepts_limit_and_shorter(self):
+        cfg = {"ingest": {"max_duration_s": 1800}}
+        self.assertIsNone(check_duration(1800, cfg))
+        self.assertIsNone(check_duration(45, cfg))
+
+    def test_rejects_long_video_with_readable_limit(self):
+        with self.assertRaisesRegex(ValueError, "giới hạn hiện tại là 30 phút"):
+            check_duration(1801, {"ingest": {"max_duration_s": 1800}})
 
 
 class TestIndexEmbeddingMismatch(unittest.TestCase):

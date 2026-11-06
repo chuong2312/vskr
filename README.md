@@ -55,9 +55,34 @@ vskr ask "câu hỏi về video"
 vskr serve --host 0.0.0.0
 ```
 
-Mở `http://localhost:8000` để dùng giao diện. `Ctrl+C` dừng server. Ingest mặc định chỉ tải audio; thêm `--with-video` nếu cần trích frame. YouTube có player nhúng và nhảy timestamp; nền tảng khác mở URL gốc để đối chiếu.
+Mở `http://localhost:8000` để dùng giao diện. `Ctrl+C` dừng server. Trong giao diện, người dùng có thể dán URL được yt-dlp hỗ trợ hoặc upload MP4/MOV/MKV/WebM/AVI; mỗi video tối đa 30 phút và 1 GB. Job ingest → ASR → index chạy tuần tự, giao diện cập nhật trạng thái. YouTube có player nhúng; video upload phát bằng HTML5 player; nền tảng khác mở URL gốc để đối chiếu.
 
 Nếu Ollama đang chạy bằng service Windows/WSL, để Ollama phục vụ `localhost:11434`. Nếu cài native Ollama, pull model một lần bằng `ollama pull qwen3.5:4b`; không cài/chạy hai Ollama cùng lúc trên một cổng.
+
+## Benchmark ASR tiếng Việt (tùy chọn)
+
+Mặc định vẫn là faster-whisper `large-v3-turbo` vì đã chạy nhanh trên máy này. Để so độ chính xác với ứng viên PhoWhisper-medium, tạo 10–20 clip ngắn từ nhiều đoạn/giọng khác nhau, rồi tự ghi transcript chuẩn đã nghe và sửa tay; **không dùng transcript ASR làm đáp án chuẩn**.
+
+```bash
+mkdir -p data/asr_eval
+ffmpeg -y -ss 00:00:32 -i data/videos/NbJ45r9sbiE/audio.wav -t 20 \
+  -ac 1 -ar 16000 -c:a pcm_s16le data/asr_eval/clip_001.wav
+```
+
+Tạo `data/asr_eval/manifest.jsonl`, mỗi dòng một clip:
+
+```json
+{"audio":"data/asr_eval/clip_001.wav","reference":"Nội dung đã nghe và sửa chính xác."}
+```
+
+Sau khi điền các transcript chuẩn, chạy:
+
+```bash
+source scripts/activate-venv.sh
+python scripts/benchmark_asr.py data/asr_eval/manifest.jsonl
+```
+
+Script so sánh model ASR hiện tại với `vinai/PhoWhisper-medium`, báo WER/CER và thời gian, rồi lưu kết quả vào `data/asr_eval/results.json`. Candidate chạy CPU theo mặc định vì venv core đang dùng PyTorch CPU; do đó chỉ so WER/CER, **không so tốc độ CPU candidate với baseline GPU**. Không đổi model mặc định cho đến khi kết quả trên audio bài giảng của bạn tốt hơn.
 
 ## Cấu hình
 

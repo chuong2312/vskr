@@ -28,6 +28,12 @@ class Service:
                 "title": m.get("title"),
                 "duration": m.get("duration"),
                 "url": m.get("url"),
+                "source_type": m.get("source_type", "url"),
+                "file_url": (
+                    f"/api/videos/{m['video_id']}/file"
+                    if m.get("source_type") == "upload" and m.get("has_video_file")
+                    else None
+                ),
             }
             for m in self.meta.values()
         ]
@@ -52,7 +58,11 @@ class Service:
                     "end": c["end"],
                     "label": f"{fmt_time(c['start'])}-{fmt_time(c['end'])}",
                     "text": c["text"],
-                    "link": source_link(m.get("url"), c["video_id"], c["start"]),
+                    "link": (
+                        f"/api/videos/{c['video_id']}/file#t={int(c['start'])}"
+                        if m.get("source_type") == "upload"
+                        else source_link(m.get("url"), c["video_id"], c["start"])
+                    ),
                     "cited": res["cited"],
                     "score": hits[n - 1]["score"],
                 }

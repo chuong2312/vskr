@@ -2,6 +2,10 @@
 paths:
   data_dir: data            # tương đối so với thư mục dự án
 
+ingest:
+  max_duration_s: 1800      # giới hạn MVP: 30 phút cho mỗi video
+  max_upload_bytes: 1073741824 # 1 GiB cho file upload và tải từ URL
+
 asr:
   engine: faster-whisper
   # Nếu tên "large-v3-turbo" báo lỗi với bản faster-whisper của bạn, thử

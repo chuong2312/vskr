@@ -27,7 +27,7 @@ def main():
     sub.add_parser("index", help="chunk + embedding + lưu chỉ mục")
     p = sub.add_parser("ask", help="hỏi thử trên dòng lệnh")
     p.add_argument("question")
-    p.add_argument("--mode", choices=["vector", "bm25", "hybrid"])
+    p.add_argument("--mode", choices=["vector", "bm25", "hybrid", "graph"])
     p = sub.add_parser("serve", help="chạy trang demo")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)

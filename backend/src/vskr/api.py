@@ -246,8 +246,8 @@ def ask(req: AskRequest):
     q = req.question.strip()
     if not q:
         raise HTTPException(400, "Câu hỏi trống")
-    if req.mode not in (None, "vector", "bm25", "hybrid"):
-        raise HTTPException(400, "mode phải là vector, bm25 hoặc hybrid")
+    if req.mode not in (None, "vector", "bm25", "hybrid", "graph"):
+        raise HTTPException(400, "mode phải là vector, bm25, hybrid hoặc graph")
     try:
         with _gpu_model_lock:
             return _svc().ask(q, mode=req.mode)

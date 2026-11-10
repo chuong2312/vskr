@@ -6,7 +6,8 @@ import numpy as np
 
 from .bm25 import BM25, tokenize
 from .chunker import make_chunks
-from .config import index_dir, video_dir, videos_dir
+from .config import data_dir, index_dir, video_dir, videos_dir
+from .knowledge_graph import build_graph
 from .util import read_json, write_json
 
 
@@ -16,6 +17,7 @@ class Index:
     vectors: np.ndarray
     bm25: BM25
     info: dict
+    graph: dict
 
 
 def list_video_ids(cfg):
@@ -46,14 +48,20 @@ def build(cfg, embedder):
         chunks += make_chunks(
             vid, segs, ch["window_s"], ch["overlap_s"], ch.get("min_chars", 20), extras
         )
+    document_root = data_dir(cfg) / "documents"
+    if document_root.exists():
+        for section_file in sorted(document_root.glob("*/sections.json")):
+            chunks.extend(read_json(section_file).get("chunks", []))
     if not chunks:
         raise RuntimeError("Không có chunk nào. Hãy chạy ingest và asr trước.")
     t0 = time.time()
     vectors = embedder.encode_passages([c["text"] for c in chunks])
     idir = index_dir(cfg)
     idir.mkdir(parents=True, exist_ok=True)
+    graph = build_graph(chunks)
     np.save(idir / "vectors.npy", vectors)
     write_json(idir / "chunks.json", chunks)
+    write_json(idir / "knowledge_graph.json", graph)
     info = {
         "n_chunks": len(chunks),
         "embedding": cfg["embedding"],
@@ -73,4 +81,6 @@ def load(cfg):
     vectors = np.load(idir / "vectors.npy")
     bm25 = BM25([tokenize(c["text"]) for c in chunks])
     info = read_json(idir / "index_info.json")
-    return Index(chunks, vectors, bm25, info)
+    graph_path = idir / "knowledge_graph.json"
+    graph = read_json(graph_path) if graph_path.exists() else {"version": 1, "nodes": [], "edges": []}
+    return Index(chunks, vectors, bm25, info, graph)

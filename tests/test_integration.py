@@ -60,7 +60,7 @@ class TestPipeline(unittest.TestCase):
 
     def test_all_modes_find_variable_chunk(self):
         r = self._retriever()
-        for mode in ("vector", "bm25", "hybrid"):
+        for mode in ("vector", "bm25", "hybrid", "graph"):
             hits = r.search("khai báo biến python", mode=mode, top_k=2)
             self.assertTrue(hits, mode)
             self.assertEqual(hits[0]["chunk"]["start"], 0, mode)

@@ -8,6 +8,7 @@ VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ m�
 - QA gọi Ollama API tại `localhost:11434`; cần cài/chạy Ollama riêng. VSKR chạy trực tiếp trong venv.
 - Dữ liệu nằm trong `./data`, model/download cache trong `./cache`.
 - Tìm kiếm mặc định là **hybrid**: vector E5 tìm theo ngữ nghĩa + BM25 tìm từ khóa, sau đó RRF hợp nhất thứ hạng. Có thể chọn riêng `vector` hoặc `bm25` để so sánh. Với kho hiện tại chỉ 12 chunks, NumPy quét trực tiếp là đủ; FAISS để dành khi dữ liệu lớn hơn.
+- Đã thêm thử nghiệm **Knowledge Graph retrieval** tùy chọn: mỗi chunk được lưu thành node video có timestamp; keyword là node khái niệm; cạnh `MENTIONS` và `CO_OCCURS` cho phép truy vấn duyệt từ khái niệm sang các đoạn liên quan. Chọn `graph` trong giao diện hoặc `vskr ask "..." --mode graph`. Chạy lại `vskr index` để sinh `data/index/knowledge_graph.json` cho dữ liệu cũ. Graph mode chưa phải mặc định; hybrid vẫn là baseline.
 
 PySceneDetect được cài dưới tên package `scenedetect-headless` và import trong Python là `scenedetect`. Nó tìm điểm đổi cảnh; FFmpeg trích frame. Đây không phải package `pyscenecut`.
 
@@ -100,7 +101,7 @@ Không xóa `data/` hoặc `cache/` nếu còn cần video, transcript, index ha
 
 ## Phạm vi hiện tại
 
-Đã kiểm chứng core venv trên video mẫu: faster-whisper GPU tạo transcript, E5 lập index và Qwen/Ollama trả lời có nguồn. OCR/PaddleOCR, VLM, xử lý tài liệu, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
+Đã kiểm chứng core venv trên video mẫu: faster-whisper GPU tạo transcript, E5 lập index và Qwen/Ollama trả lời có nguồn. Knowledge Graph hiện là graph khái niệm dựa trên từ khóa đồng xuất hiện trong chunk; chưa có LLM trích xuất quan hệ ngữ nghĩa có kiểu (ví dụ `USES`, `CAUSES`), chưa có pipeline parse tài liệu và đánh giá so sánh graph-vs-hybrid. OCR/PaddleOCR, VLM, xử lý tài liệu, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
 
 ## Cấu trúc dự án
 

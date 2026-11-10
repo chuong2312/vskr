@@ -2,6 +2,7 @@ import numpy as np
 
 from .bm25 import tokenize
 from .fusion import rrf_fuse
+from .knowledge_graph import search_graph
 
 
 class Retriever:
@@ -13,6 +14,8 @@ class Retriever:
         top_k = top_k or self.cfg.get("top_k", 5)
         cand = self.cfg.get("candidate_k", 20)
         idx = self.index
+        if mode == "graph":
+            return search_graph(idx.graph, idx.chunks, query, top_k=top_k)
         vec_scores = None
         if mode in ("vector", "hybrid"):
             q = self.embedder.encode_query(query)

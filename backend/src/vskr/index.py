@@ -1,6 +1,7 @@
 """Xây và nạp chỉ mục: chunks.json + vectors.npy (numpy, tích vô hướng trên vector đã chuẩn hóa)."""
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -31,7 +32,7 @@ def load_meta(cfg):
     return {vid: read_json(video_dir(cfg, vid) / "meta.json") for vid in list_video_ids(cfg)}
 
 
-def build(cfg, embedder):
+def build(cfg, embedder, progress=None, output_dir=None):
     ch = cfg["chunk"]
     chunks = []
     for vid in list_video_ids(cfg):
@@ -53,10 +54,12 @@ def build(cfg, embedder):
         for section_file in sorted(document_root.glob("*/sections.json")):
             chunks.extend(read_json(section_file).get("chunks", []))
     if not chunks:
-        raise RuntimeError("Không có chunk nào. Hãy chạy ingest và asr trước.")
+        raise RuntimeError("Không có nội dung để lập chỉ mục. Hãy thêm video và chạy ASR, hoặc nhập tài liệu.")
     t0 = time.time()
     vectors = embedder.encode_passages([c["text"] for c in chunks])
-    idir = index_dir(cfg)
+    if progress:
+        progress("graph", "Đang dựng đồ thị khái niệm…")
+    idir = Path(output_dir) if output_dir is not None else index_dir(cfg)
     idir.mkdir(parents=True, exist_ok=True)
     graph = build_graph(chunks)
     np.save(idir / "vectors.npy", vectors)

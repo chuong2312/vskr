@@ -25,6 +25,8 @@ def main():
     p.add_argument("--video", action="append", help="video_id (mặc định: tất cả)")
     p.add_argument("--force", action="store_true")
     sub.add_parser("index", help="chunk + embedding + lưu chỉ mục")
+    p = sub.add_parser("doc", help="thêm tài liệu bài giảng và lập chỉ mục")
+    p.add_argument("file", help="tệp TXT, MD, RST, PDF hoặc DOCX")
     p = sub.add_parser("ask", help="hỏi thử trên dòng lệnh")
     p.add_argument("question")
     p.add_argument("--mode", choices=["vector", "bm25", "hybrid", "graph"])
@@ -68,6 +70,18 @@ def main():
             index.build(cfg, emb)
         finally:
             emb.close()
+    elif args.cmd == "doc":
+        from . import index
+        from .documents import ingest_document
+        from .embedder import Embedder
+
+        meta = ingest_document(args.file, cfg)
+        emb = Embedder(cfg["embedding"])
+        try:
+            index.build(cfg, emb)
+        finally:
+            emb.close()
+        print(f"[doc] {meta['document_id']} | {meta['title']} | đã lập chỉ mục")
     elif args.cmd == "ask":
         from .service import Service
         from .util import fmt_time

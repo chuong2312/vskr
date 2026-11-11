@@ -1,9 +1,7 @@
-"""Dependency-free concept graph built from indexed VSKR chunks.
+"""Dependency-free concept graph built from indexed video and document chunks.
 
-Each source chunk is a timestamped video segment (or future document section).
-It connects to concepts it mentions; concepts co-occurring in a source are
-connected by a weighted edge. The schema allows document sections to join the
-same graph when document parsing is added.
+Video segments and document sections are source nodes connected to mentioned
+concepts. Concepts that co-occur in a source are connected by weighted edges.
 """
 from collections import Counter, defaultdict
 
@@ -44,6 +42,7 @@ def build_graph(chunks, max_keywords_per_segment=12):
             "chunk_id": source_id,
             "video_id": chunk.get("video_id"),
             "document_id": chunk.get("document_id"),
+            "section": chunk.get("section"),
             "title": chunk.get("title"),
             "start": chunk.get("start"),
             "end": chunk.get("end"),
@@ -85,6 +84,7 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.35):
 
     scores = defaultdict(float)
     direct_hits = defaultdict(int)
+    matched_by_source = defaultdict(set)
     mentions_by_concept = defaultdict(list)
     for edge in graph.get("edges", []):
         if edge.get("type") == "MENTIONS":
@@ -92,6 +92,7 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.35):
             if edge["from"] in anchors:
                 scores[edge["to"]] += 1.0
                 direct_hits[edge["to"]] += 1
+                matched_by_source[edge["to"]].add(edge["from"].removeprefix("concept:"))
 
     for edge in graph.get("edges", []):
         if edge.get("type") != "CO_OCCURS":
@@ -101,6 +102,7 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.35):
         if expanded is not None:
             for source_id in mentions_by_concept[expanded]:
                 scores[source_id] += expansion_weight
+                matched_by_source[source_id].add(expanded.removeprefix("concept:"))
 
     chunks_by_id = {
         str(chunk["chunk_id"]): (i, chunk) for i, chunk in enumerate(chunks)
@@ -111,9 +113,10 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.35):
         item = chunks_by_id.get(str(source.get("chunk_id")))
         if item is not None:
             idx, chunk = item
-            ranked.append((idx, chunk, score, direct_hits[source_node_id]))
-    ranked.sort(key=lambda row: (-row[2], -row[3], row[1].get("start", 0), row[0]))
+            ranked.append((idx, chunk, score, direct_hits[source_node_id], matched_by_source[source_node_id]))
+    ranked.sort(key=lambda row: (-row[2], -row[3], row[1].get("start") or 0, row[0]))
     return [
-        {"idx": idx, "score": round(score, 6), "chunk": chunk}
-        for idx, chunk, score, _direct in ranked[:top_k]
+        {"idx": idx, "score": round(score, 6), "chunk": chunk,
+         "matched_concepts": sorted(concepts)}
+        for idx, chunk, score, _direct, concepts in ranked[:top_k]
     ]

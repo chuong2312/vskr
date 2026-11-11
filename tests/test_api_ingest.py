@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 import tempfile
@@ -60,6 +61,69 @@ class TestIngestApi(unittest.TestCase):
         self.assertIn("giới hạn hiện tại là 30 phút", response.json()["detail"])
         submit.assert_not_called()
         self.assertEqual(list((self.tmp / "videos").iterdir()), [])
+
+    def test_document_upload_queues_processing_job(self):
+        class FakeUpload:
+            filename = "notes.md"
+
+            def __init__(self):
+                self.content = b"# Python\n\nBien va khai bao bien."
+
+            async def read(self, _size):
+                data, self.content = self.content, b""
+                return data
+
+            async def close(self):
+                pass
+
+        with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
+            with mock.patch.object(api._job_executor, "submit") as submit:
+                response = asyncio.run(api.upload_document(FakeUpload()))
+        self.assertEqual(response["status"], "queued")
+        source = submit.call_args.args[2]
+        self.assertEqual(source["kind"], "document")
+        self.assertEqual(source["title"], "notes")
+        self.assertTrue(Path(source["path"]).is_file())
+        api._jobs.pop(response["job_id"], None)
+
+    def test_upload_over_duration_has_direct_duration_message(self):
+        response, submit = self._post_upload(b"fake video bytes", duration=1801)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Video dài 30.0 phút", response.json()["detail"])
+        self.assertNotIn("Không đọc được video", response.json()["detail"])
+        submit.assert_not_called()
+
+    def test_delete_video_is_idempotent_for_stale_library_entry(self):
+        video_id = "upload-stale"
+        target = self.tmp / "videos" / video_id
+        target.mkdir(parents=True)
+        (target / "meta.json").write_text("{}", encoding="utf-8")
+        env = {"VSKR__PATHS__DATA_DIR": str(self.tmp)}
+
+        with mock.patch.dict(os.environ, env), mock.patch.object(api, "_rebuild_or_clear"):
+            first = api.delete_video(video_id)
+            second = api.delete_video(video_id)
+
+        self.assertFalse(first["already_absent"])
+        self.assertTrue(second["already_absent"])
+        self.assertFalse(target.exists())
+
+    def test_delete_video_restores_data_if_index_rebuild_fails(self):
+        video_id = "upload-keep"
+        target = self.tmp / "videos" / video_id
+        target.mkdir(parents=True)
+        marker = target / "meta.json"
+        marker.write_text("{}", encoding="utf-8")
+        env = {"VSKR__PATHS__DATA_DIR": str(self.tmp)}
+
+        with mock.patch.dict(os.environ, env), mock.patch.object(
+            api, "_rebuild_or_clear", side_effect=RuntimeError("index failed")
+        ):
+            with self.assertRaises(api.HTTPException) as raised:
+                api.delete_video(video_id)
+
+        self.assertEqual(raised.exception.status_code, 500)
+        self.assertTrue(marker.is_file())
 
 
 if __name__ == "__main__":

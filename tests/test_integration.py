@@ -112,6 +112,44 @@ class TestPipeline(unittest.TestCase):
         self.assertFalse(res["found"])
         self.assertEqual(res["sources"], [])
 
+    def test_service_handles_document_chunks_created_by_documents_module(self):
+        from vskr.documents import ingest_document
+        from vskr.service import Service
+
+        doc = self.tmp / "python-notes.txt"
+        doc.write_text("Python cryptography dùng khóa công khai để mã hóa dữ liệu; phần này chỉ có trong tài liệu.", encoding="utf-8")
+        ingest_document(doc, self.cfg, document_id="doc-real")
+        index_mod.build(self.cfg, self.emb)
+        with mock.patch("vskr.service.Embedder", return_value=self.emb):
+            svc = Service(self.cfg)
+        with mock.patch.object(qa, "call_ollama", return_value="Có thể khai báo biến bằng phép gán [1]."):
+            for mode in ("hybrid", "graph"):
+                result = svc.ask("cryptography", mode=mode)
+                self.assertTrue(result["sources"], mode)
+                source = result["sources"][0]
+                self.assertEqual(source["source_type"], "document")
+                self.assertEqual(source["document_id"], "doc-real")
+                self.assertEqual(source["section"], 1)
+                self.assertIsNone(source["start"])
+                self.assertEqual(source["label"], "Mục 1")
+                self.assertIn("/api/documents/doc-real/sections/1", source["link"])
+
+    def test_service_returns_video_and_document_sources_together(self):
+        from vskr.documents import ingest_document
+        from vskr.service import Service
+
+        doc = self.tmp / "python-reference.txt"
+        doc.write_text("Python khai báo biến trong chương trình bằng dấu bằng. Giá trị được gán cho tên biến.", encoding="utf-8")
+        ingest_document(doc, self.cfg, document_id="doc-python")
+        index_mod.build(self.cfg, self.emb)
+        self.cfg["retrieval"]["top_k"] = 20
+        with mock.patch("vskr.service.Embedder", return_value=self.emb):
+            svc = Service(self.cfg)
+        with mock.patch.object(qa, "call_ollama", return_value="Nguồn video và tài liệu [1] [2] [3] [4] [5] [6] [7] [8] [9] [10]."):
+            result = svc.ask("Python khai báo biến", mode="hybrid")
+        kinds = {source["source_type"] for source in result["sources"]}
+        self.assertEqual(kinds, {"video", "document"})
+
 
 if __name__ == "__main__":
     unittest.main()

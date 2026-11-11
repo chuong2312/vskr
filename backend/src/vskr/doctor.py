@@ -43,7 +43,7 @@ def _gpu_test(cfg):
         print(f"gpu-test    : OK (faster-whisper chạy được trên {a.get('device', 'cuda')}, {a.get('compute_type')})")
     except Exception as e:
         print(f"gpu-test    : LỖI {type(e).__name__}: {e}")
-        print("              Thường là thiếu/lệch thư viện cuBLAS/cuDNN cho CUDA 12 (xem README, mục 'Lỗi hay gặp').")
+        print("              Thường là thiếu/lệch thư viện cuBLAS/cuDNN cho CUDA 12; xem phần cài đặt venv trong README.")
 
 
 def main(cfg, gpu_test=False):

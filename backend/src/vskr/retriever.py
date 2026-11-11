@@ -15,6 +15,8 @@ class Retriever:
         cand = self.cfg.get("candidate_k", 20)
         idx = self.index
         if mode == "graph":
+            if not idx.graph.get("nodes"):
+                raise RuntimeError("Chỉ mục chưa có Đồ thị tri thức. Hãy chạy lại: vskr index")
             return search_graph(idx.graph, idx.chunks, query, top_k=top_k)
         vec_scores = None
         if mode in ("vector", "hybrid"):

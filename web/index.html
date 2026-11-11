@@ -6,15 +6,15 @@
 <title>VSKR – Hỏi đáp video bài giảng</title>
 <style>
   :root {
-    --canvas: #e8edf1;
+    --canvas: #f3f6fa;
     --surface: #ffffff;
-    --ink: #16202b;
-    --muted: #5b6877;
-    --line: #cfd7de;
-    --accent: #0b6e6e;
+    --ink: #17253b;
+    --muted: #65748a;
+    --line: #d9e2ed;
+    --accent: #176b72;
     --accent-ink: #ffffff;
-    --track: #1b2733;
-    --marker: #f0a92e;
+    --track: #17253b;
+    --marker: #f5b84b;
     --warn-bg: #fff4dc;
     --warn-ink: #6b4a00;
     --err: #a3261f;
@@ -42,50 +42,49 @@
     color: var(--ink);
     font: 16px/1.5 var(--ui);
   }
-  header {
-    padding: 18px 24px 4px;
-    max-width: 1280px;
-    margin: 0 auto;
-  }
-  header h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: 0.01em; }
-  header p { margin: 2px 0 0; color: var(--muted); font-size: 0.95rem; }
+  header { padding: 22px 28px 18px; max-width: 1440px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+  .brand-mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; color: #fff; background: linear-gradient(145deg, #176b72, #254b7a); font-size: 1.35rem; font-weight: 800; box-shadow: 0 6px 16px #176b7233; }
+  .brand-copy { min-width: 0; }
+  .eyebrow { margin: 0; color: var(--accent); font-size: .7rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+  header h1 { margin: 0; font-size: 1.35rem; font-weight: 750; letter-spacing: 0.01em; }
+  header p:not(.eyebrow) { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
   main {
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-    gap: 24px;
-    max-width: 1280px;
+    grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr);
+    gap: 20px;
+    max-width: 1440px;
     margin: 0 auto;
-    padding: 16px 24px 48px;
+    padding: 22px 28px 52px;
     align-items: start;
   }
-  @media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 12px 14px 40px; } header { padding: 14px 14px 0; } }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 16px 14px 40px; } header { padding: 17px 14px; } }
 
   .stage { position: sticky; top: 16px; }
   @media (max-width: 960px) { .stage { position: static; } }
-  .player-wrap { background: #000; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; }
+  .player-wrap { background: #07101d; aspect-ratio: 16 / 9; border-radius: 13px; overflow: hidden; box-shadow: 0 16px 34px #17253b22; }
   .player-wrap iframe, .player-wrap > div, .player-wrap video { width: 100%; height: 100%; }
   .player-wrap video { display: block; object-fit: contain; background: #000; }
   .player-msg { color: #fff; padding: 24px; font-size: 0.95rem; }
 
-  .timeline-box { margin-top: 10px; }
+  .timeline-box { margin-top: 14px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
   .timeline-title { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
-  .timeline { position: relative; height: 26px; background: var(--track); border-radius: 4px; }
+  .timeline { position: relative; height: 44px; background: var(--track); border-radius: 4px; }
   .timeline .mk {
-    position: absolute; top: 3px; bottom: 3px; min-width: 7px;
+    position: absolute; top: 3px; bottom: 3px; min-width: 7px; min-height: 0;
     background: var(--marker); border: 0; border-radius: 2px; padding: 0; cursor: pointer;
   }
   .timeline .mk:hover, .timeline .mk:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; filter: brightness(1.1); }
   .timeline .empty { position: absolute; inset: 0; display: grid; place-items: center; color: #8d9aa7; font-size: 0.8rem; }
 
-  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
   .tab {
-    font: inherit; font-size: 0.88rem; padding: 5px 10px; border-radius: 4px;
+    font: inherit; font-size: 0.88rem; padding: 5px 12px; border-radius: 8px;
     border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; box-shadow: 0 5px 22px #17253b09; }
   form { display: grid; gap: 10px; }
   textarea {
     width: 100%; min-height: 64px; resize: vertical; font: inherit; color: var(--ink);
@@ -154,15 +153,77 @@
   .src p.open { display: block; }
   .src .more { font: inherit; font-size: 0.8rem; color: var(--accent); background: none; border: 0; padding: 0; margin-top: 2px; cursor: pointer; }
   .tag { font-size: 0.78rem; padding: 1px 6px; border-radius: 3px; background: var(--warn-bg); color: var(--warn-ink); }
+  button, select, input { min-height: 44px; }
+  button:disabled { cursor: wait; }
+  .primary, .play, .tab { min-height: 44px; }
+  .app-nav { display: flex; flex-wrap: wrap; gap: 7px; max-width: 1440px; margin: 0 auto; padding: 0 28px 10px; border-bottom: 1px solid var(--line); }
+  .app-nav button { min-width: 116px; padding: 8px 15px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-weight: 650; cursor: pointer; transition: background .16s ease, color .16s ease; }
+  .app-nav button:hover { background: #e8eff5; color: var(--ink); }
+  .app-nav button[aria-current="page"] { color: #fff; background: var(--ink); border-color: var(--ink); box-shadow: 0 5px 14px #17253b22; }
+  .library-main { display: block; max-width: 1440px; }
+  .library-main[hidden], main[hidden] { display: none; }
+  .library-grid { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 18px; }
+  .library-forms { display: grid; gap: 14px; align-content: start; }
+  .library-list { display: grid; gap: 10px; }
+  .library-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 5px; }
+  .library-item .item-title { min-width: 180px; flex: 1; font-weight: 600; }
+  .state { padding: 3px 8px; border-radius: 999px; background: var(--canvas); color: var(--muted); font-size: .84rem; }
+  .state.ready { color: #14532d; background: #dcfce7; }
+  .state.error { color: #7f1d1d; background: #fee2e2; }
+  .small-action { min-height: 44px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+  .small-action.danger { color: var(--err); border-color: var(--err); }
+  .doc-viewer { width: min(760px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); padding: 20px; }
+  .doc-viewer::backdrop { background: #0009; }
+  .doc-viewer pre { white-space: pre-wrap; font: inherit; }
+  .why { margin-top: 10px; color: var(--muted); font-size: .9rem; }
+  .screen-title { margin: 0 0 14px; font-size: 1.2rem; }
+  .qa-title { margin: 0 0 2px; font-size: 1.15rem; }
+  .qa-intro { margin: 0 0 16px; }
+  #q { min-height: 112px; background: #fbfcfe; border-radius: 9px; }
+  .eval-layout { display: grid; grid-template-columns: minmax(280px, .72fr) minmax(0, 1.28fr); gap: 16px; align-items: start; }
+  .stack { display: grid; gap: 14px; }
+  .eval-form { display: grid; gap: 10px; }
+  .eval-form textarea { min-height: 84px; }
+  .metric-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .metric-table th, .metric-table td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+  .metric-table th:first-child, .metric-table td:first-child { text-align: left; }
+  .metric-table th { color: var(--muted); font-size: .84rem; }
+  .question-list { display: grid; gap: 8px; }
+  .question-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 5px; padding: 10px; }
+  .question-row p { margin: 0; }
+  .rule-box { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 5px; }
+  .graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 14px; }
+  .graph-canvas { min-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); }
+  .graph-canvas svg { display: block; width: 100%; min-width: 600px; min-height: 420px; }
+  .graph-settings { display: grid; gap: 12px; align-content: start; }
+  .graph-settings fieldset { border: 1px solid var(--line); border-radius: 5px; padding: 10px; }
+  .graph-settings label { display: flex; align-items: center; gap: 8px; }
+  .graph-settings input[type="checkbox"] { min-height: 20px; width: 20px; }
+  .node-legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: .88rem; }
+  .legend-dot { display: inline-block; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); vertical-align: -2px; }
+  .legend-square { display: inline-block; width: 13px; height: 13px; border-radius: 2px; background: #e7a33e; vertical-align: -2px; }
+  @media (max-width: 900px) { .eval-layout, .graph-layout { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) { .library-grid { grid-template-columns: 1fr; } .app-nav { padding: 0 14px 8px; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Hỏi đáp video bài giảng</h1>
-  <p>Đặt câu hỏi bằng tiếng Việt. Mỗi câu trả lời có nguồn, bấm vào nguồn để video nhảy đúng thời điểm.</p>
+  <div class="brand-mark" aria-hidden="true">V</div>
+  <div class="brand-copy">
+    <p class="eyebrow">Video Semantic Knowledge Retrieval</p>
+    <h1>VSKR · Trợ lý bài giảng</h1>
+    <p>Hỏi đáp có nguồn, thư viện học liệu và công cụ kiểm tra truy xuất.</p>
+  </div>
 </header>
 
-<main>
+<nav class="app-nav" aria-label="Điều hướng chính">
+  <button type="button" data-page="qa" aria-current="page">Hỏi đáp</button>
+  <button type="button" data-page="library" aria-current="false">Thư viện</button>
+  <button type="button" data-page="evaluation" aria-current="false">Đánh giá</button>
+  <button type="button" data-page="graph" aria-current="false">Đồ thị</button>
+</nav>
+
+<main id="qa-screen">
   <section class="stage" aria-label="Video">
     <div class="player-wrap"><div id="player"><div class="player-msg">Đang tải danh sách video…</div></div></div>
     <div class="timeline-box">
@@ -173,25 +234,9 @@
   </section>
 
   <section aria-label="Hỏi đáp">
-    <div class="panel ingest-panel">
-      <form id="ingest-form">
-        <strong>Thêm video để hỏi đáp</strong>
-        <div class="ingest-fields">
-          <label for="video-url">Dán link video
-            <input class="field" id="video-url" type="url" placeholder="https://…" autocomplete="url">
-          </label>
-          <label for="video-file">Hoặc chọn file video
-            <input class="field" id="video-file" type="file" accept="video/*">
-          </label>
-        </div>
-        <p class="hint">Chọn một trong hai. Nhận MP4, MOV, MKV, WebM, AVI; tối đa 30 phút và 1 GB. Xử lý có thể mất vài phút.</p>
-        <div class="row">
-          <button class="primary" id="ingest-go" type="submit">Thêm và xử lý</button>
-          <span class="hint" id="ingest-status" role="status" aria-live="polite"></span>
-        </div>
-      </form>
-    </div>
     <div class="panel">
+      <h2 class="qa-title">Hỏi nội dung bài giảng</h2>
+      <p class="hint qa-intro">Câu trả lời dựa trên transcript và tài liệu đã lập chỉ mục, kèm liên kết tới nguồn.</p>
       <form id="form">
         <label for="q" class="hint">Câu hỏi</label>
         <textarea id="q" placeholder="Ví dụ: Khai báo biến trong Python như thế nào?"></textarea>
@@ -199,11 +244,11 @@
           <button class="primary" id="go" type="submit">Hỏi</button>
           <label class="hint" for="mode">Cách tìm</label>
           <select id="mode">
-            <option value="">Theo cấu hình (hybrid mặc định)</option>
+            <option value="hybrid">Hybrid (mặc định)</option>
+            <option value="hybrid_graph" disabled>Hybrid + Đồ thị (sắp có)</option>
             <option value="vector">Vector</option>
             <option value="bm25">Từ khóa (BM25)</option>
-            <option value="hybrid">Kết hợp (hybrid)</option>
-            <option value="graph">Đồ thị tri thức</option>
+            <option value="graph">Chỉ đồ thị</option>
           </select>
         </div>
       </form>
@@ -212,12 +257,131 @@
   </section>
 </main>
 
+<main class="library-main" id="library-screen" hidden>
+  <div class="library-grid">
+    <div class="library-forms">
+      <div class="panel">
+        <form id="library-video-form">
+          <strong>Thêm video</strong>
+          <label for="library-video-url" class="hint">Đường dẫn video</label>
+          <input class="field" id="library-video-url" type="url" placeholder="https://…" autocomplete="url">
+          <label for="library-video-file" class="hint">Hoặc chọn file video</label>
+          <input class="field" id="library-video-file" type="file" accept="video/*">
+          <p class="hint">MP4, MOV, MKV, WebM hoặc AVI · tối đa 30 phút và 1 GB.</p>
+          <button class="primary" type="submit">Thêm video</button>
+          <span class="hint" id="library-video-status" role="status" aria-live="polite"></span>
+        </form>
+      </div>
+      <div class="panel">
+        <form id="library-doc-form">
+          <strong>Thêm tài liệu bài giảng</strong>
+          <label for="document-file" class="hint">Tệp TXT, MD, PDF hoặc DOCX</label>
+          <input class="field" id="document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx" required>
+          <p class="hint">Tài liệu được chia mục, lập chỉ mục và nối vào đồ thị khái niệm.</p>
+          <button class="primary" type="submit">Thêm tài liệu</button>
+          <span class="hint" id="library-doc-status" role="status" aria-live="polite"></span>
+        </form>
+      </div>
+    </div>
+    <section class="panel" aria-labelledby="library-heading">
+      <div class="row" style="justify-content:space-between"><h2 id="library-heading">Nội dung đã thêm</h2><button class="small-action" id="refresh-library" type="button">Làm mới</button></div>
+      <p class="hint">Video và tài liệu đang xử lý vẫn hiện ở đây. Hỏi đáp tiếp tục dùng được trong lúc nhận dạng lời nói.</p>
+      <div class="library-list" id="library-list" aria-live="polite"><p class="hint">Đang tải thư viện…</p></div>
+      <div class="timing" id="pipeline-status" role="status" aria-live="polite"></div>
+    </section>
+  </div>
+</main>
+
+<main class="library-main" id="evaluation-screen" hidden>
+  <h2 class="screen-title">Đánh giá retrieval</h2>
+  <div class="eval-layout">
+    <div class="stack">
+      <section class="panel">
+        <form class="eval-form" id="eval-question-form">
+          <strong>Thêm câu hỏi đánh giá</strong>
+          <label for="eval-question" class="hint">Câu hỏi</label>
+          <textarea id="eval-question" required></textarea>
+          <label for="eval-type" class="hint">Loại câu hỏi</label>
+          <select id="eval-type"><option value="fact">Tra dữ kiện</option><option value="multihop">Nhiều bước</option></select>
+          <label for="eval-relevant" class="hint">Các đoạn đúng (JSON)</label>
+          <textarea id="eval-relevant" required placeholder='[{"video_id":"ID_VIDEO","start":12,"end":28}] hoặc [{"document_id":"ID_TAI_LIEU","section":1}]'></textarea>
+          <p class="hint">Câu nhiều bước: thêm mọi mục nguồn cần thiết vào mảng. Mốc video so theo khoảng thời gian chồng lấp.</p>
+          <button class="primary" type="submit">Thêm câu hỏi</button>
+          <span id="eval-form-status" class="hint" role="status" aria-live="polite"></span>
+        </form>
+      </section>
+      <section class="panel">
+        <label for="eval-import" class="hint">Nhập bộ câu hỏi JSONL</label>
+        <input id="eval-import" class="field" type="file" accept=".jsonl,.txt,application/json">
+        <p class="hint">Mỗi dòng: {"id","question","type":"fact|multihop","relevant":[…]}.</p>
+        <button class="small-action" id="eval-import-button" type="button">Nhập tệp</button>
+      </section>
+    </div>
+    <div class="stack">
+      <section class="panel">
+        <div class="row" style="justify-content:space-between"><strong>Bộ câu hỏi <span id="eval-question-count">—</span></strong><button class="primary" id="eval-run" type="button">Chạy đánh giá</button></div>
+        <p class="hint">Mục tiêu: 20–30 câu hỏi thật có nguồn đúng do bạn xác nhận.</p>
+        <div class="question-list" id="eval-question-list"><p class="hint">Chưa có câu hỏi đánh giá. Hãy tự thêm hoặc nhập JSONL.</p></div>
+        <p class="hint" id="eval-run-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="panel">
+        <strong>Kết quả so sánh</strong>
+        <div style="overflow:auto;margin-top:8px">
+          <table class="metric-table"><thead><tr><th>Phương pháp</th><th>Fact R@5</th><th>Fact MRR</th><th>Nhiều bước R@5</th><th>Nhiều bước MRR</th></tr></thead><tbody id="eval-results"><tr><td>Vector / BM25 / Hybrid / Graph</td><td>—</td><td>—</td><td>—</td><td>—</td></tr></tbody></table>
+        </div>
+        <p class="hint" id="eval-results-meta">Chưa có kết quả đánh giá.</p>
+      </section>
+      <div class="rule-box"><strong>Quy tắc quyết định</strong><p>Chỉ đề nghị bật Hybrid + Đồ thị làm mặc định nếu câu nhiều bước cải thiện rõ so với Hybrid và câu tra dữ kiện không giảm. Chưa có kết quả thì giữ Hybrid mặc định.</p></div>
+    </div>
+  </div>
+</main>
+
+<main class="library-main" id="graph-screen" hidden>
+  <h2 class="screen-title">Đồ thị khái niệm</h2>
+  <section class="panel">
+    <form id="graph-form" class="row">
+      <label for="graph-query" class="hint">Câu truy vấn</label>
+      <input class="field" style="flex:1" id="graph-query" type="search" required>
+      <button class="primary" type="submit">Xem đường đi</button>
+    </form>
+    <p id="graph-status" class="hint" role="status" aria-live="polite">Nhập câu hỏi để xem các khái niệm và đoạn được graph retrieval hiện tại nối tới.</p>
+    <div class="node-legend"><span><i class="legend-dot"></i> Khái niệm truy vấn</span><span><i class="legend-square"></i> Đoạn video / mục tài liệu</span><span>Đường nét đứt: đoạn kề theo thời gian (chỉ hiển thị)</span></div>
+    <div class="graph-layout" style="margin-top:12px">
+      <div class="graph-canvas" id="graph-canvas"><div class="empty">Chưa có đường đi để hiển thị</div></div>
+      <aside class="graph-settings">
+        <fieldset><legend>Tùy chọn hiển thị</legend><label><input id="graph-adjacent" type="checkbox"> Hiện đoạn liền trước / sau</label></fieldset>
+        <fieldset><legend>Thử nghiệm sau bộ đánh giá</legend>
+          <label><input type="checkbox" disabled> Trọng số IDF</label>
+          <label><input type="checkbox" disabled> Cạnh đồng nghĩa E5</label>
+          <label for="graph-damping">Hệ số lan truyền</label><input class="field" id="graph-damping" type="number" min="0" max="1" step="0.05" value="0.5" disabled>
+          <label for="graph-seed">Trọng số hạt giống đoạn</label><input class="field" id="graph-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
+        </fieldset>
+        <p class="hint">Các tham số PPR/IDF/đồng nghĩa chưa ảnh hưởng thứ hạng. Chỉ bật sau khi có bộ câu hỏi thật và đo trước/sau.</p>
+      </aside>
+    </div>
+    <div id="graph-path-list" class="sources"></div>
+  </section>
+</main>
+
+<dialog class="doc-viewer" id="doc-viewer">
+  <form method="dialog"><div class="row" style="justify-content:space-between"><h2 id="doc-viewer-title">Mục tài liệu</h2><button class="small-action" aria-label="Đóng">Đóng</button></div></form>
+  <pre id="doc-viewer-text"></pre>
+</dialog>
+
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60; const p = (n) => String(n).padStart(2, "0"); return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`; };
 
 let player = null, videos = [], current = null, lastSources = [], pendingJump = null, ytApiReady = false;
+
+document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => {
+  const target = `${button.dataset.page}-screen`;
+  document.querySelectorAll("main").forEach((el) => { el.hidden = el.id !== target; });
+  document.querySelectorAll("[data-page]").forEach((el) => el.setAttribute("aria-current", el === button ? "page" : "false"));
+  if (button.dataset.page === "library") loadLibrary();
+  if (button.dataset.page === "evaluation") loadEvaluation();
+}));
 
 function isYouTube(v) {
   try { const h = new URL(v.url).hostname.toLowerCase(); return h === "youtu.be" || h.endsWith("youtube.com") || h.endsWith("youtube-nocookie.com"); }
@@ -346,8 +510,9 @@ function jump(vid, start) {
 
 function drawTimeline() {
   const tl = $("#timeline");
+  if (!current) { tl.innerHTML = `<div class="empty">Nguồn tài liệu không có mốc video</div>`; $("#tl-dur").textContent = "—"; return; }
   const dur = current && current.duration;
-  $("#tl-dur").textContent = dur ? `0:00 – ${fmt(dur)}` : "";
+  $("#tl-dur").textContent = dur ? `0:00 – ${fmt(dur)}` : "—";
   const mine = lastSources.filter((s) => s.video_id === current.video_id);
   if (!lastSources.length) { tl.innerHTML = `<div class="empty">Chưa có câu hỏi</div>`; return; }
   if (!mine.length || !dur) { tl.innerHTML = `<div class="empty">Không có nguồn nào ở video này</div>`; return; }
@@ -379,17 +544,18 @@ function renderResult(d) {
   const box = $("#result");
   box.style.display = "block";
   let html = `<div class="answer ${d.found ? "" : "nf"}">${linkify(d.answer, d.sources)}</div>`;
+  if (d.matched_concepts && d.matched_concepts.length) html += `<div class="why"><strong>Vì sao có các đoạn này?</strong> Khái niệm khớp: ${d.matched_concepts.map(esc).join(", ")}</div>`;
   if (d.found && !d.cited) html += `<div class="warn">Mô hình không ghi rõ nguồn cho câu trả lời này. Dưới đây là các đoạn gần nhất tìm được, hãy tự đối chiếu.</div>`;
   if (d.sources.length) {
     html += `<div class="sources">`;
     d.sources.forEach((s) => {
-      html += `<div class="src" data-vid="${esc(s.video_id)}" data-start="${s.start}" id="src-${s.n}">
+      const isDoc = s.source_type === "document";
+      html += `<div class="src" data-vid="${esc(s.video_id || "")}" data-start="${s.start ?? ""}" id="src-${s.n}">
         <div class="src-head">
-          <strong>Nguồn ${s.n}</strong><span>${esc(s.title || s.video_id)}</span><span class="t">${esc(s.label)}</span>
+          <strong>Nguồn ${s.n}</strong><span>${isDoc ? "Tài liệu · " : "Video · "}${esc(s.title || s.video_id || "")}</span><span class="t">${esc(s.label)}</span>
           ${s.cited ? "" : `<span class="tag">chưa được dẫn</span>`}
           <span class="src-actions">
-            <button class="play" type="button" data-jump="${s.n}">Phát từ ${fmt(s.start)}</button>
-            <a href="${esc(s.link)}" target="_blank" rel="noopener">Mở video nguồn</a>
+            ${isDoc ? `<button class="play" type="button" data-open-section="${s.n}">Xem mục</button>` : `<button class="play" type="button" data-jump="${s.n}">Phát từ ${fmt(s.start)}</button><a href="${esc(s.link)}" target="_blank" rel="noopener">Mở video nguồn</a>`}
           </span>
         </div>
         <p>${esc(s.text)}</p><button class="more" type="button">Xem đầy đủ</button>
@@ -406,22 +572,25 @@ $("#result").addEventListener("click", (e) => {
   const cite = e.target.closest("button.cite");
   const play = e.target.closest("button.play");
   const more = e.target.closest("button.more");
+  const section = e.target.closest("button[data-open-section]");
   const n = cite ? Number(cite.dataset.n) : play ? Number(play.dataset.jump) : null;
-  if (n) { const s = lastSources.find((x) => x.n === n); if (s) jump(s.video_id, s.start); }
+  if (n) { const s = lastSources.find((x) => x.n === n); if (s) s.source_type === "document" ? showDocumentSection(s) : jump(s.video_id, s.start); }
+  if (section) { const s = lastSources.find((x) => x.n === Number(section.dataset.openSection)); if (s) showDocumentSection(s); }
   if (more) { const p = more.previousElementSibling; p.classList.toggle("open"); more.textContent = p.classList.contains("open") ? "Thu gọn" : "Xem đầy đủ"; }
 });
-
-function setIngestStatus(message, isError = false) {
-  const status = $("#ingest-status");
-  status.textContent = message;
-  status.classList.toggle("error", isError);
-}
 
 async function refreshVideos(selectVideoId = null) {
   const r = await fetch("/api/videos");
   if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
   videos = await r.json();
-  if (!videos.length) return;
+  if (!videos.length) {
+    current = null;
+    $("#player").innerHTML = `<div class="player-msg">Chưa có video trong thư viện.</div>`;
+    $("#tabs").innerHTML = "";
+    player = null;
+    drawTimeline();
+    return;
+  }
   current = videos.find((v) => v.video_id === selectVideoId) || current || videos[0];
   renderTabs();
   drawTimeline();
@@ -433,40 +602,101 @@ async function waitForIngest(jobId) {
     const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
     const job = await r.json();
     if (!r.ok) throw new Error(job.detail || r.statusText);
-    setIngestStatus(job.message || "Đang xử lý…");
-    if (job.status === "error") throw new Error(job.message || "Xử lý video thất bại.");
+    $("#pipeline-status").textContent = `${job.phase || ""}: ${job.message || "Đang xử lý…"}`;
+    await loadLibrary(false);
+    if (job.status === "error") throw new Error(job.message || "Xử lý nội dung thất bại.");
     if (job.status === "done") {
       await refreshVideos(job.video_id);
-      setIngestStatus(`Đã thêm “${job.title || job.video_id}”. Bạn có thể hỏi ngay.`);
+      $("#pipeline-status").textContent = `Đã thêm “${job.title || job.video_id || "nội dung"}”. Có thể hỏi đáp ngay.`;
+      await loadLibrary(false);
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 1200));
   }
 }
 
-$("#video-url").addEventListener("input", () => {
-  if ($("#video-url").value.trim()) $("#video-file").value = "";
-});
-$("#video-file").addEventListener("change", () => {
-  if ($("#video-file").files.length) $("#video-url").value = "";
+async function showDocumentSection(source) {
+  try {
+    const r = await fetch(source.link);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    $("#doc-viewer-title").textContent = `${data.title} · Mục ${data.section}`;
+    $("#doc-viewer-text").textContent = data.text;
+    $("#doc-viewer").showModal();
+  } catch (err) { $("#pipeline-status").textContent = `Không mở được mục tài liệu: ${err.message}`; }
+}
+
+async function loadLibrary(showLoading = true) {
+  const list = $("#library-list");
+  if (showLoading) list.innerHTML = `<p class="hint">Đang tải thư viện…</p>`;
+  try {
+    const r = await fetch("/api/library");
+    const items = await r.json();
+    if (!r.ok) throw new Error(items.detail || r.statusText);
+    if (!items.length) { list.innerHTML = `<p class="hint">Chưa có video hoặc tài liệu. Thêm nội dung bằng các biểu mẫu bên trái.</p>`; return; }
+    list.innerHTML = items.map((item) => {
+      const jobId = item.job_id || (item.id.startsWith("job:") ? item.id.slice(4) : "");
+      const status = item.status || {};
+      const actions = [];
+      if (status.state === "error" && jobId) actions.push(`<button class="small-action" data-retry="${esc(jobId)}">Thử lại</button>`);
+      if (item.id.startsWith("job:") && status.state === "error") actions.push(`<button class="small-action danger" data-delete-job="${esc(jobId)}">Xóa</button>`);
+      else actions.push(`<button class="small-action danger" data-delete="${esc(item.kind)}:${esc(item.id)}">Xóa</button>`);
+      const extra = item.kind === "document" ? (item.sections ? `${item.sections} mục` : "—") : item.duration ? fmt(item.duration) : "—";
+      return `<article class="library-item"><span class="tag">${item.kind === "document" ? "Tài liệu" : "Video"}</span><span class="item-title">${esc(item.title)}</span><span class="hint">${esc(extra)}</span><span class="state ${status.state === "ready" ? "ready" : status.state === "error" ? "error" : ""}">${esc(status.label || status.state || "Chưa rõ")}</span>${actions.join("")}</article>`;
+    }).join("");
+  } catch (err) { list.innerHTML = `<p class="err">Không tải được thư viện: ${esc(err.message)}</p>`; }
+}
+
+$("#library-list").addEventListener("click", async (e) => {
+  const retry = e.target.closest("[data-retry]");
+  const removeJob = e.target.closest("[data-delete-job]");
+  const remove = e.target.closest("[data-delete]");
+  const action = retry || removeJob || remove;
+  if (action?.disabled) return;
+  if (action) action.disabled = true;
+  try {
+    let r;
+    if (retry) r = await fetch(`/api/jobs/${encodeURIComponent(retry.dataset.retry)}/retry`, { method: "POST" });
+    else if (removeJob) r = await fetch(`/api/jobs/${encodeURIComponent(removeJob.dataset.deleteJob)}`, { method: "DELETE" });
+    else if (remove) {
+      const [kind, id] = remove.dataset.delete.split(":");
+      r = await fetch(`/api/${kind === "document" ? "documents" : "videos"}/${encodeURIComponent(id)}`, { method: "DELETE" });
+    } else return;
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    if (retry) await waitForIngest(data.job_id);
+    else $("#pipeline-status").textContent = "Đã xóa nội dung.";
+    await loadLibrary();
+    await refreshVideos();
+  } catch (err) {
+    $("#pipeline-status").textContent = `Thao tác thất bại: ${err.message}`;
+    await loadLibrary();
+    await refreshVideos();
+  } finally {
+    if (action?.isConnected) action.disabled = false;
+  }
 });
 
-$("#ingest-form").addEventListener("submit", async (e) => {
+$("#refresh-library").addEventListener("click", () => loadLibrary());
+
+$("#library-video-url").addEventListener("input", () => { if ($("#library-video-url").value.trim()) $("#library-video-file").value = ""; });
+$("#library-video-file").addEventListener("change", () => { if ($("#library-video-file").files.length) $("#library-video-url").value = ""; });
+
+$("#library-video-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const url = $("#video-url").value.trim();
-  const file = $("#video-file").files[0];
+  const url = $("#library-video-url").value.trim();
+  const file = $("#library-video-file").files[0];
   if (Boolean(url) === Boolean(file)) {
-    setIngestStatus("Hãy nhập một link hoặc chọn một file video.", true);
+    $("#library-video-status").textContent = "Hãy nhập một link hoặc chọn một file video.";
     return;
   }
   if (file && file.size > 1024 ** 3) {
-    setIngestStatus("File vượt giới hạn 1 GB.", true);
+    $("#library-video-status").textContent = "File vượt giới hạn 1 GB.";
     return;
   }
-
-  const button = $("#ingest-go");
+  const button = e.submitter;
   button.disabled = true;
-  setIngestStatus("Đang gửi video vào hàng đợi…");
+  $("#library-video-status").textContent = "Đang gửi video vào hàng đợi…";
   const payload = new FormData();
   if (url) payload.append("url", url);
   else payload.append("file", file);
@@ -475,11 +705,32 @@ $("#ingest-form").addEventListener("submit", async (e) => {
     const result = await r.json();
     if (!r.ok) throw new Error(result.detail || r.statusText);
     await waitForIngest(result.job_id);
+    $("#library-video-status").textContent = "Đã xử lý video.";
+    $("#library-video-form").reset();
   } catch (error) {
-    setIngestStatus(error.message, true);
+    $("#library-video-status").textContent = error.message;
   } finally {
     button.disabled = false;
   }
+});
+
+$("#library-doc-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const file = $("#document-file").files[0];
+  if (!file) return;
+  const button = e.submitter;
+  button.disabled = true;
+  $("#library-doc-status").textContent = "Đang tải tài liệu…";
+  try {
+    const payload = new FormData(); payload.append("file", file);
+    const r = await fetch("/api/documents", { method: "POST", body: payload });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    await waitForIngest(data.job_id);
+    $("#library-doc-status").textContent = "Tài liệu đã sẵn sàng để hỏi đáp.";
+    $("#library-doc-form").reset();
+  } catch (err) { $("#library-doc-status").textContent = err.message; }
+  finally { button.disabled = false; }
 });
 
 $("#form").addEventListener("submit", async (e) => {
@@ -491,6 +742,12 @@ $("#form").addEventListener("submit", async (e) => {
   const box = $("#result");
   box.style.display = "block";
   box.innerHTML = `<p class="hint">Đang tìm trong video và soạn câu trả lời…</p>`;
+  const busyWatch = setInterval(async () => {
+    try {
+      const status = await (await fetch("/api/status")).json();
+      if (status.gpu_busy) box.innerHTML = `<p class="hint">${status.phase === "asr" ? "ASR đang dùng GPU; câu hỏi đang chờ tới lượt gọi mô hình trả lời. Tìm kiếm vẫn chạy bình thường." : "Mô hình đang bận; đang chờ để tạo câu trả lời…"}</p>`;
+    } catch { /* Giữ trạng thái chờ hiện tại nếu tạm thời không đọc được trạng thái. */ }
+  }, 900);
   try {
     const r = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, mode: $("#mode").value || null }) });
     const d = await r.json();
@@ -499,11 +756,194 @@ $("#form").addEventListener("submit", async (e) => {
   } catch (err) {
     box.innerHTML = `<p class="err">Không trả lời được: ${esc(err.message)}</p>`;
   } finally {
+    clearInterval(busyWatch);
     btn.disabled = false; btn.textContent = "Hỏi";
   }
 });
 
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#form").requestSubmit(); });
+
+function fmtMetric(value, percent = false) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return percent ? `${(value * 100).toFixed(1)}%` : value.toFixed(3);
+}
+
+function renderEvalResults(result) {
+  const body = $("#eval-results");
+  if (!result || !result.summary) {
+    body.innerHTML = `<tr><td>Vector / BM25 / Hybrid / Graph</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`;
+    $("#eval-results-meta").textContent = "Chưa có kết quả đánh giá.";
+    return;
+  }
+  const labels = { vector: "Vector", bm25: "BM25", hybrid: "Hybrid", graph: "Đồ thị" };
+  body.innerHTML = Object.entries(labels).map(([mode, label]) => {
+    const fact = result.summary[mode]?.fact;
+    const multi = result.summary[mode]?.multihop;
+    return `<tr><td>${label}</td><td>${fmtMetric(fact?.recall_at_5, true)}</td><td>${fmtMetric(fact?.mrr)}</td><td>${fmtMetric(multi?.recall_at_5, true)}</td><td>${fmtMetric(multi?.mrr)}</td></tr>`;
+  }).join("");
+  $("#eval-results-meta").textContent = `Bộ câu hỏi: ${result.question_count ?? "—"} · Chạy lúc: ${result.created_at ? new Date(result.created_at).toLocaleString("vi-VN") : "—"} · Chỉ đo retrieval, không gọi LLM.`;
+}
+
+function renderEvalQuestions(items) {
+  $("#eval-question-count").textContent = items.length ? String(items.length) : "—";
+  const list = $("#eval-question-list");
+  if (!items.length) {
+    list.innerHTML = `<p class="hint">Chưa có câu hỏi đánh giá. Hãy thêm câu hỏi thật hoặc nhập JSONL.</p>`;
+    return;
+  }
+  list.innerHTML = items.map((item) => `<div class="question-row"><p>${esc(item.question)}</p><span class="tag">${item.type === "fact" ? "Tra dữ kiện" : "Nhiều bước"} · ${item.relevant.length} mục đúng</span><button class="small-action danger" type="button" data-eval-delete="${esc(item.id)}" aria-label="Xóa câu hỏi">Xóa</button></div>`).join("");
+}
+
+async function loadEvaluation() {
+  try {
+    const [questionsResponse, resultsResponse] = await Promise.all([fetch("/api/eval/questions"), fetch("/api/eval/results")]);
+    const questions = await questionsResponse.json();
+    const results = await resultsResponse.json();
+    if (!questionsResponse.ok) throw new Error(questions.detail || questionsResponse.statusText);
+    if (!resultsResponse.ok) throw new Error(results.detail || resultsResponse.statusText);
+    renderEvalQuestions(questions);
+    renderEvalResults(results);
+  } catch (err) {
+    $("#eval-question-list").innerHTML = `<p class="err">Không tải được bộ đánh giá: ${esc(err.message)}</p>`;
+  }
+}
+
+$("#eval-question-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = $("#eval-form-status");
+  try {
+    const relevant = JSON.parse($("#eval-relevant").value);
+    if (!Array.isArray(relevant)) throw new Error("Các mục đúng cần là một mảng JSON.");
+    const payload = { question: $("#eval-question").value, type: $("#eval-type").value, relevant };
+    const response = await fetch("/api/eval/questions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    $("#eval-question-form").reset();
+    status.textContent = "Đã thêm câu hỏi.";
+    renderEvalQuestions(data);
+    renderEvalResults(null);
+  } catch (err) { status.textContent = `Không lưu được: ${err.message}`; }
+});
+
+$("#eval-import-button").addEventListener("click", async () => {
+  const file = $("#eval-import").files[0];
+  const status = $("#eval-form-status");
+  if (!file) { status.textContent = "Chọn tệp JSONL trước."; return; }
+  const payload = new FormData(); payload.append("file", file);
+  try {
+    const response = await fetch("/api/eval/questions/import", { method: "POST", body: payload });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    renderEvalQuestions(data);
+    renderEvalResults(null);
+    status.textContent = `Đã nhập ${data.length} câu hỏi.`;
+    $("#eval-import").value = "";
+  } catch (err) { status.textContent = `Không nhập được: ${err.message}`; }
+});
+
+$("#eval-question-list").addEventListener("click", async (e) => {
+  const button = e.target.closest("[data-eval-delete]");
+  if (!button) return;
+  try {
+    const response = await fetch(`/api/eval/questions/${encodeURIComponent(button.dataset.evalDelete)}`, { method: "DELETE" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    await loadEvaluation();
+  } catch (err) { $("#eval-form-status").textContent = `Không xóa được: ${err.message}`; }
+});
+
+$("#eval-run").addEventListener("click", async (e) => {
+  const button = e.currentTarget;
+  button.disabled = true;
+  $("#eval-run-status").textContent = "Đang chạy bốn retriever trên các câu hỏi đã nhập…";
+  try {
+    const response = await fetch("/api/eval/run", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || response.statusText);
+    renderEvalResults(result);
+    $("#eval-run-status").textContent = "Đã lưu kết quả vào data/eval/results.json.";
+  } catch (err) { $("#eval-run-status").textContent = `Không chạy được: ${err.message}`; }
+  finally { button.disabled = false; }
+});
+
+function svgElement(name, attrs = {}) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  return el;
+}
+
+function renderGraph(data) {
+  const canvas = $("#graph-canvas");
+  const list = $("#graph-path-list");
+  canvas.innerHTML = "";
+  list.innerHTML = "";
+  if (!data.nodes.length) {
+    canvas.innerHTML = `<div class="empty" style="padding:40px">Không tìm thấy khái niệm khớp trong Đồ thị tri thức.</div>`;
+    $("#graph-status").textContent = "Không có đường đi cho câu truy vấn này.";
+    return;
+  }
+  const concepts = data.nodes.filter((n) => n.kind === "concept");
+  const sources = data.nodes.filter((n) => n.kind !== "concept");
+  const width = 900, height = Math.max(420, Math.max(concepts.length, sources.length) * 78 + 40);
+  const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Đồ thị các khái niệm và nguồn được truy xuất" });
+  const positions = new Map();
+  concepts.forEach((n, i) => positions.set(n.id, { x: 170, y: 42 + i * (height - 84) / Math.max(concepts.length - 1, 1) }));
+  sources.forEach((n, i) => positions.set(n.id, { x: 700, y: 42 + i * (height - 84) / Math.max(sources.length - 1, 1) }));
+  for (const edge of data.edges) {
+    const a = positions.get(edge.from), b = positions.get(edge.to);
+    if (!a || !b) continue;
+    const line = svgElement("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: edge.type === "NEXT_SEGMENT" ? "#9a6a20" : "#82909c", "stroke-width": edge.type === "NEXT_SEGMENT" ? 2.5 : 1.5, opacity: .78 });
+    if (edge.type === "NEXT_SEGMENT") line.setAttribute("stroke-dasharray", "7 6");
+    svg.appendChild(line);
+  }
+  for (const node of concepts) {
+    const { x, y } = positions.get(node.id);
+    svg.appendChild(svgElement("circle", { cx: x, cy: y, r: 24, fill: "#0b6e6e" }));
+    const label = svgElement("text", { x: x + 36, y: y + 5, fill: "currentColor", "font-size": 15 });
+    label.textContent = node.label; svg.appendChild(label);
+  }
+  for (const node of sources) {
+    const { x, y } = positions.get(node.id);
+    svg.appendChild(svgElement("rect", { x: x - 16, y: y - 16, width: 32, height: 32, rx: 3, fill: "#e7a33e" }));
+    const label = svgElement("text", { x: x - 30, y: y + 35, fill: "currentColor", "font-size": 12, "text-anchor": "middle" });
+    const sourceLabel = node.kind === "document_section" ? `${node.title || "Tài liệu"} · mục ${node.section ?? "—"}` : `${node.title || node.video_id || "Video"} · ${fmt(node.start || 0)}`;
+    label.textContent = sourceLabel.length > 43 ? `${sourceLabel.slice(0, 40)}…` : sourceLabel;
+    svg.appendChild(label);
+  }
+  canvas.appendChild(svg);
+  $("#graph-status").textContent = `Khớp ${data.matched_concepts.length} khái niệm · ${data.result_count} kết quả trực tiếp · điểm là điểm truy xuất graph hiện tại, chưa phải PPR.`;
+  list.innerHTML = sources.map((node) => {
+    const chunk = node.kind === "document_section";
+    const label = chunk ? `Mục ${node.section ?? "—"}` : `${fmt(node.start || 0)}${node.end != null ? `–${fmt(node.end)}` : ""}`;
+    return `<article class="src"><div class="src-head"><strong>${chunk ? "Tài liệu" : "Video"}</strong><span>${esc(node.title || node.video_id || "")}</span><span class="t">${label}</span><span class="src-actions"><button class="play" type="button" data-graph-node="${esc(node.id)}">${chunk ? "Xem mục" : "Phát đoạn"}</button></span></div><p>${esc(node.text || "")}</p></article>`;
+  }).join("");
+  list.dataset.nodes = JSON.stringify(sources);
+}
+
+$("#graph-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const query = $("#graph-query").value.trim();
+  if (!query) return;
+  $("#graph-status").textContent = "Đang duyệt Đồ thị tri thức…";
+  try {
+    const params = new URLSearchParams({ query, adjacent: String($("#graph-adjacent").checked) });
+    const response = await fetch(`/api/graph?${params}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || response.statusText);
+    renderGraph(data);
+  } catch (err) { $("#graph-status").textContent = `Không tải được đồ thị: ${err.message}`; }
+});
+
+$("#graph-path-list").addEventListener("click", (e) => {
+  const button = e.target.closest("[data-graph-node]");
+  if (!button) return;
+  const node = JSON.parse($("#graph-path-list").dataset.nodes || "[]").find((n) => n.id === button.dataset.graphNode);
+  if (!node) return;
+  if (node.kind === "document_section") {
+    showDocumentSection({ link: `/api/documents/${encodeURIComponent(node.document_id)}/sections/${node.section}` });
+  } else jump(node.video_id, node.start || 0);
+});
+
 init();
 </script>
 </body>

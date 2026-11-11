@@ -25,11 +25,12 @@ def probe_duration(path):
 
 
 def check_duration(duration, cfg):
-    limit = int(cfg.get("ingest", {}).get("max_duration_s", 1800))
+    limit = int(cfg.get("ingest", {}).get("max_duration_s", 7200))
     if duration is not None and float(duration) > limit:
+        limit_label = f"{limit // 3600} giờ" if limit >= 3600 and limit % 3600 == 0 else f"{limit // 60} phút"
         raise ValueError(
-            f"Video dài {float(duration) / 60:.1f} phút; giới hạn hiện tại là {limit // 60} phút. "
-            "Hãy cắt video thành các phần ngắn hơn rồi thử lại."
+            f"Video dài {float(duration) / 60:.1f} phút; giới hạn hiện tại là {limit_label}. "
+            "VSKR tự chia video thành các phần nhỏ khi nhận dạng lời nói."
         )
 
 

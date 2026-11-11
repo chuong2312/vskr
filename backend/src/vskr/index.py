@@ -21,8 +21,12 @@ def _relation_extractor(cfg):
     max_chunks = max(0, int(kg_cfg.get("max_relation_chunks", 100)))
     quotas = {"video": (max_chunks + 1) // 2, "document": max_chunks // 2}
     calls = {"video": 0, "document": 0}
+    available = True
 
     def extract(chunk):
+        nonlocal available
+        if not available:
+            return []
         kind = "document" if chunk.get("document_id") else "video"
         if calls[kind] >= quotas[kind]:
             return []
@@ -34,7 +38,12 @@ def _relation_extractor(cfg):
             "head, tail và evidence phải xuất hiện nguyên văn trong đoạn. Không suy diễn.\n\n"
             f"Đoạn: {chunk['text']}"
         )
-        raw = call_ollama(cfg["llm"], [{"role": "user", "content": prompt}]).strip()
+        try:
+            raw = call_ollama(cfg["llm"], [{"role": "user", "content": prompt}]).strip()
+        except Exception as exc:
+            available = False
+            print(f"[graph] không gọi được mô hình trích quan hệ; tiếp tục dựng graph bằng khái niệm và nguồn: {exc}")
+            return []
         start, end = raw.find("["), raw.rfind("]")
         if start < 0 or end < start:
             return []
@@ -83,8 +92,10 @@ def build(cfg, embedder, progress=None, output_dir=None):
         sp = vdir / "screen_text.json"
         if ch.get("use_screen_text", True) and sp.exists():
             extras = read_json(sp)
-        fp = vdir / "frames.json"
-        scene_starts = read_json(fp).get("scene_starts", []) if fp.exists() else []
+        scene_file = vdir / "scenes.json"
+        frame_file = vdir / "frames.json"
+        scene_starts = (read_json(scene_file).get("scene_starts", []) if scene_file.exists()
+                        else read_json(frame_file).get("scene_starts", []) if frame_file.exists() else [])
         if scene_starts:
             chunks += make_scene_chunks(
                 vid, segs, scene_starts, ch["window_s"], ch["overlap_s"],

@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from .config import ROOT, data_dir, index_dir, load_config, video_dir, videos_dir
 from .index import load_meta
 from .ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
-from .util import read_json, write_json
+from .util import fmt_time, read_json, write_json
 
 
 class AskRequest(BaseModel):
@@ -387,16 +387,27 @@ def _process_ingest_job(job_id, source):
         else:
             _update_job(job_id, status="running", phase="ingest", message="Đang tải/đọc video và tách audio…")
             if source["kind"] == "url":
-                meta = ingest(source["url"], cfg)
+                meta = ingest(source["url"], cfg, with_video=True)
             else:
                 meta = ingest_file(source["path"], cfg, source["video_id"], title=source["title"])
             video_id = meta["video_id"]
+            _update_job(job_id, phase="scenes", message="Đang phát hiện phân cảnh trong video…")
+            from .frames import detect_scenes_only
+
+            detect_scenes_only(cfg, video_id)
             _update_job(job_id, video_id=video_id, title=meta.get("title"), phase="asr", message="Đang nhận dạng lời nói…")
 
             from . import asr
 
+            def report_asr_progress(_video_id, part, total, start, end):
+                _update_job(
+                    job_id,
+                    phase="asr",
+                    message=f"Nhận dạng phần {part}/{total} ({fmt_time(start)}–{fmt_time(end)} theo video gốc)…",
+                )
+
             with _gpu_model_lock:
-                asr.run(cfg, [video_id])
+                asr.run(cfg, [video_id], progress=report_asr_progress)
             vdir = video_dir(cfg, video_id)
             if not (vdir / "transcript.json").is_file():
                 raise RuntimeError("ASR chưa tạo transcript; kiểm tra file audio và cấu hình ASR.")

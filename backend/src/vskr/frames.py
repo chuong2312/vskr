@@ -78,6 +78,30 @@ def detect_scene_starts(video_path, threshold=27.0, frame_skip=0):
     return [start.get_seconds() for start, _end in sm.get_scene_list()]
 
 
+def detect_scenes_only(cfg, video_id, force=False):
+    """Detect scene boundaries for the knowledge graph without extracting images."""
+    fc = cfg["frames"]
+    vdir = video_dir(cfg, video_id)
+    meta = read_json(vdir / "meta.json")
+    vpath = resolve_source(vdir, meta)
+    if vpath is None:
+        raise RuntimeError(f"{video_id}: thiếu file hình để phát hiện phân cảnh.")
+    output = vdir / "scenes.json"
+    if output.is_file() and not force:
+        return read_json(output)
+    started = time.time()
+    starts = detect_scene_starts(vpath, fc.get("scene_threshold", 27.0), fc.get("frame_skip", 0))
+    result = {
+        "video_id": video_id,
+        "params": {"scene_threshold": fc.get("scene_threshold", 27.0), "frame_skip": fc.get("frame_skip", 0)},
+        "scene_starts": [round(float(t), 3) for t in starts],
+        "scene_count": len(starts),
+        "elapsed_s": round(time.time() - started, 1),
+    }
+    write_json(output, result)
+    return result
+
+
 def grab_frame(video_path, t, out_path, max_width=1280):
     subprocess.run(
         [

@@ -8,8 +8,8 @@ VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ m�
 - QA gọi Ollama API tại `localhost:11434`; cần cài/chạy Ollama riêng. VSKR chạy trực tiếp trong venv.
 - Dữ liệu nằm trong `./data`, model/download cache trong `./cache`.
 - Hỏi đáp mặc định kết hợp **vector E5 + BM25 + truy xuất đồ thị**, rồi hợp nhất thứ hạng bằng RRF. Người dùng chỉ cần đặt câu hỏi; có thể chọn riêng `hybrid`, `vector`, `bm25` hoặc `graph` để so sánh. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
-- Knowledge Graph hỗ trợ node phân cảnh video có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn nhiều bước. Với video đã ingest kèm hình (`vskr ingest --with-video`), chạy `vskr frames --video <id>`; nếu `frames.json` đã cũ thì thêm `--force`. Sau đó chạy `vskr index`. Các liên kết liên phương thức chỉ được giữ khi điểm cosine vượt ngưỡng và có khái niệm trùng (hoặc điểm rất cao). Có thể chọn riêng `graph` để xem kết quả chỉ từ đồ thị.
-- Muốn trích xuất quan hệ có kiểu như `DEPENDS_ON`, `PART_OF`, `CAUSES` từ transcript và tài liệu, bật `VSKR__KNOWLEDGE_GRAPH__EXTRACT_RELATIONS=true` rồi chạy lại `vskr index`. Ollama sẽ xử lý tối đa số đoạn đặt trong `knowledge_graph.max_relation_chunks`; mọi quan hệ được lưu kèm bằng chứng văn bản và bị bỏ qua nếu không khớp nội dung nguồn. Tính năng này tắt mặc định để index vẫn chạy độc lập Ollama.
+- Knowledge Graph hỗ trợ node phân cảnh có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn tối đa ba bước. Trong giao diện và lệnh `vskr ingest`, video URL mặc định tải cả hình 720p để tự phát hiện cảnh; dùng `--audio-only` nếu không cần scene graph. Chạy `vskr index` để dựng lại đồ thị sau khi thay đổi học liệu/cấu hình. Liên kết video–tài liệu tự động dựa trên cosine và khái niệm chung (hoặc cosine rất cao), chưa có bước người duyệt.
+- Quan hệ có kiểu như `DEPENDS_ON`, `PART_OF`, `CAUSES` được trích từ transcript/tài liệu bằng Ollama trên tối đa 24 đoạn mỗi lần dựng index. Quan hệ chỉ được lưu nếu chủ thể, đối tượng và câu bằng chứng xuất hiện trong nguồn. Nếu Ollama không sẵn sàng, index vẫn tạo graph khái niệm và liên kết video–tài liệu.
 
 PySceneDetect được cài dưới tên package `scenedetect-headless` và import trong Python là `scenedetect`. Nó tìm điểm đổi cảnh; FFmpeg trích frame. Đây không phải package `pyscenecut`.
 
@@ -18,7 +18,7 @@ PySceneDetect được cài dưới tên package `scenedetect-headless` và impo
 - Windows + WSL2 Ubuntu, dự án đặt trong filesystem Linux như `~/vskr`.
 - Python 3.12 (có thể cài riêng bằng uv), FFmpeg và Node hoặc Deno cho một số nguồn yt-dlp.
 - NVIDIA RTX 4060 Laptop 8 GB và driver NVIDIA để chạy ASR GPU; có thể chuyển ASR sang CPU nếu cần.
-- Ollama chỉ cần khi chạy QA; nếu không dùng câu hỏi đáp thì các bước ingest, ASR và index không cần Ollama.
+- Ollama cần cho hỏi đáp và trích quan hệ có kiểu khi dựng index; nếu không sẵn sàng, phần trích quan hệ tự bỏ qua để index cơ bản vẫn chạy.
 
 ## Cài đặt venv
 
@@ -66,7 +66,7 @@ Màn **Đánh giá** nhận bộ câu hỏi thật qua giao diện hoặc `data/
 
 Trong giao diện, các thử nghiệm IDF, mở rộng khái niệm từ những đoạn gần nghĩa theo embedding E5 và Personalized PageRank (PPR) chạy trên cùng bộ câu hỏi với baseline. Mỗi lựa chọn được đo riêng; nếu bật nhiều lựa chọn, giao diện cũng đo tổ hợp của chúng. Các điều khiển ở trang graph áp dụng ngay cho truy vấn đang xem và đồng bộ với cấu hình đánh giá. PPR dùng `damping` để điều khiển mức lan truyền và `seed_weight` để phân bổ điểm ban đầu cho các nguồn khớp trực tiếp.
 
-Mở `http://localhost:8000` để dùng giao diện. `Ctrl+C` dừng server. Trong giao diện, người dùng có thể dán URL được yt-dlp hỗ trợ hoặc upload MP4/MOV/MKV/WebM/AVI; mỗi video tối đa 30 phút và 1 GB. Job ingest → ASR → index chạy tuần tự, giao diện cập nhật trạng thái. YouTube có player nhúng; video upload phát bằng HTML5 player; nền tảng khác mở URL gốc để đối chiếu.
+Mở `http://localhost:8000` để dùng giao diện. `Ctrl+C` dừng server. Trong giao diện, người dùng có thể dán URL được yt-dlp hỗ trợ hoặc upload MP4/MOV/MKV/WebM/AVI; mỗi video tối đa 2 giờ và 1 GB. Video URL được tải ở mức tối đa 720p để phát hiện phân cảnh; video tải lên cũng được phân tích cảnh tự động. Audio tự chia thành các phần 15 phút để nhận dạng, transcript giữ mốc thời gian gốc, rồi index tạo scene graph và liên kết video với tài liệu bằng embedding. Quan hệ có kiểu kèm bằng chứng được Ollama trích trên tối đa 24 đoạn/mục mỗi lần dựng index; nếu Ollama không sẵn sàng, index vẫn dựng khái niệm và liên kết nguồn. Job ingest → phát hiện cảnh → ASR → index chạy tuần tự, giao diện cập nhật tiến độ từng phần. YouTube có player nhúng; video upload phát bằng HTML5 player; nền tảng khác mở URL gốc để đối chiếu.
 
 API hiện chưa có xác thực. Chạy với `--host 0.0.0.0` chỉ trong mạng tin cậy; endpoint nhận URL để yt-dlp tải nội dung.
 
@@ -113,7 +113,7 @@ Không xóa `data/` hoặc `cache/` nếu còn cần video, transcript, index ha
 
 ## Phạm vi hiện tại
 
-Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới video lấy từ PySceneDetect (cắt cảnh hình ảnh), không dùng LLM để sửa ranh giới theo mạch bài giảng; trích quan hệ có kiểu là tùy chọn Ollama; liên kết video–tài liệu được kiểm tra bằng ngưỡng embedding và trùng khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; hãy đánh giá với bộ câu hỏi có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật mặc định trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
+Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect (cắt cảnh hình ảnh), không dùng LLM để sửa ranh giới theo mạch bài giảng; trích quan hệ có kiểu dùng Ollama với giới hạn số đoạn; liên kết video–tài liệu được kiểm tra bằng ngưỡng embedding và trùng khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; hãy đánh giá với bộ câu hỏi có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật mặc định trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
 
 ## Cấu trúc dự án
 

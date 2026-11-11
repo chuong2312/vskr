@@ -56,9 +56,9 @@ class TestIngestApi(unittest.TestCase):
         self.assertEqual(list((self.tmp / "videos").iterdir()), [])
 
     def test_upload_rejects_video_over_duration_limit(self):
-        response, submit = self._post_upload(b"fake video bytes", duration=1801)
+        response, submit = self._post_upload(b"fake video bytes", duration=7201)
         self.assertEqual(response.status_code, 400)
-        self.assertIn("giới hạn hiện tại là 30 phút", response.json()["detail"])
+        self.assertIn("giới hạn hiện tại là 2 giờ", response.json()["detail"])
         submit.assert_not_called()
         self.assertEqual(list((self.tmp / "videos").iterdir()), [])
 

@@ -3,7 +3,7 @@ paths:
   data_dir: data            # tương đối so với thư mục dự án
 
 ingest:
-  max_duration_s: 1800      # giới hạn MVP: 30 phút cho mỗi video
+  max_duration_s: 7200      # tối đa 2 giờ; âm thanh tự chia đoạn để nhận dạng ổn định
   max_upload_bytes: 1073741824 # 1 GiB cho file upload và tải từ URL
 
 asr:
@@ -17,6 +17,7 @@ asr:
   vad_filter: true
   beam_size: 5
   condition_on_previous_text: false
+  segment_duration_s: 900   # nhận dạng từng phần 15 phút, mốc thời gian vẫn tính theo video gốc
   initial_prompt: ""         # để trống làm baseline; thử thuật ngữ chuyên ngành như một thí nghiệm riêng
   unload_ollama_first: true  # trước khi chạy ASR, bảo Ollama nhả model khỏi VRAM (tránh OOM khi hai bên cùng dùng GPU 8GB)
 
@@ -71,8 +72,8 @@ retrieval:
 knowledge_graph:
   link_threshold: 0.72       # ngưỡng khởi đầu; cần điều chỉnh bằng dữ liệu và bộ câu hỏi thật
   max_links_per_section: 2
-  extract_relations: false   # true để dùng Ollama trích quan hệ có evidence khi chạy index
-  max_relation_chunks: 100   # giới hạn số đoạn gửi qua Ollama mỗi lần lập chỉ mục
+  extract_relations: true    # Ollama trích quan hệ kèm câu bằng chứng khi dựng graph
+  max_relation_chunks: 24    # tối đa 12 đoạn video + 12 mục tài liệu gửi qua Ollama mỗi lần lập chỉ mục
 
 llm:
   provider: ollama

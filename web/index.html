@@ -160,11 +160,6 @@
   .app-nav button { min-width: 116px; padding: 8px 15px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-weight: 650; cursor: pointer; transition: background .16s ease, color .16s ease; }
   .app-nav button:hover { background: #e8eff5; color: var(--ink); }
   .app-nav button[aria-current="page"] { color: #fff; background: var(--ink); border-color: var(--ink); box-shadow: 0 5px 14px #17253b22; }
-  .nav-advanced { position: relative; display: flex; align-items: center; color: var(--muted); }
-  .nav-advanced summary { min-height: 44px; display: flex; align-items: center; padding: 8px 14px; border-radius: 9px; cursor: pointer; font-weight: 650; }
-  .nav-advanced summary:hover { background: var(--line); color: var(--ink); }
-  .nav-advanced[open] > div { position: absolute; z-index: 5; top: 100%; left: 0; display: grid; min-width: 210px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px #17253b22; }
-  .nav-advanced[open] button { width: 100%; text-align: left; }
   .library-main { display: block; max-width: 1440px; }
   .library-main[hidden], main[hidden] { display: none; }
   .library-grid { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 18px; }
@@ -187,7 +182,17 @@
   .welcome-guide { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: var(--canvas); }
   .welcome-guide strong { display: block; margin-bottom: 4px; }
   .welcome-guide ol { margin: 4px 0 0; padding-left: 22px; color: var(--muted); }
-  .mode-help { flex-basis: 100%; margin: 0; }
+  .mode-help { margin: 0; }
+  .query-settings, .format-help, .experiment-options, .graph-experiments { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .query-settings summary, .format-help summary, .experiment-options summary, .graph-experiments summary { cursor: pointer; color: var(--accent); font-weight: 650; }
+  .query-settings-body { display: grid; gap: 8px; padding-top: 10px; }
+  .format-help { background: var(--canvas); }
+  .format-help p { margin: 8px 0 0; }
+  .eval-intro { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: var(--canvas); }
+  .eval-intro p { margin: 6px 0 0; color: var(--muted); }
+  .library-intro { margin: -8px 0 16px; }
+  .experiment-options .graph-settings, .graph-experiments .graph-settings { margin-top: 10px; }
+  .experiment-options > .hint, .graph-experiments > .hint { margin-bottom: 0; }
   #q { min-height: 112px; background: #fbfcfe; border-radius: 9px; }
   .eval-layout { display: grid; grid-template-columns: minmax(280px, .72fr) minmax(0, 1.28fr); gap: 16px; align-items: start; }
   .stack { display: grid; gap: 14px; }
@@ -204,6 +209,7 @@
   .graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 14px; }
   .graph-canvas { min-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); }
   .graph-canvas svg { display: block; width: 100%; min-width: 600px; min-height: 420px; }
+  .graph-help { margin: 8px 0 0; color: var(--muted); font-size: .9rem; }
   .graph-group { border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
   .graph-group summary { cursor: pointer; font-weight: 650; }
   .graph-group .src { margin-top: 8px; }
@@ -222,19 +228,17 @@
 <header>
   <div class="brand-mark" aria-hidden="true">V</div>
   <div class="brand-copy">
-    <p class="eyebrow">Video Semantic Knowledge Retrieval</p>
+  <p class="eyebrow">Video Semantic Knowledge Retrieval</p>
     <h1>VSKR · Trợ lý bài giảng</h1>
-    <p>Hỏi đáp có nguồn, thư viện học liệu và công cụ kiểm tra truy xuất.</p>
+    <p>Thêm bài giảng → hỏi nội dung → mở nguồn để đối chiếu.</p>
   </div>
 </header>
 
 <nav class="app-nav" aria-label="Điều hướng chính">
-  <button type="button" data-page="qa" aria-current="page">Hỏi bài</button>
+  <button type="button" data-page="qa" aria-current="page">Hỏi đáp</button>
   <button type="button" data-page="library" aria-current="false">Học liệu</button>
-  <details class="nav-advanced"><summary>Công cụ nâng cao</summary><div>
-    <button type="button" data-page="evaluation" aria-current="false">So sánh tìm kiếm</button>
-    <button type="button" data-page="graph" aria-current="false">Đồ thị tri thức (graph)</button>
-  </div></details>
+  <button type="button" data-page="evaluation" aria-current="false">Đánh giá tìm nguồn</button>
+  <button type="button" data-page="graph" aria-current="false">Sơ đồ liên kết</button>
 </nav>
 
 <main id="qa-screen">
@@ -249,27 +253,30 @@
 
   <section aria-label="Hỏi đáp">
     <div class="panel">
-      <h2 class="qa-title">Hỏi nội dung bài giảng</h2>
-    <p class="hint qa-intro">Nhập câu hỏi bình thường. Hệ thống tự kết hợp tìm theo ngữ nghĩa (vector), từ khóa (BM25) và đồ thị tri thức (graph), rồi dẫn về đoạn video hoặc mục tài liệu.</p>
-      <div class="welcome-guide">
+      <h2 class="qa-title">Hỏi nội dung trong học liệu</h2>
+    <p class="hint qa-intro">Đặt câu hỏi bằng lời thường. VSKR tìm trong transcript video và tài liệu đã sẵn sàng, rồi trả lời kèm nguồn để bạn kiểm tra.</p>
+      <div class="welcome-guide" id="welcome-guide">
         <strong>Bắt đầu trong 3 bước</strong>
-        <ol><li>Vào <b>Học liệu</b> để thêm video hoặc tài liệu bài giảng.</li><li>Chờ trạng thái nội dung là <b>Sẵn sàng</b>.</li><li>Quay lại đây, nhập câu hỏi và bấm <b>Hỏi bài</b>.</li></ol>
+        <ol><li>Vào <b>Học liệu</b> để thêm video hoặc tài liệu.</li><li>Chờ trạng thái là <b>Sẵn sàng để hỏi</b>.</li><li>Quay lại đây, nhập câu hỏi và bấm <b>Hỏi bài</b>.</li></ol>
       </div>
       <form id="form">
         <label for="q" class="hint">Câu hỏi</label>
-        <textarea id="q" required placeholder="Ví dụ: Khái niệm nào được giải thích trước, và liên quan thế nào tới chủ đề tiếp theo?"></textarea>
-        <div class="row">
-          <button class="primary" id="go" type="submit">Hỏi bài</button>
-          <label class="hint" for="mode">Cách tìm (mặc định: kết hợp cả 3 cách)</label>
+        <textarea id="q" required placeholder="Ví dụ: Bài giảng giải thích khái niệm này như thế nào?"></textarea>
+        <div class="row"><button class="primary" id="go" type="submit">Hỏi bài</button></div>
+        <details class="query-settings">
+          <summary>Đổi cách tìm (mặc định: kết hợp)</summary>
+          <div class="query-settings-body">
+          <label class="hint" for="mode">Chọn cách truy xuất</label>
           <select id="mode">
-            <option value="hybrid_graph" selected>Đề xuất: kết hợp (hybrid) + đồ thị (graph)</option>
-            <option value="hybrid">Ngữ nghĩa (vector) + từ khóa (BM25)</option>
-            <option value="vector">Chỉ ngữ nghĩa (vector)</option>
-            <option value="bm25">Chỉ từ khóa (BM25)</option>
-            <option value="graph">Đồ thị tri thức (graph)</option>
+            <option value="hybrid_graph" selected>Mặc định: nghĩa + từ khóa + sơ đồ liên kết</option>
+            <option value="hybrid">Nghĩa + từ khóa</option>
+            <option value="vector">Chỉ tìm theo nghĩa</option>
+            <option value="bm25">Chỉ tìm từ khóa</option>
+            <option value="graph">Chỉ tìm qua sơ đồ liên kết</option>
           </select>
-          <p class="hint mode-help">Mặc định kết hợp cả ba: tìm ngữ nghĩa (vector), từ khóa (BM25) và đồ thị tri thức (graph). Các lựa chọn riêng dùng để so sánh.</p>
-        </div>
+          <p class="hint mode-help">Các cách tìm riêng chủ yếu để so sánh. Nếu chưa biết chọn gì, cứ để Mặc định.</p>
+          </div>
+        </details>
       </form>
       <div id="result"></div>
     </div>
@@ -277,34 +284,36 @@
 </main>
 
 <main class="library-main" id="library-screen" hidden>
+  <h2 class="screen-title">Học liệu</h2>
+  <p class="hint library-intro">Thêm video hoặc tài liệu tại đây. Khi trạng thái chuyển thành <b>Sẵn sàng để hỏi</b>, nội dung đã được chuẩn bị để tìm kiếm.</p>
   <div class="library-grid">
     <div class="library-forms">
       <div class="panel">
         <form id="library-video-form">
-          <strong>Thêm video</strong>
-          <label for="library-video-url" class="hint">Đường dẫn video</label>
+          <strong>1. Thêm video bài giảng</strong>
+          <label for="library-video-url" class="hint">Dán đường dẫn video</label>
           <input class="field" id="library-video-url" type="url" placeholder="https://…" autocomplete="url">
-          <label for="library-video-file" class="hint">Hoặc chọn file video</label>
+          <label for="library-video-file" class="hint">Hoặc chọn một file video trên máy</label>
           <input class="field" id="library-video-file" type="file" accept="video/*">
-          <p class="hint">Hệ thống tự nhận dạng lời nói và lập chỉ mục sau khi tải lên. MP4, MOV, MKV, WebM hoặc AVI · tối đa 30 phút và 1 GB.</p>
-          <button class="primary" type="submit">Thêm video</button>
+          <p class="hint">VSKR phát hiện phân cảnh, tự chia âm thanh thành các phần 15 phút để nhận dạng và giữ mốc thời gian gốc. Video tối đa 2 giờ và 1 GB. Dùng link hoặc file, không điền cả hai. Hỗ trợ MP4, MOV, MKV, WebM, AVI.</p>
+          <button class="primary" type="submit">Thêm và xử lý video</button>
           <span class="hint" id="library-video-status" role="status" aria-live="polite"></span>
         </form>
       </div>
       <div class="panel">
         <form id="library-doc-form">
-          <strong>Thêm tài liệu bài giảng</strong>
-          <label for="document-file" class="hint">Tệp TXT, MD, PDF hoặc DOCX</label>
+          <strong>2. Thêm tài liệu bài giảng</strong>
+          <label for="document-file" class="hint">Chọn tài liệu TXT, Markdown, PDF hoặc DOCX</label>
           <input class="field" id="document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx" required>
-          <p class="hint">Tài liệu được chia mục, lập chỉ mục và kết hợp với nội dung video khi tìm câu trả lời.</p>
-          <button class="primary" type="submit">Thêm tài liệu</button>
+          <p class="hint">VSKR trích văn bản, chia thành các mục và kết hợp chúng với video khi tìm. Hình, bảng và công thức trong PDF có thể chưa được đọc đầy đủ.</p>
+          <button class="primary" type="submit">Thêm và xử lý tài liệu</button>
           <span class="hint" id="library-doc-status" role="status" aria-live="polite"></span>
         </form>
       </div>
     </div>
     <section class="panel" aria-labelledby="library-heading">
       <div class="row" style="justify-content:space-between"><h2 id="library-heading">Nội dung đã thêm</h2><button class="small-action" id="refresh-library" type="button">Làm mới</button></div>
-      <p class="hint">Video và tài liệu đang xử lý vẫn hiện ở đây. Hỏi đáp tiếp tục dùng được trong lúc nhận dạng lời nói.</p>
+      <p class="hint">Chỉ nội dung có trạng thái <b>Sẵn sàng để hỏi</b> mới được dùng cho câu hỏi mới. Nếu tác vụ lỗi, bấm Thử lại.</p>
       <div class="library-list" id="library-list" aria-live="polite"><p class="hint">Đang tải thư viện…</p></div>
       <div class="timing" id="pipeline-status" role="status" aria-live="polite"></div>
     </section>
@@ -312,85 +321,106 @@
 </main>
 
 <main class="library-main" id="evaluation-screen" hidden>
-  <h2 class="screen-title">Đánh giá khả năng tìm nguồn (retrieval)</h2>
+  <h2 class="screen-title">Kiểm tra hệ thống có tìm đúng nguồn không</h2>
+  <div class="eval-intro">
+    <strong>Công cụ này đo khả năng tìm nguồn, không chấm câu trả lời do AI viết.</strong>
+    <p>Bạn cần nhập câu hỏi và tự xác nhận video/đoạn hoặc mục tài liệu đúng. Nên có 20–30 câu; nếu mới có một vài câu, điểm số chỉ là chạy thử.</p>
+    <p>Nếu vừa hỏi ở màn Hỏi đáp, dùng nút <b>Dùng câu hỏi này để kiểm tra tìm nguồn</b> rồi xác nhận nguồn đúng trước khi lưu.</p>
+  </div>
   <div class="eval-layout">
     <div class="stack">
       <section class="panel">
         <form class="eval-form" id="eval-question-form">
-          <strong>Thêm câu hỏi đánh giá</strong>
-          <label for="eval-question" class="hint">Câu hỏi</label>
+          <strong>Thêm một câu hỏi chuẩn</strong>
+          <p class="hint">Câu hỏi chuẩn là câu hỏi kèm nguồn đúng mà bạn đã đối chiếu với học liệu.</p>
+          <label for="eval-question" class="hint">Câu hỏi cần kiểm tra</label>
           <textarea id="eval-question" required></textarea>
-          <label for="eval-type" class="hint">Loại câu hỏi</label>
-          <select id="eval-type"><option value="fact">Tra dữ kiện</option><option value="multihop">Nhiều bước</option></select>
-          <label for="eval-relevant" class="hint">Nguồn đúng (định dạng dữ liệu JSON)</label>
-          <textarea id="eval-relevant" required placeholder='[{"video_id":"ID_VIDEO","start":12,"end":28}] hoặc [{"document_id":"ID_TAI_LIEU","section":1}]'></textarea>
-          <p class="hint">Câu nhiều bước: thêm mọi mục nguồn cần thiết vào mảng. Mốc video so theo khoảng thời gian chồng lấp.</p>
-          <button class="primary" type="submit">Thêm câu hỏi</button>
+          <label for="eval-type" class="hint">Câu này cần tìm loại đáp án nào?</label>
+          <select id="eval-type"><option value="fact">Một nguồn là đủ</option><option value="multihop">Cần kết hợp nhiều nguồn</option></select>
+          <label for="eval-relevant" class="hint">Nguồn đúng bạn đã xác nhận (nhập theo mẫu)</label>
+          <textarea id="eval-relevant" required placeholder='[{"video_id":"ID_VIDEO","start":12,"end":28}]'></textarea>
+          <details class="format-help"><summary>Xem mẫu nhập nguồn</summary>
+            <p class="hint">Video: <code>{"video_id":"ID_VIDEO","start":12,"end":28}</code></p>
+            <p class="hint">Tài liệu: <code>{"document_id":"ID_TAI_LIEU","section":1}</code></p>
+            <p class="hint">Câu cần nhiều nguồn: đặt nhiều object trong cùng mảng JSON. Mốc video được so theo khoảng thời gian chồng lấp.</p>
+          </details>
+          <button class="primary" type="submit">Lưu câu hỏi chuẩn</button>
           <span id="eval-form-status" class="hint" role="status" aria-live="polite"></span>
         </form>
       </section>
       <section class="panel">
-        <label for="eval-import" class="hint">Nhập tệp câu hỏi theo dòng (JSONL)</label>
+        <strong>Đã có sẵn bộ câu hỏi?</strong>
+        <label for="eval-import" class="hint">Chọn tệp JSONL để nhập nhiều câu cùng lúc</label>
         <input id="eval-import" class="field" type="file" accept=".jsonl,.txt,application/json">
-          <p class="hint">Mỗi dòng trong tệp là một câu hỏi cùng danh sách nguồn đúng. Dạng nâng cao: {"id","question","type":"fact|multihop","relevant":[…]} (fact = câu hỏi dữ kiện; multihop = câu hỏi cần nối nhiều ý).</p>
-        <button class="small-action" id="eval-import-button" type="button">Nhập tệp</button>
+        <p class="hint">Mỗi dòng trong tệp là một câu hỏi chuẩn. Đây là cách tiện hơn khi có nhiều câu.</p>
+        <button class="small-action" id="eval-import-button" type="button">Nhập bộ câu hỏi</button>
       </section>
     </div>
     <div class="stack">
       <section class="panel">
-        <div class="row" style="justify-content:space-between"><strong>Bộ câu hỏi <span id="eval-question-count">0</span></strong><button class="primary" id="eval-run" type="button" disabled>Chạy đánh giá</button></div>
-        <p class="hint">Mục tiêu: 20–30 câu hỏi thật có nguồn đúng do bạn xác nhận.</p>
+        <div class="row" style="justify-content:space-between"><strong>Câu hỏi đã lưu: <span id="eval-question-count">0</span></strong><button class="primary" id="eval-run" type="button" disabled>Chạy kiểm tra</button></div>
+        <p class="hint">Bạn có thể chạy thử với ít câu, nhưng hãy dùng 20–30 câu để so sánh đáng tin hơn.</p>
         <p class="hint" id="eval-empty-hint">Thêm ít nhất một câu hỏi và xác nhận nguồn đúng trước khi chạy đánh giá.</p>
         <div class="question-list" id="eval-question-list"><p class="hint">Chưa có câu hỏi đánh giá. Hãy tự thêm hoặc nhập JSONL.</p></div>
         <p class="hint" id="eval-run-status" role="status" aria-live="polite"></p>
       </section>
       <section class="panel">
-        <strong>Kết quả so sánh</strong>
+        <strong>Kết quả tìm nguồn</strong>
         <div style="overflow:auto;margin-top:8px">
-          <table class="metric-table"><thead><tr><th>Cách tìm</th><th>Dữ kiện R@5</th><th>Dữ kiện MRR</th><th>Nhiều bước R@5</th><th>Nhiều bước MRR</th></tr></thead><tbody id="eval-results"><tr><td>Chưa có dữ liệu</td><td>—</td><td>—</td><td>—</td><td>—</td></tr></tbody></table>
+          <table class="metric-table"><thead><tr><th>Cách tìm</th><th>Dữ kiện · nguồn đúng trong 5 kết quả</th><th>Dữ kiện · thứ hạng nguồn đúng</th><th>Nhiều bước · nguồn đúng trong 5 kết quả</th><th>Nhiều bước · thứ hạng nguồn đúng</th></tr></thead><tbody id="eval-results"><tr><td>Chưa có dữ liệu</td><td>—</td><td>—</td><td>—</td><td>—</td></tr></tbody></table>
         </div>
-        <p class="hint">R@5 (tỷ lệ câu tìm thấy nguồn đúng trong 5 kết quả đầu); MRR (điểm thưởng cao hơn khi nguồn đúng xuất hiện gần đầu danh sách).</p>
+        <p class="hint">Cột “nguồn đúng trong 5 kết quả” cho biết hệ thống có tìm thấy nguồn bạn xác nhận trong 5 kết quả đầu hay không. “Thứ hạng nguồn đúng” càng cao khi nguồn ấy xuất hiện càng gần đầu. Dấu — nghĩa là bộ câu hỏi chưa có câu thuộc loại đó.</p>
         <p class="hint" id="eval-results-meta">Chưa có kết quả đánh giá.</p>
       </section>
       <section class="panel">
-        <strong>Thử nghiệm phương pháp truy xuất</strong>
-        <p class="hint">Các cách tìm chuẩn luôn được chạy. Chọn biến thể để so sánh riêng từng cách và tổ hợp các cách đã chọn bằng cùng bộ câu hỏi.</p>
+        <details class="experiment-options">
+        <summary>Thử nghiệm thêm cách tìm (không bắt buộc)</summary>
+        <p class="hint">Các cách tìm cơ bản luôn được so sánh. Chọn bên dưới nếu muốn đo riêng từng thử nghiệm; bật nhiều mục sẽ có thêm kết quả kết hợp.</p>
         <div class="graph-settings">
-          <label><input id="eval-exp-idf" type="checkbox"> Tăng trọng số khái niệm hiếm (IDF)</label>
-          <label><input id="eval-exp-semantic" type="checkbox"> Mở rộng khái niệm gần nghĩa bằng embedding E5</label>
-          <label><input id="eval-exp-ppr" type="checkbox"> Lan truyền điểm trên đồ thị (PPR)</label>
-          <label for="eval-exp-damping">Hệ số lan truyền (damping)</label><input class="field" id="eval-exp-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
-          <label for="eval-exp-seed">Trọng số nguồn khớp trực tiếp</label><input class="field" id="eval-exp-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
+          <label><input id="eval-exp-idf" type="checkbox"> Ưu tiên khái niệm ít gặp (IDF)</label>
+          <label><input id="eval-exp-semantic" type="checkbox"> Mở rộng từ các đoạn gần nghĩa (E5)</label>
+          <label><input id="eval-exp-ppr" type="checkbox"> Lan điểm qua các liên kết (PPR)</label>
+          <label for="eval-exp-damping">Mức điểm tiếp tục lan sang liên kết kế bên</label><input class="field" id="eval-exp-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
+          <label for="eval-exp-seed">Điểm ban đầu dành cho nguồn khớp thẳng</label><input class="field" id="eval-exp-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
         </div>
-        <p class="hint">IDF ưu tiên khái niệm ít gặp; E5 lấy khái niệm từ các đoạn gần nghĩa; PPR lan truyền điểm qua các cạnh graph. Bật nhiều lựa chọn sẽ thêm một dòng kết quả kết hợp.</p>
+        <p class="hint">Thiết lập này cũng dùng cho lần tìm ở trang Sơ đồ liên kết.</p>
+        </details>
       </section>
-      <div class="rule-box"><strong>Cách đọc kết quả</strong><p>Chế độ hỏi đáp đề xuất kết hợp tìm ngữ nghĩa, từ khóa và đồ thị tri thức (graph). Dùng bộ câu hỏi của bạn để so sánh với các cách tìm riêng; kết quả cho biết đồ thị có giúp trên dữ liệu thực tế hay không.</p></div>
+      <div class="rule-box"><strong>Hiểu kết quả</strong><p>Nếu chỉ có một câu hỏi mà hiện 100%, điều đó mới chứng minh luồng đánh giá chạy được; chưa đủ để kết luận cách tìm tốt hơn.</p></div>
     </div>
   </div>
 </main>
 
 <main class="library-main" id="graph-screen" hidden>
-  <h2 class="screen-title">Đồ thị tri thức (graph)</h2>
+  <h2 class="screen-title">Sơ đồ liên kết cho câu hỏi</h2>
   <section class="panel">
     <form id="graph-form" class="row">
-      <label for="graph-query" class="hint">Câu hỏi để khám phá đồ thị</label>
+      <label for="graph-query" class="hint">Nhập câu hỏi muốn xem các nguồn liên quan</label>
       <input class="field" style="flex:1" id="graph-query" type="search" required>
-      <button class="primary" type="submit">Tìm các mối liên hệ</button>
+      <button class="primary" type="submit">Xem sơ đồ</button>
     </form>
-    <p id="graph-status" class="hint" role="status" aria-live="polite">Nhập câu hỏi để xem đồ thị tri thức (graph) nối các khái niệm với đoạn video và mục tài liệu như thế nào.</p>
-    <div class="node-legend"><span><i class="legend-dot"></i> Khái niệm</span><span><i class="legend-square"></i> Video/phân cảnh hoặc tài liệu</span><span>Nhãn trên đường nối cho biết loại quan hệ</span><span>Đường nét đứt: đoạn liền trước hoặc sau</span></div>
+    <p id="graph-status" class="hint" role="status" aria-live="polite">Sơ đồ chỉ hiện các nội dung liên quan đến câu hỏi, không phải toàn bộ thư viện. Mặc định hiện tối đa 8 khái niệm để dễ đọc.</p>
+    <div class="node-legend"><span><i class="legend-dot"></i> Khái niệm</span><span><i class="legend-square"></i> Video/phân cảnh hoặc tài liệu</span><span>Đường xám: khái niệm xuất hiện trong nguồn.</span><span>Nhãn đường nối: loại quan hệ cụ thể.</span><span>Đường cam đứt: đoạn kế tiếp hoặc khái niệm cùng xuất hiện.</span></div>
+    <p class="graph-help">Đọc sơ đồ từ trái sang phải: khái niệm → nguồn bài giảng. Mở nhóm nguồn bên dưới để xem từng đoạn hoặc mục tài liệu.</p>
     <div class="graph-layout" style="margin-top:12px">
       <div class="graph-canvas" id="graph-canvas"><div class="empty">Chưa có đường đi để hiển thị</div></div>
       <aside class="graph-settings">
-        <fieldset><legend>Tùy chọn hiển thị</legend><label><input id="graph-adjacent" type="checkbox"> Hiện đoạn liền trước / sau</label></fieldset>
-        <fieldset><legend>Điều chỉnh truy xuất graph</legend>
-          <label><input id="graph-idf" type="checkbox"> Tăng trọng số khái niệm hiếm (IDF)</label>
-          <label><input id="graph-semantic" type="checkbox"> Mở rộng bằng embedding E5</label>
-          <label><input id="graph-ppr" type="checkbox"> Lan truyền điểm (PPR)</label>
-          <label for="graph-damping">Hệ số lan truyền (damping)</label><input class="field" id="graph-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
-          <label for="graph-seed">Trọng số nguồn khớp trực tiếp</label><input class="field" id="graph-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
+        <fieldset><legend>Tùy chọn hiển thị</legend>
+          <label><input id="graph-adjacent" type="checkbox"> Thêm đoạn video liền trước / sau để xem bối cảnh</label>
+          <label><input id="graph-all-concepts" type="checkbox"> Hiện tất cả khái niệm</label>
+          <label><input id="graph-cooccurs" type="checkbox"> Hiện cạnh “cùng xuất hiện”</label>
         </fieldset>
-        <p class="hint">Các lựa chọn này đổi thứ tự nguồn cho câu hỏi hiện tại. Đo tác động bằng R@5 và MRR trong Công cụ nâng cao → Đánh giá.</p>
+        <details class="graph-experiments">
+          <summary>Thử thay đổi thứ tự nguồn (tùy chọn)</summary>
+          <p class="hint">Mặc định cứ để tắt. Các thử nghiệm này đổi cách xếp nguồn; bạn có thể đo kết quả ở trang Đánh giá tìm nguồn.</p>
+          <fieldset><legend>Cách xếp nguồn</legend>
+            <label><input id="graph-idf" type="checkbox"> Ưu tiên khái niệm ít gặp (IDF)</label>
+            <label><input id="graph-semantic" type="checkbox"> Mở rộng từ đoạn gần nghĩa (E5)</label>
+            <label><input id="graph-ppr" type="checkbox"> Lan điểm qua các liên kết (PPR)</label>
+            <label for="graph-damping">Mức điểm tiếp tục lan sang liên kết kế bên</label><input class="field" id="graph-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
+            <label for="graph-seed">Điểm dành cho nguồn khớp thẳng</label><input class="field" id="graph-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
+          </fieldset>
+        </details>
       </aside>
     </div>
     <div id="graph-path-list" class="sources"></div>
@@ -407,13 +437,12 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60; const p = (n) => String(n).padStart(2, "0"); return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`; };
 
-let player = null, videos = [], current = null, lastSources = [], lastQuestion = "", pendingJump = null, ytApiReady = false;
+let player = null, videos = [], current = null, lastSources = [], lastQuestion = "", lastGraphData = null, pendingJump = null, ytApiReady = false;
 
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => {
   const target = `${button.dataset.page}-screen`;
   document.querySelectorAll("main").forEach((el) => { el.hidden = el.id !== target; });
   document.querySelectorAll("[data-page]").forEach((el) => el.setAttribute("aria-current", el === button ? "page" : "false"));
-  button.closest(".nav-advanced")?.removeAttribute("open");
   if (button.dataset.page === "library") loadLibrary();
   if (button.dataset.page === "evaluation") loadEvaluation();
 }));
@@ -579,7 +608,7 @@ function renderResult(d) {
   const box = $("#result");
   box.style.display = "block";
   let html = `<div class="answer ${d.found ? "" : "nf"}">${linkify(d.answer, d.sources)}</div>`;
-  if (d.matched_concepts && d.matched_concepts.length) html += `<div class="why"><strong>Vì sao có các đoạn này?</strong> Khái niệm khớp: ${d.matched_concepts.map(esc).join(", ")}</div>`;
+  if (d.matched_concepts && d.matched_concepts.length) html += `<div class="why"><strong>Chủ đề khớp trong câu hỏi:</strong> ${d.matched_concepts.map(esc).join(", ")}</div>`;
   if (d.found && !d.cited) html += `<div class="warn">Mô hình không ghi rõ nguồn cho câu trả lời này. Dưới đây là các đoạn gần nhất tìm được, hãy tự đối chiếu.</div>`;
   if (d.sources.length) {
     html += `<div class="sources">`;
@@ -597,10 +626,10 @@ function renderResult(d) {
       </div>`;
     });
     html += `</div>`;
-    html += `<button class="small-action" type="button" data-eval-from-qa>Đưa câu hỏi này sang bộ đánh giá</button><p class="hint">Các nguồn sẽ được điền sẵn để bạn kiểm tra; chỉ lưu sau khi xác nhận nguồn đúng.</p>`;
+    html += `<button class="small-action" type="button" data-eval-from-qa>Dùng câu hỏi này để kiểm tra tìm nguồn</button><p class="hint">Nguồn tìm được sẽ điền sẵn. Hãy đối chiếu và sửa cho đúng trước khi lưu.</p>`;
   }
-  const modeLabels = { hybrid_graph: "Ngữ nghĩa (vector) + từ khóa (BM25) + đồ thị (graph)", hybrid: "Ngữ nghĩa (vector) + từ khóa (BM25)", vector: "Ngữ nghĩa (vector)", bm25: "Từ khóa (BM25)", graph: "Đồ thị tri thức (graph)" };
-  html += `<div class="timing">Tìm đoạn: ${d.timing.retrieve_s}s · Trả lời: ${d.timing.llm_s}s · Cách tìm: ${modeLabels[d.mode] || esc(d.mode)}</div>`;
+  const modeLabels = { hybrid_graph: "Kết hợp ý nghĩa + từ khóa + liên kết", hybrid: "Kết hợp ý nghĩa + từ khóa", vector: "Tìm theo ý nghĩa", bm25: "Tìm từ khóa", graph: "Tìm qua sơ đồ liên kết" };
+  html += `<div class="timing">Thời gian tìm nguồn: ${d.timing.retrieve_s}s · Soạn câu trả lời: ${d.timing.llm_s}s · Cách tìm: ${modeLabels[d.mode] || esc(d.mode)}</div>`;
   box.innerHTML = html;
   drawTimeline();
 }
@@ -689,6 +718,7 @@ async function loadLibrary(showLoading = true) {
     const r = await fetch("/api/library");
     const items = await r.json();
     if (!r.ok) throw new Error(items.detail || r.statusText);
+    $("#welcome-guide").hidden = items.some((item) => item.status?.state === "ready" || item.status?.label === "Đã chia mục");
     if (!items.length) { list.innerHTML = `<p class="hint">Chưa có video hoặc tài liệu. Thêm nội dung bằng các biểu mẫu bên trái.</p>`; return; }
     list.innerHTML = items.map((item) => {
       const jobId = item.job_id || (item.id.startsWith("job:") ? item.id.slice(4) : "");
@@ -815,8 +845,8 @@ $("#form").addEventListener("submit", async (e) => {
   } catch (err) {
     const detail = String(err.message || "Lỗi không xác định");
     const graphMissing = detail.includes("Chỉ mục chưa có Đồ thị");
-    const message = graphMissing ? "Chưa có đồ thị tri thức (graph) trong dữ liệu đã chuẩn bị." : detail;
-    const hint = graphMissing ? "Hãy chạy lại lệnh vskr index để tạo đồ thị, rồi thử lại." : "";
+    const message = graphMissing ? "Chưa có sơ đồ liên kết trong dữ liệu đã chuẩn bị." : detail;
+    const hint = graphMissing ? "Hãy chạy lại lệnh vskr index để chuẩn bị dữ liệu, rồi thử lại." : "";
     box.innerHTML = `<p class="err">Không trả lời được: ${esc(message)}</p>${hint ? `<p class="hint">${esc(hint)}</p>` : ""}`;
   } finally {
     clearInterval(busyWatch);
@@ -838,10 +868,15 @@ function renderEvalResults(result) {
     $("#eval-results-meta").textContent = "Chưa có kết quả đánh giá.";
     return;
   }
-  const labels = result.method_labels || {
-    hybrid_graph: "Kết hợp + đồ thị (mặc định)", hybrid: "Ngữ nghĩa + từ khóa",
-    vector: "Ngữ nghĩa (vector)", bm25: "Từ khóa (BM25)", graph: "Đồ thị tri thức (graph)",
+  const rawLabels = result.method_labels || {
+    hybrid_graph: "Kết hợp ý nghĩa + từ khóa + liên kết (mặc định)", hybrid: "Kết hợp ý nghĩa + từ khóa",
+    vector: "Tìm theo ý nghĩa", bm25: "Tìm từ khóa", graph: "Tìm qua sơ đồ liên kết",
   };
+  const plainLabels = { hybrid_graph: "Kết hợp ý nghĩa + từ khóa + liên kết (mặc định)", hybrid: "Kết hợp ý nghĩa + từ khóa", vector: "Tìm theo ý nghĩa", bm25: "Tìm từ khóa", graph: "Tìm qua sơ đồ liên kết" };
+  const labels = Object.fromEntries(Object.entries(rawLabels).map(([mode, label]) => [mode, plainLabels[mode] || String(label)
+    .replace("Graph tăng trọng số từ hiếm (IDF)", "Kết hợp · ưu tiên chủ đề ít gặp")
+    .replace("Graph mở rộng khái niệm bằng embedding E5", "Kết hợp · mở rộng chủ đề gần nghĩa (E5)")
+    .replace("Graph lan truyền điểm (PPR)", "Kết hợp · lan điểm qua liên kết (PPR)")]));
   body.innerHTML = Object.entries(labels).filter(([mode]) => result.summary[mode]).map(([mode, label]) => {
     const fact = result.summary[mode]?.fact;
     const multi = result.summary[mode]?.multihop;
@@ -849,11 +884,13 @@ function renderEvalResults(result) {
   }).join("");
   const exp = result.retrieval_config?.experiments;
   const experimentLabel = exp
-    ? ` · Thử nghiệm: ${[
-      exp.idf_weighting && "IDF", exp.semantic_expansion && "E5", exp.ppr && `PPR (d=${exp.damping}, nguồn=${exp.seed_weight})`,
-    ].filter(Boolean).join(", ") || "không bật"}`
+    ? ` · Tuỳ chọn thử nghiệm: ${[
+      exp.idf_weighting && "ưu tiên chủ đề ít gặp", exp.semantic_expansion && "mở rộng chủ đề gần nghĩa (E5)", exp.ppr && `lan điểm qua liên kết (PPR, mức ${exp.damping})`,
+    ].filter(Boolean).join(", ") || "đã tắt"}`
     : "";
-  $("#eval-results-meta").textContent = `Bộ câu hỏi: ${result.question_count ?? "—"} · Chạy lúc: ${result.created_at ? new Date(result.created_at).toLocaleString("vi-VN") : "—"}${experimentLabel} · Chỉ đo khả năng tìm nguồn, không chấm câu trả lời bằng LLM.`;
+  const count = Number(result.question_count || 0);
+  const sampleNote = count < 20 ? " Chạy thử: nên có ít nhất 20 câu để so sánh đáng tin hơn." : "";
+  $("#eval-results-meta").textContent = `Số câu: ${result.question_count ?? "—"} · Thời điểm: ${result.created_at ? new Date(result.created_at).toLocaleString("vi-VN") : "—"}${experimentLabel} · Chỉ đo tìm nguồn, không chấm câu trả lời.${sampleNote}`;
 }
 
 function evalExperimentOptions() {
@@ -1002,18 +1039,31 @@ function svgElement(name, attrs = {}) {
 }
 
 function renderGraph(data) {
+  lastGraphData = data;
   const canvas = $("#graph-canvas");
   const list = $("#graph-path-list");
   canvas.innerHTML = "";
   list.innerHTML = "";
   if (!data.nodes.length) {
-    canvas.innerHTML = `<div class="empty" style="padding:40px">Không tìm thấy khái niệm phù hợp trong đồ thị tri thức (graph).</div>`;
+    canvas.innerHTML = `<div class="empty" style="padding:40px">Chưa tìm thấy khái niệm hoặc nguồn liên quan đến câu hỏi này.</div>`;
     $("#graph-status").textContent = "Không tìm thấy mối liên hệ phù hợp với câu hỏi này.";
     return;
   }
-  const concepts = data.nodes.filter((n) => n.kind === "concept");
+  const allConcepts = data.nodes.filter((n) => n.kind === "concept");
   const videoScenes = new Map(data.nodes.filter((n) => n.kind === "video_scene").map((n) => [`${n.video_id}:${n.scene_id}`, n]));
   const sourceNodes = data.nodes.filter((n) => n.kind !== "concept" && n.kind !== "video_scene");
+  const mentionCounts = new Map();
+  for (const edge of data.edges) {
+    if (edge.type === "MENTIONS") mentionCounts.set(edge.from, (mentionCounts.get(edge.from) || 0) + (edge.weight || 1));
+  }
+  const queryTokens = new Set(($("#graph-query").value.toLocaleLowerCase("vi").match(/[\p{L}\p{N}]+/gu) || []));
+  const directConcepts = allConcepts.filter((node) => queryTokens.has(node.label.toLocaleLowerCase("vi")));
+  const otherConcepts = allConcepts.filter((node) => !directConcepts.includes(node))
+    .sort((a, b) => (mentionCounts.get(b.id) || 0) - (mentionCounts.get(a.id) || 0) || a.label.localeCompare(b.label, "vi"));
+  const orderedConcepts = [...directConcepts, ...otherConcepts];
+  const concepts = $("#graph-all-concepts").checked ? orderedConcepts : orderedConcepts.slice(0, 8);
+  const allConceptIds = new Set(allConcepts.map((node) => node.id));
+  const visibleConceptIds = new Set(concepts.map((node) => node.id));
   const groupMap = new Map(), nodeToGroup = new Map();
   for (const node of sourceNodes) {
     const isDocument = node.kind === "document_section";
@@ -1042,9 +1092,15 @@ function renderGraph(data) {
   const groups = [...groupMap.values()].sort((a, b) =>
     `${a.title}:${a.start ?? 0}`.localeCompare(`${b.title}:${b.start ?? 0}`, "vi")
   );
-  const groupsById = new Map(groups.map((group) => [group.id, group]));
   const graphEdges = new Map();
+  let hiddenCooccurrences = 0;
   for (const edge of data.edges) {
+    if (allConceptIds.has(edge.from) && !visibleConceptIds.has(edge.from)) continue;
+    if (allConceptIds.has(edge.to) && !visibleConceptIds.has(edge.to)) continue;
+    if (edge.type === "CO_OCCURS" && !$("#graph-cooccurs").checked) {
+      hiddenCooccurrences += 1;
+      continue;
+    }
     const from = nodeToGroup.get(edge.from) || edge.from;
     const to = nodeToGroup.get(edge.to) || edge.to;
     if (from === to || edge.type === "PART_OF_SCENE") continue;
@@ -1054,8 +1110,9 @@ function renderGraph(data) {
     graphEdges.set(key, existing);
   }
   const edges = [...graphEdges.values()];
+  let edgeCount = 0;
   const width = 900, height = Math.max(420, Math.max(concepts.length, groups.length) * 96 + 40);
-  const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Đồ thị tri thức (graph) nối các khái niệm với nguồn bài giảng" });
+  const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Sơ đồ nối các chủ đề với nguồn bài giảng" });
   const positions = new Map();
   concepts.forEach((n, i) => positions.set(n.id, { x: 170, y: 42 + i * (height - 84) / Math.max(concepts.length - 1, 1) }));
   groups.forEach((group, i) => positions.set(group.id, { x: 700, y: 42 + i * (height - 84) / Math.max(groups.length - 1, 1) }));
@@ -1068,9 +1125,17 @@ function renderGraph(data) {
   for (const edge of edges) {
     const a = positions.get(edge.from), b = positions.get(edge.to);
     if (!a || !b) continue;
-    const line = svgElement("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: edge.type === "NEXT_SEGMENT" ? "#9a6a20" : "#82909c", "stroke-width": edge.type === "NEXT_SEGMENT" ? 2.5 : 1.5, opacity: .78 });
+    const line = svgElement("line", {
+      x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+      stroke: edge.type === "NEXT_SEGMENT" || edge.type === "CO_OCCURS" ? "#9a6a20" : edge.type === "VIDEO_DOCUMENT_MATCH" ? "#35b7ae" : "#82909c",
+      "stroke-width": edge.type === "NEXT_SEGMENT" ? 2.5 : edge.type === "CO_OCCURS" ? 1 : 1.5,
+      opacity: edge.type === "CO_OCCURS" ? .2 : edge.type === "MENTIONS" ? .55 : .82,
+    });
     if (edge.type === "NEXT_SEGMENT") line.setAttribute("stroke-dasharray", "7 6");
+    if (edge.type === "CO_OCCURS") line.setAttribute("stroke-dasharray", "3 5");
     svg.appendChild(line);
+    edgeCount += 1;
+    if (edge.type === "MENTIONS" || edge.type === "CO_OCCURS") continue;
     const label = svgElement("text", {
       x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 5, fill: "currentColor", "font-size": 11,
       "text-anchor": "middle", "paint-order": "stroke", stroke: "var(--canvas)", "stroke-width": 4,
@@ -1097,12 +1162,13 @@ function renderGraph(data) {
     svg.appendChild(label);
   }
   canvas.appendChild(svg);
-  const edgeCount = edges.length;
   const activeExperiments = data.experiments ? [
     data.experiments.idf_weighting && "IDF", data.experiments.semantic_expansion && "E5", data.experiments.ppr && "PPR",
   ].filter(Boolean) : [];
-  const experimentStatus = activeExperiments.length ? ` · Đang áp dụng: ${activeExperiments.join(" + ")}` : " · Chưa bật điều chỉnh thử nghiệm";
-  $("#graph-status").textContent = `Khớp ${data.matched_concepts.length} khái niệm · gom ${sourceNodes.length} đoạn thành ${groups.length} nhóm nguồn · ${edgeCount} loại liên kết được hiển thị${experimentStatus}.`;
+  const experimentNames = { IDF: "ưu tiên chủ đề ít gặp", E5: "mở rộng chủ đề gần nghĩa", PPR: "lan điểm qua liên kết" };
+  const experimentStatus = activeExperiments.length ? ` · Tuỳ chọn đang bật: ${activeExperiments.map((name) => experimentNames[name] || name).join(" + ")}` : " · Tuỳ chọn thử nghiệm đang tắt";
+  const hiddenNote = hiddenCooccurrences ? ` · đang ẩn ${hiddenCooccurrences} cạnh “cùng xuất hiện”` : "";
+  $("#graph-status").textContent = `Sơ đồ có ${concepts.length}/${allConcepts.length} chủ đề và ${groups.length} nhóm nguồn liên quan (${sourceNodes.length} đoạn hoặc mục, ${edgeCount} đường nối)${hiddenNote}${experimentStatus}.`;
   const renderMember = (node) => {
     const isDocument = node.kind === "document_section";
     const label = isDocument ? `Mục ${node.section ?? "—"}` : `${fmt(node.start || 0)}${node.end != null ? `–${fmt(node.end)}` : ""}`;
@@ -1122,11 +1188,17 @@ function renderGraph(data) {
   list.dataset.nodes = JSON.stringify(sourceNodes);
 }
 
+["#graph-all-concepts", "#graph-cooccurs"].forEach((selector) => {
+  $(selector).addEventListener("change", () => {
+    if (lastGraphData) renderGraph(lastGraphData);
+  });
+});
+
 $("#graph-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const query = $("#graph-query").value.trim();
   if (!query) return;
-  $("#graph-status").textContent = "Đang lần theo các mối liên hệ trong đồ thị tri thức (graph)…";
+  $("#graph-status").textContent = "Đang tìm các khái niệm và nguồn có liên quan…";
   try {
     const ppr = $("#graph-ppr").checked;
     const options = {

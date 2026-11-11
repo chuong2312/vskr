@@ -83,6 +83,7 @@ def build_graph(chunks, max_keywords_per_segment=12, vectors=None,
         is_document = "doc" in source_types or chunk.get("source_type") == "doc"
         source_id = str(chunk["chunk_id"])
         source_node_id = f"source:{source_id}"
+        scene_node_id = None
         chunk_nodes[source_id] = source_node_id
         nodes[source_node_id] = {
             "id": source_node_id,
@@ -113,11 +114,13 @@ def build_graph(chunks, max_keywords_per_segment=12, vectors=None,
             concept_id = f"concept:{term}"
             nodes.setdefault(concept_id, {"id": concept_id, "kind": "concept", "label": term})
             concept_ids.append(concept_id)
-            _add_edge(edges, concept_id, source_node_id, "MENTIONS")
+            _add_edge(edges, concept_id, source_node_id, "MENTIONS", evidence_chunk_id=source_id)
+            if scene_node_id:
+                _add_edge(edges, concept_id, scene_node_id, "MENTIONS", evidence_chunk_id=source_id)
         for i, left in enumerate(concept_ids):
             for right in concept_ids[i + 1:]:
                 a, b = sorted((left, right))
-                _add_edge(edges, a, b, "CO_OCCURS")
+                _add_edge(edges, a, b, "CO_OCCURS", evidence_chunk_id=source_id)
 
         if relation_extractor:
             text_norm = re.sub(r"\s+", " ", chunk["text"]).casefold()

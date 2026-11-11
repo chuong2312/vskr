@@ -11,7 +11,7 @@ def main():
     p.add_argument("--gpu-test", action="store_true", help="chạy thử faster-whisper thật trên GPU (tải model tiny ~75MB)")
     p = sub.add_parser("ingest", help="tải video/âm thanh từ URL được yt-dlp hỗ trợ")
     p.add_argument("urls", nargs="+")
-    p.add_argument("--with-video", action="store_true", help="tải cả hình 720p (cần cho OCR sau này)")
+    p.add_argument("--audio-only", action="store_true", help="chỉ tải audio, bỏ phát hiện phân cảnh")
     p = sub.add_parser("asr", help="nhận dạng giọng nói")
     p.add_argument("--video", action="append", help="video_id (mặc định: tất cả)")
     p.add_argument("--force", action="store_true")
@@ -44,7 +44,12 @@ def main():
         from .ingest import ingest
 
         for u in args.urls:
-            m = ingest(u, cfg, with_video=args.with_video)
+            m = ingest(u, cfg, with_video=not args.audio_only)
+            if not args.audio_only:
+                from .frames import detect_scenes_only
+
+                detected = detect_scenes_only(cfg, m["video_id"])
+                print(f"[scenes] {detected['scene_count']} phân cảnh")
             print(f"[ingest] {m['video_id']} | {m['title']} | {m['duration']}s")
     elif args.cmd == "asr":
         from . import asr

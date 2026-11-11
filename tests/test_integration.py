@@ -60,13 +60,13 @@ class TestPipeline(unittest.TestCase):
 
     def test_all_modes_find_variable_chunk(self):
         r = self._retriever()
-        for mode in ("vector", "bm25", "hybrid", "graph"):
+        for mode in ("vector", "bm25", "hybrid", "graph", "hybrid_graph"):
             hits = r.search("khai báo biến python", mode=mode, top_k=2)
             self.assertTrue(hits, mode)
             self.assertEqual(hits[0]["chunk"]["start"], 0, mode)
 
-    def test_default_mode_is_hybrid(self):
-        self.assertEqual(self.cfg["retrieval"]["mode"], "hybrid")
+    def test_default_mode_combines_graph_and_text_retrieval(self):
+        self.assertEqual(self.cfg["retrieval"]["mode"], "hybrid_graph")
         hits = self._retriever().search("khai báo biến python")
         self.assertTrue(hits)
         self.assertEqual(hits[0]["chunk"]["start"], 0)

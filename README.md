@@ -7,8 +7,8 @@ VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ m�
 - `backend/src/vskr`: package Python của ứng dụng. Môi trường venv dùng Python 3.12, FFmpeg, yt-dlp, faster-whisper, PySceneDetect, E5-small, BM25/RRF và FastAPI. Embedding chạy CPU; ASR dùng GPU qua CTranslate2.
 - QA gọi Ollama API tại `localhost:11434`; cần cài/chạy Ollama riêng. VSKR chạy trực tiếp trong venv.
 - Dữ liệu nằm trong `./data`, model/download cache trong `./cache`.
-- Tìm kiếm mặc định là **hybrid**: vector E5 tìm theo ngữ nghĩa + BM25 tìm từ khóa, sau đó RRF hợp nhất thứ hạng. Có thể chọn riêng `vector`, `bm25` hoặc graph để so sánh. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
-- Knowledge Graph hiện hỗ trợ node phân cảnh video có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn graph nhiều bước. Với video đã ingest kèm hình (`vskr ingest --with-video`), chạy `vskr frames --video <id>`; nếu `frames.json` đã cũ thì thêm `--force`. Sau đó chạy `vskr index`. Các liên kết liên phương thức chỉ được giữ khi điểm cosine vượt ngưỡng và có khái niệm trùng (hoặc điểm rất cao). Chọn `graph` trong giao diện hoặc `vskr ask "..." --mode graph`; hybrid vẫn là baseline để so sánh.
+- Hỏi đáp mặc định kết hợp **vector E5 + BM25 + truy xuất đồ thị**, rồi hợp nhất thứ hạng bằng RRF. Người dùng chỉ cần đặt câu hỏi; có thể chọn riêng `hybrid`, `vector`, `bm25` hoặc `graph` để so sánh. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
+- Knowledge Graph hỗ trợ node phân cảnh video có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn nhiều bước. Với video đã ingest kèm hình (`vskr ingest --with-video`), chạy `vskr frames --video <id>`; nếu `frames.json` đã cũ thì thêm `--force`. Sau đó chạy `vskr index`. Các liên kết liên phương thức chỉ được giữ khi điểm cosine vượt ngưỡng và có khái niệm trùng (hoặc điểm rất cao). Có thể chọn riêng `graph` để xem kết quả chỉ từ đồ thị.
 - Muốn trích xuất quan hệ có kiểu như `DEPENDS_ON`, `PART_OF`, `CAUSES` từ transcript và tài liệu, bật `VSKR__KNOWLEDGE_GRAPH__EXTRACT_RELATIONS=true` rồi chạy lại `vskr index`. Ollama sẽ xử lý tối đa số đoạn đặt trong `knowledge_graph.max_relation_chunks`; mọi quan hệ được lưu kèm bằng chứng văn bản và bị bỏ qua nếu không khớp nội dung nguồn. Tính năng này tắt mặc định để index vẫn chạy độc lập Ollama.
 
 PySceneDetect được cài dưới tên package `scenedetect-headless` và import trong Python là `scenedetect`. Nó tìm điểm đổi cảnh; FFmpeg trích frame. Đây không phải package `pyscenecut`.
@@ -55,7 +55,8 @@ Repo không chứa video, transcript hay index mẫu. Với bản clone mới, h
 vskr ingest "<URL_VIDEO>"
 vskr asr --video <video_id>
 vskr index
-vskr ask "câu hỏi về video"
+vskr ask "câu hỏi về video"                 # mặc định vector + BM25 + đồ thị
+vskr ask "câu hỏi về video" --mode graph    # chỉ truy xuất đồ thị
 vskr serve --host 0.0.0.0
 ```
 

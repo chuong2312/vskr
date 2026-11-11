@@ -10,7 +10,7 @@ class Retriever:
         self.index, self.embedder, self.cfg = index, embedder, rcfg
 
     def search(self, query, mode=None, top_k=None):
-        mode = mode or self.cfg.get("mode", "hybrid")
+        mode = mode or self.cfg.get("mode", "hybrid_graph")
         top_k = top_k or self.cfg.get("top_k", 5)
         cand = self.cfg.get("candidate_k", 20)
         idx = self.index
@@ -18,12 +18,14 @@ class Retriever:
             if not idx.graph.get("nodes"):
                 raise RuntimeError("Chỉ mục chưa có Đồ thị tri thức. Hãy chạy lại: vskr index")
             return search_graph(idx.graph, idx.chunks, query, top_k=top_k)
+        if mode == "hybrid_graph" and not idx.graph.get("nodes"):
+            raise RuntimeError("Chỉ mục chưa có Đồ thị tri thức. Hãy chạy lại: vskr index")
         vec_scores = None
-        if mode in ("vector", "hybrid"):
+        if mode in ("vector", "hybrid", "hybrid_graph"):
             q = self.embedder.encode_query(query)
             vec_scores = idx.vectors @ q
             thr = self.cfg.get("min_vector_score")
-            if thr is not None and float(vec_scores.max()) < thr:
+            if mode == "vector" and thr is not None and float(vec_scores.max()) < thr:
                 return []
         if mode == "vector":
             order = np.argsort(-vec_scores)[:top_k]
@@ -32,12 +34,27 @@ class Retriever:
             s = np.array(idx.bm25.scores(tokenize(query)))
             order = [int(i) for i in np.argsort(-s)[:top_k] if s[i] > 0]
             pairs = [(i, float(s[i])) for i in order]
-        elif mode == "hybrid":
+        elif mode in ("hybrid", "hybrid_graph"):
             vr = [int(i) for i in np.argsort(-vec_scores)[:cand]]
+            thr = self.cfg.get("min_vector_score")
+            if mode == "hybrid_graph" and thr is not None and float(vec_scores.max()) < thr:
+                vr = []
             s = np.array(idx.bm25.scores(tokenize(query)))
             br = [int(i) for i in np.argsort(-s)[:cand] if s[i] > 0]
-            fused = rrf_fuse([vr, br], k=self.cfg.get("rrf_k", 60))[:top_k]
-            pairs = [(i, sc) for i, sc in fused]
+            rankings = [vr, br]
+            if mode == "hybrid_graph":
+                graph_hits = search_graph(idx.graph, idx.chunks, query, top_k=cand)
+                graph_ranking = [hit["idx"] for hit in graph_hits]
+                rankings.append(graph_ranking)
+            fused = rrf_fuse(rankings, k=self.cfg.get("rrf_k", 60))[:top_k]
+            graph_meta = {hit["idx"]: hit for hit in graph_hits} if mode == "hybrid_graph" else {}
+            pairs = [(i, sc, graph_meta.get(i)) for i, sc in fused]
         else:
             raise ValueError(f"mode không hợp lệ: {mode}")
+        if mode in ("hybrid", "hybrid_graph"):
+            return [
+                {"idx": i, "score": sc, "chunk": idx.chunks[i],
+                 **({"matched_concepts": meta.get("matched_concepts", [])} if meta else {})}
+                for i, sc, meta in pairs
+            ]
         return [{"idx": i, "score": sc, "chunk": idx.chunks[i]} for i, sc in pairs]

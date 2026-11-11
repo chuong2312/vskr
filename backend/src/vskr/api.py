@@ -584,8 +584,8 @@ def ask(req: AskRequest):
     q = req.question.strip()
     if not q:
         raise HTTPException(400, "Câu hỏi trống")
-    if req.mode not in (None, "vector", "bm25", "hybrid", "graph"):
-        raise HTTPException(400, "mode phải là vector, bm25, hybrid hoặc graph")
+    if req.mode not in (None, "vector", "bm25", "hybrid", "graph", "hybrid_graph"):
+        raise HTTPException(400, "mode phải là vector, bm25, hybrid, graph hoặc hybrid_graph")
     try:
         if state["service"] is None:
             _init_service()
@@ -666,7 +666,7 @@ def run_retrieval_evaluation():
         _init_service()
     if state["service"] is None:
         raise HTTPException(503, state["error"] or "Dịch vụ chưa sẵn sàng")
-    modes = ("vector", "bm25", "hybrid", "graph")
+    modes = ("vector", "bm25", "hybrid", "graph", "hybrid_graph")
     hits = {mode: {} for mode in modes}
     with _service_use_lock:
         service = state["service"]

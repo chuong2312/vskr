@@ -29,7 +29,7 @@ def main():
     p.add_argument("file", help="tệp TXT, MD, RST, PDF hoặc DOCX")
     p = sub.add_parser("ask", help="hỏi thử trên dòng lệnh")
     p.add_argument("question")
-    p.add_argument("--mode", choices=["vector", "bm25", "hybrid", "graph"])
+    p.add_argument("--mode", choices=["vector", "bm25", "hybrid", "graph", "hybrid_graph"])
     p = sub.add_parser("serve", help="chạy trang demo")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)

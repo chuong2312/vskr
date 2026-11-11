@@ -92,6 +92,6 @@ class Service:
             "cited": res["cited"],
             "sources": sources,
             "matched_concepts": sorted({term for hit in hits for term in hit.get("matched_concepts", [])}),
-            "mode": mode or self.cfg["retrieval"].get("mode", "vector"),
+            "mode": mode or self.cfg["retrieval"].get("mode", "hybrid_graph"),
             "timing": {"retrieve_s": round(t1 - t0, 3), "llm_s": round(t2 - t1, 2)},
         }

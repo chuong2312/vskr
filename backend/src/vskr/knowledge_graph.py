@@ -154,7 +154,9 @@ def build_graph(chunks, max_keywords_per_segment=12, vectors=None,
     return {"version": 2, "nodes": list(nodes.values()), "edges": list(edges.values())}
 
 
-def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_hops=3):
+def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_hops=3,
+                semantic_terms=None, idf_weights=None, ppr=False, damping=0.5,
+                seed_weight=0.05):
     """Traverse query concepts through typed relations and cross-modal links.
 
     The result shape matches the existing vector/BM25 retrievers, preserving
@@ -164,15 +166,21 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
     query_terms = list(dict.fromkeys(keywords(question, limit=32)))
     query_tokens = set(tokenize(question))
     normalized_question = " ".join(tokenize(question))
-    anchors = {f"concept:{term}" for term in query_terms if f"concept:{term}" in nodes}
+    anchor_weights = {
+        f"concept:{term}": 1.0 for term in query_terms if f"concept:{term}" in nodes
+    }
     for node_id, node in nodes.items():
-        if node.get("kind") != "concept" or node_id in anchors:
+        if node.get("kind") != "concept" or node_id in anchor_weights:
             continue
         label_tokens = set(tokenize(node.get("label", "")))
         phrase = " ".join(tokenize(node.get("label", "")))
         if (phrase and phrase in normalized_question) or (len(label_tokens) > 1 and label_tokens <= query_tokens):
-            anchors.add(node_id)
-    if not anchors:
+            anchor_weights[node_id] = 1.0
+    for label, similarity in (semantic_terms or {}).items():
+        concept_id = f"concept:{label}"
+        if concept_id in nodes and concept_id not in anchor_weights:
+            anchor_weights[concept_id] = max(0.0, min(1.0, float(similarity)))
+    if not anchor_weights:
         return []
 
     adjacency = defaultdict(list)
@@ -185,9 +193,9 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
             adjacency[right].append((left, edge))
 
     source_depth = {}
-    matched_by_source = defaultdict(set)
-    queue = deque((anchor, anchor, 0) for anchor in anchors)
-    visited = {(anchor, anchor) for anchor in anchors}
+    matched_by_source = defaultdict(dict)
+    queue = deque((anchor, anchor, 0) for anchor in anchor_weights)
+    visited = {(anchor, anchor) for anchor in anchor_weights}
     while queue:
         current, anchor, depth = queue.popleft()
         if depth >= max_hops:
@@ -205,7 +213,48 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
                 previous = source_depth.get(neighbor)
                 if previous is None or next_depth < previous:
                     source_depth[neighbor] = next_depth
-                matched_by_source[neighbor].add(anchor.removeprefix("concept:"))
+                term = anchor.removeprefix("concept:")
+                matched_by_source[neighbor][term] = max(
+                    matched_by_source[neighbor].get(term, 0.0), anchor_weights[anchor]
+                )
+
+    ppr_scores = {}
+    if ppr and source_depth:
+        personalization = {}
+        anchor_mass = 1.0
+        direct_sources = [node_id for node_id, depth in source_depth.items() if depth == 1]
+        if direct_sources:
+            anchor_mass = 1.0 - seed_weight
+            for source_id in direct_sources:
+                personalization[source_id] = seed_weight / len(direct_sources)
+        anchor_total = sum(anchor_weights.values()) or 1.0
+        for anchor, weight in anchor_weights.items():
+            personalization[anchor] = personalization.get(anchor, 0.0) + anchor_mass * weight / anchor_total
+
+        relevant_nodes = {node_id for node_id, _anchor in visited}
+        neighbors = {node_id: set() for node_id in relevant_nodes}
+        for node_id in relevant_nodes:
+            neighbors[node_id].update(other for other, _edge in adjacency.get(node_id, []) if other in relevant_nodes)
+        ranks = {node_id: personalization.get(node_id, 0.0) for node_id in relevant_nodes}
+        for _ in range(40):
+            updated = {node_id: (1.0 - damping) * personalization.get(node_id, 0.0) for node_id in relevant_nodes}
+            dangling = 0.0
+            for node_id, rank in ranks.items():
+                linked = neighbors.get(node_id, set())
+                if not linked:
+                    dangling += rank
+                    continue
+                share = damping * rank / len(linked)
+                for neighbor in linked:
+                    updated[neighbor] += share
+            if dangling:
+                for node_id, value in personalization.items():
+                    updated[node_id] += damping * dangling * value
+            difference = sum(abs(updated.get(node_id, 0.0) - ranks.get(node_id, 0.0)) for node_id in relevant_nodes)
+            ranks = updated
+            if difference < 1e-9:
+                break
+        ppr_scores = ranks
 
     chunks_by_id = {
         str(chunk["chunk_id"]): (i, chunk) for i, chunk in enumerate(chunks)
@@ -216,11 +265,22 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
         item = chunks_by_id.get(str(source.get("chunk_id")))
         if item is not None:
             idx, chunk = item
+            matched = matched_by_source[source_node_id]
             score = expansion_weight ** max(0, depth - 1)
-            ranked.append((idx, chunk, score, int(depth == 1), matched_by_source[source_node_id]))
-    ranked.sort(key=lambda row: (-row[2], -row[3], row[1].get("start") or 0, row[0]))
+            if matched:
+                score *= sum(matched.values()) / len(matched)
+            if idf_weights and matched:
+                query_idfs = [idf_weights.get(node_id.removeprefix("concept:"), 0.0) for node_id in anchor_weights]
+                mean_query_idf = sum(query_idfs) / len(query_idfs) if query_idfs else 0.0
+                mean_match_idf = sum(idf_weights.get(term, 0.0) for term in matched) / len(matched)
+                score *= 1.0 + min(1.0, mean_match_idf / mean_query_idf) if mean_query_idf else 1.0
+            ranked.append((idx, chunk, score, int(depth == 1), matched))
+    if ppr:
+        ranked.sort(key=lambda row: (-ppr_scores.get(f"source:{row[1]['chunk_id']}", 0.0), -row[2], -row[3], row[1].get("start") or 0, row[0]))
+    else:
+        ranked.sort(key=lambda row: (-row[2], -row[3], row[1].get("start") or 0, row[0]))
     return [
-        {"idx": idx, "score": round(score, 6), "chunk": chunk,
+        {"idx": idx, "score": round(ppr_scores.get(f"source:{chunk['chunk_id']}", score) if ppr else score, 6), "chunk": chunk,
          "matched_concepts": sorted(concepts)}
         for idx, chunk, score, _direct, concepts in ranked[:top_k]
     ]

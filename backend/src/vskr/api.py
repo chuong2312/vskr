@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .config import ROOT, data_dir, index_dir, load_config, video_dir, videos_dir
 from .index import load_meta
@@ -24,6 +24,14 @@ from .util import read_json, write_json
 class AskRequest(BaseModel):
     question: str
     mode: Optional[str] = None
+
+
+class RetrievalExperiment(BaseModel):
+    idf_weighting: bool = False
+    semantic_expansion: bool = False
+    ppr: bool = False
+    damping: float = Field(default=0.5, ge=0.0, le=0.99)
+    seed_weight: float = Field(default=0.05, ge=0.0, le=1.0)
 
 
 def _eval_dir():
@@ -658,7 +666,7 @@ def delete_eval_question(question_id: str):
 
 
 @app.post("/api/eval/run")
-def run_retrieval_evaluation():
+def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment()):
     questions = _read_questions()
     if not questions:
         raise HTTPException(409, "Chưa có câu hỏi đánh giá. Hãy thêm câu hỏi và nguồn đúng trước.")
@@ -668,12 +676,46 @@ def run_retrieval_evaluation():
         raise HTTPException(503, state["error"] or "Dịch vụ chưa sẵn sàng")
     modes = ("vector", "bm25", "hybrid", "graph", "hybrid_graph")
     hits = {mode: {} for mode in modes}
+    method_labels = {
+        "hybrid_graph": "Kết hợp + đồ thị (mặc định)",
+        "hybrid": "Ngữ nghĩa + từ khóa",
+        "vector": "Ngữ nghĩa (vector)",
+        "bm25": "Từ khóa (BM25)",
+        "graph": "Đồ thị tri thức (graph)",
+    }
+    selected = {
+        "idf_weighting": options.idf_weighting,
+        "semantic_expansion": options.semantic_expansion,
+        "ppr": options.ppr,
+    }
+    experiment_variants = []
+    experiment_labels = {
+        "idf_weighting": ("idf", "Graph tăng trọng số từ hiếm (IDF)"),
+        "semantic_expansion": ("e5", "Graph mở rộng khái niệm bằng embedding E5"),
+        "ppr": ("ppr", "Graph lan truyền điểm (PPR)"),
+    }
+    for option_name, enabled in selected.items():
+        if enabled:
+            key, label = experiment_labels[option_name]
+            experiment_variants.append((f"hybrid_graph_{key}", label, {option_name: True}))
+    active = {name: True for name, enabled in selected.items() if enabled}
+    if len(active) > 1:
+        labels = [experiment_labels[name][1] for name in active]
+        experiment_variants.append(("hybrid_graph_combined", "Kết hợp thử nghiệm: " + " + ".join(labels), active))
+    for key, label, _experiment in experiment_variants:
+        method_labels[key] = label
+        hits[key] = {}
     with _service_use_lock:
         service = state["service"]
         try:
             for question in questions:
                 for mode in modes:
                     hits[mode][question["id"]] = service.retriever.search(question["question"], mode=mode, top_k=5)
+                for key, _label, experiment in experiment_variants:
+                    params = {**experiment, "damping": options.damping, "seed_weight": options.seed_weight}
+                    hits[key][question["id"]] = service.retriever.search(
+                        question["question"], mode="hybrid_graph", top_k=5, experiment=params
+                    )
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from exc
     from .evaluation import score_results
@@ -682,7 +724,11 @@ def run_retrieval_evaluation():
     result = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "question_count": len(questions),
-        "retrieval_config": {**service.cfg["retrieval"], "modes": list(modes), "k": 5},
+        "retrieval_config": {
+            **service.cfg["retrieval"], "modes": list(hits), "k": 5,
+            "experiments": {**selected, "damping": options.damping, "seed_weight": options.seed_weight},
+        },
+        "method_labels": method_labels,
         **scored,
     }
     write_json(_eval_dir() / "results.json", result)
@@ -690,7 +736,11 @@ def run_retrieval_evaluation():
 
 
 @app.get("/api/graph")
-def inspect_graph(query: str, adjacent: bool = False):
+def inspect_graph(query: str, adjacent: bool = False, idf_weighting: bool = False,
+                  semantic_expansion: bool = False, ppr: bool = False,
+                  damping: float = 0.5, seed_weight: float = 0.05):
+    if not 0.0 <= damping <= 0.99 or not 0.0 <= seed_weight <= 1.0:
+        raise HTTPException(422, "Tham số lan truyền graph phải nằm trong khoảng hợp lệ.")
     if state["service"] is None:
         _init_service()
     if state["service"] is None:
@@ -700,7 +750,10 @@ def inspect_graph(query: str, adjacent: bool = False):
         graph = service.index.graph
         if not graph.get("nodes"):
             raise HTTPException(409, "Chỉ mục chưa có Đồ thị tri thức. Hãy chạy lại: vskr index")
-        hits = service.retriever.search(query, mode="graph", top_k=8)
+        hits = service.retriever.search(query, mode="graph", top_k=8, experiment={
+            "idf_weighting": idf_weighting, "semantic_expansion": semantic_expansion,
+            "ppr": ppr, "damping": damping, "seed_weight": seed_weight,
+        })
         chunks = service.index.chunks
     hit_by_id = {hit["chunk"]["chunk_id"]: hit for hit in hits}
     source_ids = {f"source:{chunk_id}" for chunk_id in hit_by_id}
@@ -767,4 +820,6 @@ def inspect_graph(query: str, adjacent: bool = False):
                         existing.add(pair)
     return {"query": query, "nodes": nodes, "edges": edges,
             "matched_concepts": sorted(concept_labels), "result_count": len(hits), "adjacent": adjacent,
-            "score_name": "điểm truy xuất graph hiện tại"}
+            "experiments": {"idf_weighting": idf_weighting, "semantic_expansion": semantic_expansion,
+                           "ppr": ppr, "damping": damping, "seed_weight": seed_weight},
+            "score_name": "điểm graph có áp dụng tùy chọn thử nghiệm nếu được bật"}

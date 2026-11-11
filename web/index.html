@@ -352,6 +352,18 @@
         <p class="hint">R@5 (tỷ lệ câu tìm thấy nguồn đúng trong 5 kết quả đầu); MRR (điểm thưởng cao hơn khi nguồn đúng xuất hiện gần đầu danh sách).</p>
         <p class="hint" id="eval-results-meta">Chưa có kết quả đánh giá.</p>
       </section>
+      <section class="panel">
+        <strong>Thử nghiệm phương pháp truy xuất</strong>
+        <p class="hint">Các cách tìm chuẩn luôn được chạy. Chọn biến thể để so sánh riêng từng cách và tổ hợp các cách đã chọn bằng cùng bộ câu hỏi.</p>
+        <div class="graph-settings">
+          <label><input id="eval-exp-idf" type="checkbox"> Tăng trọng số khái niệm hiếm (IDF)</label>
+          <label><input id="eval-exp-semantic" type="checkbox"> Mở rộng khái niệm gần nghĩa bằng embedding E5</label>
+          <label><input id="eval-exp-ppr" type="checkbox"> Lan truyền điểm trên đồ thị (PPR)</label>
+          <label for="eval-exp-damping">Hệ số lan truyền (damping)</label><input class="field" id="eval-exp-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
+          <label for="eval-exp-seed">Trọng số nguồn khớp trực tiếp</label><input class="field" id="eval-exp-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
+        </div>
+        <p class="hint">IDF ưu tiên khái niệm ít gặp; E5 lấy khái niệm từ các đoạn gần nghĩa; PPR lan truyền điểm qua các cạnh graph. Bật nhiều lựa chọn sẽ thêm một dòng kết quả kết hợp.</p>
+      </section>
       <div class="rule-box"><strong>Cách đọc kết quả</strong><p>Chế độ hỏi đáp đề xuất kết hợp tìm ngữ nghĩa, từ khóa và đồ thị tri thức (graph). Dùng bộ câu hỏi của bạn để so sánh với các cách tìm riêng; kết quả cho biết đồ thị có giúp trên dữ liệu thực tế hay không.</p></div>
     </div>
   </div>
@@ -371,13 +383,14 @@
       <div class="graph-canvas" id="graph-canvas"><div class="empty">Chưa có đường đi để hiển thị</div></div>
       <aside class="graph-settings">
         <fieldset><legend>Tùy chọn hiển thị</legend><label><input id="graph-adjacent" type="checkbox"> Hiện đoạn liền trước / sau</label></fieldset>
-        <fieldset><legend>Thử nghiệm sau bộ đánh giá</legend>
-          <label><input type="checkbox" disabled> Tăng trọng số từ hiếm (IDF)</label>
-          <label><input type="checkbox" disabled> Nối từ gần nghĩa bằng mô hình E5</label>
-          <label for="graph-damping">Lan truyền điểm trên đồ thị (PPR)</label><input class="field" id="graph-damping" type="number" min="0" max="1" step="0.05" value="0.5" disabled>
-          <label for="graph-seed">Trọng số đoạn bắt đầu</label><input class="field" id="graph-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
+        <fieldset><legend>Điều chỉnh truy xuất graph</legend>
+          <label><input id="graph-idf" type="checkbox"> Tăng trọng số khái niệm hiếm (IDF)</label>
+          <label><input id="graph-semantic" type="checkbox"> Mở rộng bằng embedding E5</label>
+          <label><input id="graph-ppr" type="checkbox"> Lan truyền điểm (PPR)</label>
+          <label for="graph-damping">Hệ số lan truyền (damping)</label><input class="field" id="graph-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
+          <label for="graph-seed">Trọng số nguồn khớp trực tiếp</label><input class="field" id="graph-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
         </fieldset>
-        <p class="hint">Các tùy chọn thử nghiệm này chưa ảnh hưởng thứ tự kết quả. Chỉ sử dụng sau khi có bộ câu hỏi thật để so sánh.</p>
+        <p class="hint">Các lựa chọn này đổi thứ tự nguồn cho câu hỏi hiện tại. Đo tác động bằng R@5 và MRR trong Công cụ nâng cao → Đánh giá.</p>
       </aside>
     </div>
     <div id="graph-path-list" class="sources"></div>
@@ -825,14 +838,68 @@ function renderEvalResults(result) {
     $("#eval-results-meta").textContent = "Chưa có kết quả đánh giá.";
     return;
   }
-  const labels = { hybrid_graph: "Kết hợp + đồ thị (hybrid graph)", hybrid: "Ngữ nghĩa + từ khóa (hybrid)", vector: "Ngữ nghĩa (vector)", bm25: "Từ khóa (BM25)", graph: "Đồ thị tri thức (graph)" };
-  body.innerHTML = Object.entries(labels).map(([mode, label]) => {
+  const labels = result.method_labels || {
+    hybrid_graph: "Kết hợp + đồ thị (mặc định)", hybrid: "Ngữ nghĩa + từ khóa",
+    vector: "Ngữ nghĩa (vector)", bm25: "Từ khóa (BM25)", graph: "Đồ thị tri thức (graph)",
+  };
+  body.innerHTML = Object.entries(labels).filter(([mode]) => result.summary[mode]).map(([mode, label]) => {
     const fact = result.summary[mode]?.fact;
     const multi = result.summary[mode]?.multihop;
-    return `<tr><td>${label}</td><td>${fmtMetric(fact?.recall_at_5, true)}</td><td>${fmtMetric(fact?.mrr)}</td><td>${fmtMetric(multi?.recall_at_5, true)}</td><td>${fmtMetric(multi?.mrr)}</td></tr>`;
+    return `<tr><td>${esc(label)}</td><td>${fmtMetric(fact?.recall_at_5, true)}</td><td>${fmtMetric(fact?.mrr)}</td><td>${fmtMetric(multi?.recall_at_5, true)}</td><td>${fmtMetric(multi?.mrr)}</td></tr>`;
   }).join("");
-  $("#eval-results-meta").textContent = `Bộ câu hỏi: ${result.question_count ?? "—"} · Chạy lúc: ${result.created_at ? new Date(result.created_at).toLocaleString("vi-VN") : "—"} · Chỉ đo khả năng tìm nguồn (retrieval), không chấm câu trả lời bằng mô hình ngôn ngữ (LLM).`;
+  const exp = result.retrieval_config?.experiments;
+  const experimentLabel = exp
+    ? ` · Thử nghiệm: ${[
+      exp.idf_weighting && "IDF", exp.semantic_expansion && "E5", exp.ppr && `PPR (d=${exp.damping}, nguồn=${exp.seed_weight})`,
+    ].filter(Boolean).join(", ") || "không bật"}`
+    : "";
+  $("#eval-results-meta").textContent = `Bộ câu hỏi: ${result.question_count ?? "—"} · Chạy lúc: ${result.created_at ? new Date(result.created_at).toLocaleString("vi-VN") : "—"}${experimentLabel} · Chỉ đo khả năng tìm nguồn, không chấm câu trả lời bằng LLM.`;
 }
+
+function evalExperimentOptions() {
+  const ppr = $("#eval-exp-ppr").checked;
+  return {
+    idf_weighting: $("#eval-exp-idf").checked,
+    semantic_expansion: $("#eval-exp-semantic").checked,
+    ppr,
+    damping: ppr ? Number($("#eval-exp-damping").value) : 0.5,
+    seed_weight: ppr ? Number($("#eval-exp-seed").value) : 0.05,
+  };
+}
+
+function validateExperimentOptions(options) {
+  if (options.ppr && (!Number.isFinite(options.damping) || options.damping < 0 || options.damping > 0.99 ||
+      !Number.isFinite(options.seed_weight) || options.seed_weight < 0 || options.seed_weight > 1)) {
+    throw new Error("Hệ số PPR phải từ 0 đến 0,99 và trọng số nguồn từ 0 đến 1.");
+  }
+}
+
+function syncExperimentControl(leftSelector, rightSelector) {
+  const left = $(leftSelector), right = $(rightSelector);
+  const copy = (from, to) => {
+    if (from.type === "checkbox") to.checked = from.checked;
+    else to.value = from.value;
+  };
+  left.addEventListener(left.type === "checkbox" ? "change" : "input", () => copy(left, right));
+  right.addEventListener(right.type === "checkbox" ? "change" : "input", () => copy(right, left));
+}
+
+syncExperimentControl("#graph-idf", "#eval-exp-idf");
+syncExperimentControl("#graph-semantic", "#eval-exp-semantic");
+syncExperimentControl("#graph-ppr", "#eval-exp-ppr");
+syncExperimentControl("#graph-damping", "#eval-exp-damping");
+syncExperimentControl("#graph-seed", "#eval-exp-seed");
+
+function updatePprControls() {
+  const enabled = $("#eval-exp-ppr").checked;
+  $("#eval-exp-damping").disabled = !enabled;
+  $("#eval-exp-seed").disabled = !enabled;
+  $("#graph-damping").disabled = !enabled;
+  $("#graph-seed").disabled = !enabled;
+}
+
+$("#eval-exp-ppr").addEventListener("change", updatePprControls);
+$("#graph-ppr").addEventListener("change", updatePprControls);
 
 function renderEvalQuestions(items) {
   $("#eval-question-count").textContent = String(items.length);
@@ -910,7 +977,12 @@ $("#eval-run").addEventListener("click", async (e) => {
   button.disabled = true;
   $("#eval-run-status").textContent = "Đang so sánh các cách tìm trên bộ câu hỏi đã nhập…";
   try {
-    const response = await fetch("/api/eval/run", { method: "POST" });
+    const options = evalExperimentOptions();
+    validateExperimentOptions(options);
+    const response = await fetch("/api/eval/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options),
+    });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || response.statusText);
     renderEvalResults(result);
@@ -1026,7 +1098,11 @@ function renderGraph(data) {
   }
   canvas.appendChild(svg);
   const edgeCount = edges.length;
-  $("#graph-status").textContent = `Khớp ${data.matched_concepts.length} khái niệm · gom ${sourceNodes.length} đoạn thành ${groups.length} nhóm nguồn · ${edgeCount} loại liên kết được hiển thị.`;
+  const activeExperiments = data.experiments ? [
+    data.experiments.idf_weighting && "IDF", data.experiments.semantic_expansion && "E5", data.experiments.ppr && "PPR",
+  ].filter(Boolean) : [];
+  const experimentStatus = activeExperiments.length ? ` · Đang áp dụng: ${activeExperiments.join(" + ")}` : " · Chưa bật điều chỉnh thử nghiệm";
+  $("#graph-status").textContent = `Khớp ${data.matched_concepts.length} khái niệm · gom ${sourceNodes.length} đoạn thành ${groups.length} nhóm nguồn · ${edgeCount} loại liên kết được hiển thị${experimentStatus}.`;
   const renderMember = (node) => {
     const isDocument = node.kind === "document_section";
     const label = isDocument ? `Mục ${node.section ?? "—"}` : `${fmt(node.start || 0)}${node.end != null ? `–${fmt(node.end)}` : ""}`;
@@ -1052,7 +1128,19 @@ $("#graph-form").addEventListener("submit", async (e) => {
   if (!query) return;
   $("#graph-status").textContent = "Đang lần theo các mối liên hệ trong đồ thị tri thức (graph)…";
   try {
-    const params = new URLSearchParams({ query, adjacent: String($("#graph-adjacent").checked) });
+    const ppr = $("#graph-ppr").checked;
+    const options = {
+      ppr,
+      damping: ppr ? Number($("#graph-damping").value) : 0.5,
+      seed_weight: ppr ? Number($("#graph-seed").value) : 0.05,
+    };
+    validateExperimentOptions(options);
+    const params = new URLSearchParams({
+      query, adjacent: String($("#graph-adjacent").checked),
+      idf_weighting: String($("#graph-idf").checked),
+      semantic_expansion: String($("#graph-semantic").checked),
+      ppr: String(options.ppr), damping: String(options.damping), seed_weight: String(options.seed_weight),
+    });
     const response = await fetch(`/api/graph?${params}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || response.statusText);

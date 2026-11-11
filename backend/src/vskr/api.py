@@ -727,6 +727,9 @@ def inspect_graph(query: str, adjacent: bool = False):
     concept_labels = {label for hit in hits for label in hit.get("matched_concepts", [])}
     concept_ids = {f"concept:{label}" for label in concept_labels}
     selected_ids = source_ids | concept_ids
+    for edge in graph.get("edges", []):
+        if edge.get("type") == "PART_OF_SCENE" and edge.get("from") in source_ids:
+            selected_ids.add(edge["to"])
     node_scores = {f"source:{chunk_id}": hit["score"] for chunk_id, hit in hit_by_id.items()}
     nodes = []
     for node in graph.get("nodes", []):

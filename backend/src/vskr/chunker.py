@@ -51,3 +51,35 @@ def make_chunks(video_id, segments, window_s=50.0, overlap_s=10.0, min_chars=20,
             k += 1
         i = k
     return out
+
+
+def make_scene_chunks(video_id, segments, scene_starts, window_s=50.0, overlap_s=10.0,
+                      min_chars=20, extras=None):
+    """Create timestamped chunks aligned to detected visual scene boundaries.
+
+    Long scenes are subdivided with the normal sliding window. Transcript segments
+    without a nearby detected scene boundary remain in a single fallback scene.
+    """
+    starts = sorted({max(0.0, float(t)) for t in scene_starts if float(t) >= 0})
+    if not starts or starts[0] > 0:
+        starts.insert(0, 0.0)
+    clean = sorted((s for s in segments if s.get("text", "").strip()), key=lambda s: s["start"])
+    if not clean:
+        return []
+    boundaries = starts + [float("inf")]
+    out = []
+    for scene_number, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
+        group = [s for s in clean if start <= float(s["start"]) < end]
+        if not group:
+            continue
+        scene_chunks = make_chunks(
+            video_id, group, window_s, overlap_s, min_chars, extras
+        )
+        for chunk in scene_chunks:
+            chunk["chunk_id"] = f"{video_id}:scene:{len(out):04d}"
+            chunk["scene_id"] = f"{video_id}:scene:{scene_number:04d}"
+            chunk["scene_start"] = start
+            chunk["scene_end"] = end if end != float("inf") else chunk["end"]
+            chunk["source_types"] = list(dict.fromkeys(chunk.get("source_types", []) + ["scene"]))
+            out.append(chunk)
+    return out

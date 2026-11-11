@@ -68,6 +68,12 @@ retrieval:
   rrf_k: 60
   min_vector_score: null     # ví dụ 0.80; để null cho đến khi bạn tự đo phân bố điểm
 
+knowledge_graph:
+  link_threshold: 0.72       # ngưỡng khởi đầu; cần điều chỉnh bằng dữ liệu và bộ câu hỏi thật
+  max_links_per_section: 2
+  extract_relations: false   # true để dùng Ollama trích quan hệ có evidence khi chạy index
+  max_relation_chunks: 100   # giới hạn số đoạn gửi qua Ollama mỗi lần lập chỉ mục
+
 llm:
   provider: ollama
   base_url: http://localhost:11434   # Ollama local; đổi bằng VSKR__LLM__BASE_URL nếu cần

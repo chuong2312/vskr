@@ -8,7 +8,8 @@ VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ m�
 - QA gọi Ollama API tại `localhost:11434`; cần cài/chạy Ollama riêng. VSKR chạy trực tiếp trong venv.
 - Dữ liệu nằm trong `./data`, model/download cache trong `./cache`.
 - Tìm kiếm mặc định là **hybrid**: vector E5 tìm theo ngữ nghĩa + BM25 tìm từ khóa, sau đó RRF hợp nhất thứ hạng. Có thể chọn riêng `vector`, `bm25` hoặc graph để so sánh. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
-- Đã thêm thử nghiệm **Knowledge Graph retrieval** tùy chọn: mỗi chunk được lưu thành node video có timestamp; keyword là node khái niệm; cạnh `MENTIONS` và `CO_OCCURS` cho phép truy vấn duyệt từ khái niệm sang các đoạn liên quan. Chọn `graph` trong giao diện hoặc `vskr ask "..." --mode graph`. Chạy lại `vskr index` để sinh `data/index/knowledge_graph.json` cho dữ liệu cũ. Graph mode chưa phải mặc định; hybrid vẫn là baseline.
+- Knowledge Graph hiện hỗ trợ node phân cảnh video có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn graph nhiều bước. Với video đã ingest kèm hình (`vskr ingest --with-video`), chạy `vskr frames --video <id>`; nếu `frames.json` đã cũ thì thêm `--force`. Sau đó chạy `vskr index`. Các liên kết liên phương thức chỉ được giữ khi điểm cosine vượt ngưỡng và có khái niệm trùng (hoặc điểm rất cao). Chọn `graph` trong giao diện hoặc `vskr ask "..." --mode graph`; hybrid vẫn là baseline để so sánh.
+- Muốn trích xuất quan hệ có kiểu như `DEPENDS_ON`, `PART_OF`, `CAUSES` từ transcript và tài liệu, bật `VSKR__KNOWLEDGE_GRAPH__EXTRACT_RELATIONS=true` rồi chạy lại `vskr index`. Ollama sẽ xử lý tối đa số đoạn đặt trong `knowledge_graph.max_relation_chunks`; mọi quan hệ được lưu kèm bằng chứng văn bản và bị bỏ qua nếu không khớp nội dung nguồn. Tính năng này tắt mặc định để index vẫn chạy độc lập Ollama.
 
 PySceneDetect được cài dưới tên package `scenedetect-headless` và import trong Python là `scenedetect`. Nó tìm điểm đổi cảnh; FFmpeg trích frame. Đây không phải package `pyscenecut`.
 
@@ -109,7 +110,7 @@ Không xóa `data/` hoặc `cache/` nếu còn cần video, transcript, index ha
 
 ## Phạm vi hiện tại
 
-Knowledge Graph hiện là graph khái niệm thử nghiệm dựa trên từ khóa đồng xuất hiện trong chunk. Màn Đánh giá có thể so vector, BM25, hybrid và graph khi người dùng nhập câu hỏi cùng nguồn đúng; repo hiện không có bộ câu hỏi hoặc số đo. Màn Đồ thị trực quan hóa đường truy xuất graph hiện tại; PPR, trọng số IDF và cạnh đồng nghĩa chưa được bật. Tài liệu TXT/MD/RST/PDF/DOCX được chia mục và đưa vào cùng chỉ mục với video; chưa có LLM trích xuất quan hệ ngữ nghĩa có kiểu (ví dụ `USES`, `CAUSES`). OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
+Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới video lấy từ PySceneDetect (cắt cảnh hình ảnh), không dùng LLM để sửa ranh giới theo mạch bài giảng; trích quan hệ có kiểu là tùy chọn Ollama; liên kết video–tài liệu được kiểm tra bằng ngưỡng embedding và trùng khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; hãy đánh giá với bộ câu hỏi có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật mặc định trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
 
 ## Cấu trúc dự án
 

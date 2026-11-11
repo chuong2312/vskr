@@ -136,6 +136,7 @@ def run(cfg, video_id, force=False):
             "video_id": video_id,
             "params": fc,
             "n_scene_starts": len(starts),
+            "scene_starts": [round(float(t), 3) for t in starts],
             "n_candidates_before_cap": n_raw,
             "n_extracted": len(rows),
             "n_kept_after_dedupe": len(kept),

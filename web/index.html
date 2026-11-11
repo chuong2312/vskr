@@ -204,6 +204,9 @@
   .graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 14px; }
   .graph-canvas { min-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); }
   .graph-canvas svg { display: block; width: 100%; min-width: 600px; min-height: 420px; }
+  .graph-group { border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+  .graph-group summary { cursor: pointer; font-weight: 650; }
+  .graph-group .src { margin-top: 8px; }
   .graph-settings { display: grid; gap: 12px; align-content: start; }
   .graph-settings fieldset { border: 1px solid var(--line); border-radius: 5px; padding: 10px; }
   .graph-settings label { display: flex; align-items: center; gap: 8px; }
@@ -335,8 +338,9 @@
     </div>
     <div class="stack">
       <section class="panel">
-        <div class="row" style="justify-content:space-between"><strong>Bộ câu hỏi <span id="eval-question-count">—</span></strong><button class="primary" id="eval-run" type="button">Chạy đánh giá</button></div>
+        <div class="row" style="justify-content:space-between"><strong>Bộ câu hỏi <span id="eval-question-count">0</span></strong><button class="primary" id="eval-run" type="button" disabled>Chạy đánh giá</button></div>
         <p class="hint">Mục tiêu: 20–30 câu hỏi thật có nguồn đúng do bạn xác nhận.</p>
+        <p class="hint" id="eval-empty-hint">Thêm ít nhất một câu hỏi và xác nhận nguồn đúng trước khi chạy đánh giá.</p>
         <div class="question-list" id="eval-question-list"><p class="hint">Chưa có câu hỏi đánh giá. Hãy tự thêm hoặc nhập JSONL.</p></div>
         <p class="hint" id="eval-run-status" role="status" aria-live="polite"></p>
       </section>
@@ -362,7 +366,7 @@
       <button class="primary" type="submit">Tìm các mối liên hệ</button>
     </form>
     <p id="graph-status" class="hint" role="status" aria-live="polite">Nhập câu hỏi để xem đồ thị tri thức (graph) nối các khái niệm với đoạn video và mục tài liệu như thế nào.</p>
-    <div class="node-legend"><span><i class="legend-dot"></i> Khái niệm trong câu hỏi</span><span><i class="legend-square"></i> Đoạn video / mục tài liệu</span><span>Đường nét đứt: đoạn liền trước hoặc sau (chỉ để tham khảo)</span></div>
+    <div class="node-legend"><span><i class="legend-dot"></i> Khái niệm</span><span><i class="legend-square"></i> Video/phân cảnh hoặc tài liệu</span><span>Nhãn trên đường nối cho biết loại quan hệ</span><span>Đường nét đứt: đoạn liền trước hoặc sau</span></div>
     <div class="graph-layout" style="margin-top:12px">
       <div class="graph-canvas" id="graph-canvas"><div class="empty">Chưa có đường đi để hiển thị</div></div>
       <aside class="graph-settings">
@@ -390,7 +394,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60; const p = (n) => String(n).padStart(2, "0"); return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`; };
 
-let player = null, videos = [], current = null, lastSources = [], pendingJump = null, ytApiReady = false;
+let player = null, videos = [], current = null, lastSources = [], lastQuestion = "", pendingJump = null, ytApiReady = false;
 
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => {
   const target = `${button.dataset.page}-screen`;
@@ -580,6 +584,7 @@ function renderResult(d) {
       </div>`;
     });
     html += `</div>`;
+    html += `<button class="small-action" type="button" data-eval-from-qa>Đưa câu hỏi này sang bộ đánh giá</button><p class="hint">Các nguồn sẽ được điền sẵn để bạn kiểm tra; chỉ lưu sau khi xác nhận nguồn đúng.</p>`;
   }
   const modeLabels = { hybrid_graph: "Ngữ nghĩa (vector) + từ khóa (BM25) + đồ thị (graph)", hybrid: "Ngữ nghĩa (vector) + từ khóa (BM25)", vector: "Ngữ nghĩa (vector)", bm25: "Từ khóa (BM25)", graph: "Đồ thị tri thức (graph)" };
   html += `<div class="timing">Tìm đoạn: ${d.timing.retrieve_s}s · Trả lời: ${d.timing.llm_s}s · Cách tìm: ${modeLabels[d.mode] || esc(d.mode)}</div>`;
@@ -588,6 +593,25 @@ function renderResult(d) {
 }
 
 $("#result").addEventListener("click", (e) => {
+  const toEvaluation = e.target.closest("[data-eval-from-qa]");
+  if (toEvaluation) {
+    const references = [];
+    const seen = new Set();
+    for (const source of lastSources) {
+      const ref = source.source_type === "document"
+        ? { document_id: source.document_id, section: source.section }
+        : { video_id: source.video_id, start: source.start, end: source.end };
+      if (source.source_type !== "document" && (!ref.video_id || ref.start == null || ref.end == null)) continue;
+      const key = JSON.stringify(ref);
+      if (!seen.has(key)) { seen.add(key); references.push(ref); }
+    }
+    $("#eval-question").value = lastQuestion;
+    $("#eval-relevant").value = JSON.stringify(references, null, 2);
+    $("[data-page='evaluation']").click();
+    $("#eval-form-status").textContent = "Câu hỏi và các nguồn tìm được đã được điền sẵn. Hãy xác nhận hoặc sửa nguồn đúng rồi bấm Thêm câu hỏi.";
+    $("#eval-relevant").focus();
+    return;
+  }
   const cite = e.target.closest("button.cite");
   const play = e.target.closest("button.play");
   const more = e.target.closest("button.more");
@@ -758,6 +782,7 @@ $("#form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const q = $("#q").value.trim();
   if (!q) return;
+  lastQuestion = q;
   const btn = $("#go");
   btn.disabled = true; btn.textContent = "Đang tìm nguồn và soạn câu trả lời…";
   const box = $("#result");
@@ -810,7 +835,9 @@ function renderEvalResults(result) {
 }
 
 function renderEvalQuestions(items) {
-  $("#eval-question-count").textContent = items.length ? String(items.length) : "—";
+  $("#eval-question-count").textContent = String(items.length);
+  $("#eval-run").disabled = items.length === 0;
+  $("#eval-empty-hint").hidden = items.length > 0;
   const list = $("#eval-question-list");
   if (!items.length) {
     list.innerHTML = `<p class="hint">Chưa có câu hỏi đánh giá. Hãy thêm câu hỏi thật hoặc nhập JSONL.</p>`;
@@ -879,16 +906,21 @@ $("#eval-question-list").addEventListener("click", async (e) => {
 
 $("#eval-run").addEventListener("click", async (e) => {
   const button = e.currentTarget;
+  if (button.disabled) return;
   button.disabled = true;
-  $("#eval-run-status").textContent = "Đang chạy bốn retriever trên các câu hỏi đã nhập…";
+  $("#eval-run-status").textContent = "Đang so sánh các cách tìm trên bộ câu hỏi đã nhập…";
   try {
     const response = await fetch("/api/eval/run", { method: "POST" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || response.statusText);
     renderEvalResults(result);
     $("#eval-run-status").textContent = "Đã lưu kết quả vào data/eval/results.json.";
-  } catch (err) { $("#eval-run-status").textContent = `Không chạy được: ${err.message}`; }
-  finally { button.disabled = false; }
+  } catch (err) {
+    const detail = String(err.message || "Lỗi không xác định");
+    $("#eval-run-status").textContent = detail.includes("Chưa có câu hỏi đánh giá")
+      ? "Chưa có câu hỏi đã lưu. Hãy thêm câu hỏi kèm nguồn đúng ở biểu mẫu bên trái trước."
+      : `Không chạy được: ${detail}`;
+  } finally { button.disabled = Number($("#eval-question-count").textContent) === 0; }
 });
 
 function svgElement(name, attrs = {}) {
@@ -908,18 +940,71 @@ function renderGraph(data) {
     return;
   }
   const concepts = data.nodes.filter((n) => n.kind === "concept");
-  const sources = data.nodes.filter((n) => n.kind !== "concept");
-  const width = 900, height = Math.max(420, Math.max(concepts.length, sources.length) * 78 + 40);
+  const videoScenes = new Map(data.nodes.filter((n) => n.kind === "video_scene").map((n) => [`${n.video_id}:${n.scene_id}`, n]));
+  const sourceNodes = data.nodes.filter((n) => n.kind !== "concept" && n.kind !== "video_scene");
+  const groupMap = new Map(), nodeToGroup = new Map();
+  for (const node of sourceNodes) {
+    const isDocument = node.kind === "document_section";
+    const groupId = isDocument
+      ? `document:${node.document_id || node.id}`
+      : node.scene_id ? `scene:${node.video_id}:${node.scene_id}` : `video:${node.video_id || node.id}`;
+    let group = groupMap.get(groupId);
+    if (!group) {
+      const scene = node.scene_id ? videoScenes.get(`${node.video_id}:${node.scene_id}`) : null;
+      group = {
+        id: groupId, kind: isDocument ? "document" : "video", title: node.title || scene?.title || "",
+        video_id: node.video_id, document_id: node.document_id, scene_id: node.scene_id,
+        start: scene?.start ?? node.start, end: scene?.end ?? node.end, members: [],
+      };
+      groupMap.set(groupId, group);
+    }
+    group.members.push(node);
+    if (node.start != null) group.start = group.start == null ? node.start : Math.min(group.start, node.start);
+    if (node.end != null) group.end = group.end == null ? node.end : Math.max(group.end, node.end);
+    nodeToGroup.set(node.id, groupId);
+  }
+  for (const scene of videoScenes.values()) {
+    const groupId = `scene:${scene.video_id}:${scene.scene_id}`;
+    if (groupMap.has(groupId)) nodeToGroup.set(scene.id, groupId);
+  }
+  const groups = [...groupMap.values()].sort((a, b) =>
+    `${a.title}:${a.start ?? 0}`.localeCompare(`${b.title}:${b.start ?? 0}`, "vi")
+  );
+  const groupsById = new Map(groups.map((group) => [group.id, group]));
+  const graphEdges = new Map();
+  for (const edge of data.edges) {
+    const from = nodeToGroup.get(edge.from) || edge.from;
+    const to = nodeToGroup.get(edge.to) || edge.to;
+    if (from === to || edge.type === "PART_OF_SCENE") continue;
+    const key = `${from}|${to}|${edge.type}`;
+    const existing = graphEdges.get(key) || { ...edge, from, to, weight: 0 };
+    existing.weight += edge.weight || 1;
+    graphEdges.set(key, existing);
+  }
+  const edges = [...graphEdges.values()];
+  const width = 900, height = Math.max(420, Math.max(concepts.length, groups.length) * 96 + 40);
   const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Đồ thị tri thức (graph) nối các khái niệm với nguồn bài giảng" });
   const positions = new Map();
   concepts.forEach((n, i) => positions.set(n.id, { x: 170, y: 42 + i * (height - 84) / Math.max(concepts.length - 1, 1) }));
-  sources.forEach((n, i) => positions.set(n.id, { x: 700, y: 42 + i * (height - 84) / Math.max(sources.length - 1, 1) }));
-  for (const edge of data.edges) {
+  groups.forEach((group, i) => positions.set(group.id, { x: 700, y: 42 + i * (height - 84) / Math.max(groups.length - 1, 1) }));
+  const relationNames = {
+    MENTIONS: "nhắc đến", CO_OCCURS: "cùng xuất hiện", VIDEO_DOCUMENT_MATCH: "video khớp tài liệu",
+    DEPENDS_ON: "cần trước", PART_OF: "thuộc", CAUSES: "gây ra", USES: "dùng",
+    DEFINES: "định nghĩa", IS_A: "là một", HAS_PROPERTY: "có đặc tính", COMPARES_WITH: "so sánh",
+    NEXT_SECTION: "mục kế tiếp", NEXT_SEGMENT: "đoạn kế tiếp", RELATED_TO: "liên quan",
+  };
+  for (const edge of edges) {
     const a = positions.get(edge.from), b = positions.get(edge.to);
     if (!a || !b) continue;
     const line = svgElement("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: edge.type === "NEXT_SEGMENT" ? "#9a6a20" : "#82909c", "stroke-width": edge.type === "NEXT_SEGMENT" ? 2.5 : 1.5, opacity: .78 });
     if (edge.type === "NEXT_SEGMENT") line.setAttribute("stroke-dasharray", "7 6");
     svg.appendChild(line);
+    const label = svgElement("text", {
+      x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 5, fill: "currentColor", "font-size": 11,
+      "text-anchor": "middle", "paint-order": "stroke", stroke: "var(--canvas)", "stroke-width": 4,
+    });
+    label.textContent = relationNames[edge.type] || edge.type.toLowerCase().replaceAll("_", " ");
+    svg.appendChild(label);
   }
   for (const node of concepts) {
     const { x, y } = positions.get(node.id);
@@ -927,22 +1012,38 @@ function renderGraph(data) {
     const label = svgElement("text", { x: x + 36, y: y + 5, fill: "currentColor", "font-size": 15 });
     label.textContent = node.label; svg.appendChild(label);
   }
-  for (const node of sources) {
-    const { x, y } = positions.get(node.id);
+  for (const group of groups) {
+    const { x, y } = positions.get(group.id);
     svg.appendChild(svgElement("rect", { x: x - 16, y: y - 16, width: 32, height: 32, rx: 3, fill: "#e7a33e" }));
     const label = svgElement("text", { x: x - 30, y: y + 35, fill: "currentColor", "font-size": 12, "text-anchor": "middle" });
-    const sourceLabel = node.kind === "document_section" ? `${node.title || "Tài liệu"} · mục ${node.section ?? "—"}` : `${node.title || node.video_id || "Video"} · ${fmt(node.start || 0)}`;
+    const sourceLabel = group.kind === "document"
+      ? `${group.title || "Tài liệu"} · ${group.members.length} mục`
+      : group.scene_id
+        ? `${group.title || "Video"} · cảnh ${(Number(group.scene_id.split(":").at(-1)) || 0) + 1}`
+        : `${group.title || "Video"} · ${group.members.length} đoạn`;
     label.textContent = sourceLabel.length > 43 ? `${sourceLabel.slice(0, 40)}…` : sourceLabel;
     svg.appendChild(label);
   }
   canvas.appendChild(svg);
-  $("#graph-status").textContent = `Khớp ${data.matched_concepts.length} khái niệm · ${data.result_count} nguồn tìm được · điểm dùng để xếp thứ tự các nguồn, chưa bật lan truyền điểm trên đồ thị (PPR).`;
-  list.innerHTML = sources.map((node) => {
-    const chunk = node.kind === "document_section";
-    const label = chunk ? `Mục ${node.section ?? "—"}` : `${fmt(node.start || 0)}${node.end != null ? `–${fmt(node.end)}` : ""}`;
-    return `<article class="src"><div class="src-head"><strong>${chunk ? "Tài liệu" : "Video"}</strong><span>${esc(node.title || node.video_id || "")}</span><span class="t">${label}</span><span class="src-actions"><button class="play" type="button" data-graph-node="${esc(node.id)}">${chunk ? "Xem mục" : "Phát đoạn"}</button></span></div><p>${esc(node.text || "")}</p></article>`;
+  const edgeCount = edges.length;
+  $("#graph-status").textContent = `Khớp ${data.matched_concepts.length} khái niệm · gom ${sourceNodes.length} đoạn thành ${groups.length} nhóm nguồn · ${edgeCount} loại liên kết được hiển thị.`;
+  const renderMember = (node) => {
+    const isDocument = node.kind === "document_section";
+    const label = isDocument ? `Mục ${node.section ?? "—"}` : `${fmt(node.start || 0)}${node.end != null ? `–${fmt(node.end)}` : ""}`;
+    return `<article class="src"><div class="src-head"><strong>${isDocument ? "Tài liệu" : "Video"}</strong><span>${esc(node.title || node.video_id || "")}</span><span class="t">${label}</span><span class="src-actions"><button class="play" type="button" data-graph-node="${esc(node.id)}">${isDocument ? "Xem mục" : "Phát đoạn"}</button></span></div><p>${esc(node.text || "")}</p></article>`;
+  };
+  list.innerHTML = groups.map((group) => {
+    const title = group.kind === "document"
+      ? `${group.title || "Tài liệu"} · ${group.members.length} mục liên quan`
+      : group.scene_id
+        ? `${group.title || "Video"} · cảnh ${(Number(group.scene_id.split(":").at(-1)) || 0) + 1} · ${group.members.length} đoạn`
+        : `${group.title || "Video"} · ${group.members.length} đoạn liên quan`;
+    const members = group.members.map(renderMember).join("");
+    return group.members.length > 1
+      ? `<details class="graph-group"><summary>${esc(title)}</summary>${members}</details>`
+      : `<section class="graph-group"><strong>${esc(title)}</strong>${members}</section>`;
   }).join("");
-  list.dataset.nodes = JSON.stringify(sources);
+  list.dataset.nodes = JSON.stringify(sourceNodes);
 }
 
 $("#graph-form").addEventListener("submit", async (e) => {

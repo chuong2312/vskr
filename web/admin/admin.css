@@ -36,6 +36,9 @@
     font: 16px/1.5 var(--ui);
   }
   header { padding: 22px 28px 18px; max-width: 1440px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+  .admin-header { flex-wrap: wrap; }
+  .session-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .85rem; }
+  .session-actions .small-action { min-height: 40px; }
   .brand-mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; color: #fff; background: linear-gradient(145deg, #176b72, #254b7a); font-size: 1.35rem; font-weight: 800; box-shadow: 0 6px 16px #176b7233; }
   .brand-copy { min-width: 0; }
   .eyebrow { margin: 0; color: var(--accent); font-size: .7rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
@@ -155,6 +158,34 @@
   .app-nav button[aria-current="page"] { color: #fff; background: var(--ink); border-color: var(--ink); box-shadow: 0 5px 14px #17253b22; }
   .library-main { display: block; max-width: 1440px; }
   .library-main[hidden], main[hidden] { display: none; }
+  .screen-heading-row { justify-content: space-between; margin-bottom: 12px; }
+  .screen-heading-row .screen-title { margin-bottom: 2px; }
+  .screen-heading-row .hint { margin: 0; }
+  .dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .metric-card { display: grid; gap: 5px; min-height: 132px; align-content: start; }
+  .metric-label { color: var(--muted); font-size: .84rem; font-weight: 650; }
+  .metric-value { font-size: 1.45rem; line-height: 1.25; }
+  .dashboard-details { margin-top: 14px; }
+  .dashboard-details h3 { margin: 0; font-size: 1rem; }
+  .details-list { display: grid; grid-template-columns: 140px 1fr; gap: 8px 14px; margin: 12px 0; font-size: .9rem; }
+  .details-list dt { color: var(--muted); }
+  .details-list dd { margin: 0; overflow-wrap: anywhere; }
+  .tasks-list { display: grid; gap: 10px; }
+  .task-card { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  .task-heading, .task-heading > div, .task-actions { display: flex; align-items: center; gap: 10px; }
+  .task-heading { justify-content: space-between; }
+  .task-heading > div { flex-wrap: wrap; }
+  .task-heading time { color: var(--muted); font-size: .8rem; }
+  .task-phase { margin: 10px 0 0; font-weight: 650; }
+  .task-card > .hint { margin: 3px 0 0; }
+  .task-diagnostic { margin: 8px 0 0; color: var(--err); font-size: .82rem; overflow-wrap: anywhere; }
+  .task-actions { justify-content: space-between; margin-top: 10px; }
+  .task-actions code { color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }
+  .audit-table-wrap { overflow-x: auto; }
+  .audit-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  .audit-table th, .audit-table td { min-width: 110px; padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .audit-table th { color: var(--muted); font-size: .8rem; }
+  .audit-table td:first-child { min-width: 165px; white-space: nowrap; }
   .library-grid { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 18px; }
   .library-forms { display: grid; gap: 14px; align-content: start; }
   .library-list { display: grid; gap: 10px; }
@@ -214,4 +245,13 @@
   .legend-dot { display: inline-block; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); vertical-align: -2px; }
   .legend-square { display: inline-block; width: 13px; height: 13px; border-radius: 2px; background: #e7a33e; vertical-align: -2px; }
   @media (max-width: 900px) { .eval-layout, .graph-layout { grid-template-columns: 1fr; } }
-  @media (max-width: 760px) { .library-grid { grid-template-columns: 1fr; } .app-nav { padding: 0 14px 8px; } }
+  @media (max-width: 760px) {
+    .library-grid { grid-template-columns: 1fr; }
+    .app-nav { padding: 0 14px 8px; }
+    .app-nav button { min-width: auto; padding: 7px 10px; }
+    .session-actions { width: 100%; margin-left: 62px; justify-content: flex-start; }
+    .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .metric-card { min-height: 112px; padding: 14px; }
+    .task-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+    .details-list { grid-template-columns: 110px 1fr; }
+  }

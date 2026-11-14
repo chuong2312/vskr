@@ -35,15 +35,137 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60; const p = (n) => String(n).padStart(2, "0"); return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`; };
 
-let player = null, videos = [], current = null, lastSources = [], lastQuestion = "", lastGraphData = null, pendingJump = null, ytApiReady = false;
+let player = null, videos = [], current = null, lastSources = [], lastQuestion = "", lastGraphData = null, pendingJump = null, ytApiReady = false, qaInitialized = false;
 
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => {
   const target = `${button.dataset.page}-screen`;
   document.querySelectorAll("main").forEach((el) => { el.hidden = el.id !== target; });
   document.querySelectorAll("[data-page]").forEach((el) => el.setAttribute("aria-current", el === button ? "page" : "false"));
+  if (button.dataset.page === "overview") loadDashboard();
   if (button.dataset.page === "library") loadLibrary();
+  if (button.dataset.page === "tasks") loadTasks();
+  if (button.dataset.page === "qa" && !qaInitialized) init();
   if (button.dataset.page === "evaluation") loadEvaluation();
+  if (button.dataset.page === "audit") loadAudit();
 }));
+
+function displayTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "medium" }).format(date);
+}
+
+async function loadDashboard() {
+  const status = $("#dashboard-status");
+  status.textContent = "Đang tải trạng thái hệ thống…";
+  try {
+    const [statusResponse, libraryResponse] = await Promise.all([fetch("/api/admin/status"), fetch("/api/library")]);
+    const system = await statusResponse.json();
+    const library = await libraryResponse.json();
+    if (!statusResponse.ok) throw new Error(system.detail || statusResponse.statusText);
+    if (!libraryResponse.ok) throw new Error(library.detail || libraryResponse.statusText);
+    const ready = library.filter((item) => item.status?.state === "ready" || item.status?.label === "Đã chia mục");
+    $("#system-ready").textContent = system.ready ? "Sẵn sàng" : "Chưa sẵn sàng";
+    $("#system-phase").textContent = system.phase ? `Đang chạy: ${system.phase}` : "Không có pipeline đang chạy";
+    $("#system-gpu").textContent = system.gpu_busy ? "Đang bận" : "Sẵn sàng";
+    $("#system-videos").textContent = String(ready.filter((item) => item.kind === "video").length);
+    $("#system-documents").textContent = String(ready.filter((item) => item.kind === "document").length);
+    $("#system-ollama").textContent = system.ollama_connected ? "Đã kết nối" : "Chưa kết nối";
+    $("#system-index").textContent = String(system.index?.chunk_count ?? "—");
+    const details = $("#index-details");
+    details.innerHTML = `<dt>Ngày tạo</dt><dd>${esc(displayTime(system.index?.created_at))}</dd><dt>Phiên bản</dt><dd>${esc(system.index?.version ?? "—")}</dd>`;
+    $("#system-error").textContent = system.error?.detail ? `Lỗi dịch vụ: ${system.error.detail}` : "";
+    status.textContent = `Cập nhật lúc ${displayTime(new Date().toISOString())}.`;
+  } catch (error) {
+    status.textContent = `Không tải được tổng quan: ${error.message}`;
+  }
+}
+
+async function loadTasks() {
+  const list = $("#tasks-list");
+  const status = $("#tasks-status");
+  status.textContent = "Đang tải tác vụ…";
+  try {
+    const response = await fetch("/api/admin/jobs");
+    const jobs = await response.json();
+    if (!response.ok) throw new Error(jobs.detail || response.statusText);
+    if (!jobs.length) {
+      list.innerHTML = `<p class="hint">Chưa có tác vụ trong phiên server này.</p>`;
+      status.textContent = "";
+      return;
+    }
+    const stateLabels = { queued: "Đang chờ", running: "Đang chạy", done: "Hoàn tất", error: "Lỗi" };
+    const phaseLabels = { queued: "Hàng đợi", ingest: "Tải/đọc nguồn", scenes: "Phát hiện phân cảnh", asr: "Nhận dạng lời nói (ASR)", index: "Lập chỉ mục", reload: "Nạp chỉ mục", done: "Hoàn tất", error: "Lỗi", document: "Đọc tài liệu" };
+    list.innerHTML = jobs.map((job) => {
+      const target = job.title || job.video_id || job.document_id || "Nội dung";
+      const retry = job.status === "error" ? `<button class="small-action" type="button" data-task-retry="${esc(job.job_id)}">Thử lại</button>` : "";
+      const error = job.status === "error" && job.error_detail ? `<p class="task-diagnostic">${esc(job.error_type || "Lỗi")}: ${esc(job.error_detail)}</p>` : "";
+      return `<article class="task-card"><div class="task-heading"><div><span class="state ${job.status === "done" ? "ready" : job.status === "error" ? "error" : ""}">${esc(stateLabels[job.status] || job.status)}</span><strong>${esc(target)}</strong></div><time>${esc(displayTime(job.created_at))}</time></div><p class="task-phase">${esc(phaseLabels[job.phase] || job.phase || "Đang xử lý")}</p><p class="hint">${esc(job.message || "")}</p>${error}<div class="task-actions">${retry}<code>${esc(job.job_id)}</code></div></article>`;
+    }).join("");
+    status.textContent = `Hiển thị ${jobs.length} tác vụ gần nhất. Tác vụ mất khỏi danh sách sau khi server khởi động lại.`;
+  } catch (error) {
+    status.textContent = `Không tải được tác vụ: ${error.message}`;
+  }
+}
+
+async function loadAudit() {
+  const list = $("#audit-list");
+  const status = $("#audit-status");
+  status.textContent = "Đang tải nhật ký…";
+  try {
+    const response = await fetch("/api/audit");
+    const events = await response.json();
+    if (!response.ok) throw new Error(events.detail || response.statusText);
+    if (!events.length) {
+      list.innerHTML = `<tr><td colspan="4">Chưa có sự kiện nào.</td></tr>`;
+    } else {
+      list.innerHTML = events.slice().reverse().map((event) => `<tr><td><time>${esc(displayTime(event.at))}</time></td><td>${esc(event.event)}</td><td>${esc(event.target_id || event.kind || "—")}</td><td>${esc(event.result || "success")}</td></tr>`).join("");
+    }
+    status.textContent = `Hiển thị ${events.length} sự kiện gần nhất.`;
+  } catch (error) {
+    status.textContent = `Không tải được nhật ký: ${error.message}`;
+  }
+}
+
+$("#refresh-dashboard").addEventListener("click", loadDashboard);
+$("#refresh-tasks").addEventListener("click", loadTasks);
+$("#refresh-audit").addEventListener("click", loadAudit);
+
+$("#tasks-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-task-retry]");
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  $("#tasks-status").textContent = "Đang đưa lại tác vụ vào hàng đợi…";
+  try {
+    const response = await fetch(`/api/jobs/${encodeURIComponent(button.dataset.taskRetry)}/retry`, { method: "POST" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || response.statusText);
+    await loadTasks();
+  } catch (error) {
+    $("#tasks-status").textContent = `Không thể thử lại: ${error.message}`;
+    button.disabled = false;
+  }
+});
+
+$("#logout-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/auth/logout", { method: "POST" });
+    if (!response.ok) throw new Error("Phiên không hợp lệ hoặc đã hết hạn.");
+    location.replace("/admin/login?logged_out=1");
+  } catch (error) {
+    $("#session-status").textContent = `Không đăng xuất được: ${error.message}`;
+    button.disabled = false;
+  }
+});
+
+setInterval(() => {
+  const activePage = document.querySelector("[data-page][aria-current='page']")?.dataset.page;
+  if (activePage === "overview") loadDashboard();
+  if (activePage === "tasks") loadTasks();
+  if (activePage === "audit") loadAudit();
+}, 10_000);
 
 function isYouTube(v) {
   try { const h = new URL(v.url).hostname.toLowerCase(); return h === "youtu.be" || h.endsWith("youtube.com") || h.endsWith("youtube-nocookie.com"); }
@@ -97,6 +219,8 @@ function setupPlayer() {
 }
 
 async function init() {
+  if (qaInitialized) return;
+  qaInitialized = true;
   try {
     const r = await fetch("/api/library");
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
@@ -834,4 +958,4 @@ $("#graph-path-list").addEventListener("click", (e) => {
   } else jump(node.video_id, node.start || 0);
 });
 
-init();
+loadDashboard();

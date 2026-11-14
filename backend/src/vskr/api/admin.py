@@ -53,6 +53,11 @@ def get_job(job_id: str):
     return handlers.get_job(job_id)
 
 
+@router.get("/api/admin/jobs")
+def list_jobs():
+    return handlers.list_jobs(100)
+
+
 @router.post("/api/jobs/{job_id}/retry", status_code=202)
 def retry_job(job_id: str):
     result = handlers.retry_job(job_id)

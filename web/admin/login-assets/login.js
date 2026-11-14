@@ -2,6 +2,8 @@ const notice = document.querySelector("#notice");
 const error = document.querySelector("#error");
 if (new URLSearchParams(location.search).has("expired")) {
   notice.textContent = "Phiên quản trị đã hết hạn. Vui lòng đăng nhập lại.";
+} else if (new URLSearchParams(location.search).has("logged_out")) {
+  notice.textContent = "Bạn đã đăng xuất khỏi phiên quản trị.";
 }
 document.querySelector("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();

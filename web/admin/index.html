@@ -8,23 +8,53 @@
 <link rel="stylesheet" href="/admin/assets/admin.css">
 </head>
 <body>
-<header>
+<header class="admin-header">
   <div class="brand-mark" aria-hidden="true">V</div>
   <div class="brand-copy">
   <p class="eyebrow">Video Semantic Knowledge Retrieval</p>
     <h1>VSKR · Trợ lý bài giảng</h1>
-    <p>Thêm bài giảng → hỏi nội dung → mở nguồn để đối chiếu.</p>
+    <p>Bảng điều khiển quản trị học liệu và tìm kiếm.</p>
   </div>
+  <div class="session-actions"><span id="session-status">Admin</span><button class="small-action" id="logout-button" type="button">Đăng xuất</button></div>
 </header>
 
 <nav class="app-nav" aria-label="Điều hướng chính">
-  <button type="button" data-page="qa" aria-current="page">Hỏi đáp</button>
+  <button type="button" data-page="overview" aria-current="page">Tổng quan</button>
   <button type="button" data-page="library" aria-current="false">Học liệu</button>
-  <button type="button" data-page="evaluation" aria-current="false">Đánh giá tìm nguồn</button>
-  <button type="button" data-page="graph" aria-current="false">Sơ đồ liên kết</button>
+  <button type="button" data-page="tasks" aria-current="false">Tác vụ</button>
+  <button type="button" data-page="qa" aria-current="false">Thử hỏi</button>
+  <button type="button" data-page="evaluation" aria-current="false">Đánh giá</button>
+  <button type="button" data-page="graph" aria-current="false">Sơ đồ</button>
+  <button type="button" data-page="audit" aria-current="false">Nhật ký</button>
 </nav>
 
-<main id="qa-screen">
+<main class="library-main dashboard-main" id="overview-screen">
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Tổng quan hệ thống</h2><p class="hint">Trạng thái dịch vụ, bộ xử lý và nội dung đã sẵn sàng.</p></div><button class="small-action" id="refresh-dashboard" type="button">Làm mới</button></div>
+  <p id="dashboard-status" class="hint" role="status" aria-live="polite">Đang tải trạng thái…</p>
+  <section class="dashboard-grid" aria-label="Trạng thái hệ thống">
+    <article class="panel metric-card"><span class="metric-label">Dịch vụ</span><strong id="system-ready" class="metric-value">—</strong><span id="system-phase" class="hint">—</span></article>
+    <article class="panel metric-card"><span class="metric-label">GPU</span><strong id="system-gpu" class="metric-value">—</strong><span class="hint">Tình trạng bộ xử lý</span></article>
+    <article class="panel metric-card"><span class="metric-label">Video sẵn sàng</span><strong id="system-videos" class="metric-value">—</strong><span class="hint">Đã lập chỉ mục</span></article>
+    <article class="panel metric-card"><span class="metric-label">Tài liệu sẵn sàng</span><strong id="system-documents" class="metric-value">—</strong><span class="hint">Đã lập chỉ mục</span></article>
+    <article class="panel metric-card"><span class="metric-label">Ollama</span><strong id="system-ollama" class="metric-value">—</strong><span class="hint">Kết nối mô hình ngôn ngữ</span></article>
+    <article class="panel metric-card"><span class="metric-label">Chỉ mục</span><strong id="system-index" class="metric-value">—</strong><span class="hint">Số đoạn đã lập chỉ mục</span></article>
+  </section>
+  <section class="panel dashboard-details"><h3>Thông tin chỉ mục</h3><dl id="index-details" class="details-list"><dt>Ngày tạo</dt><dd>—</dd><dt>Phiên bản</dt><dd>—</dd></dl><p id="system-error" class="err" role="status"></p></section>
+</main>
+
+<main class="library-main" id="tasks-screen" hidden>
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Tác vụ xử lý</h2><p class="hint">Theo dõi tiến độ ingest, phân cảnh, ASR và lập chỉ mục trong phiên server hiện tại.</p></div><button class="small-action" id="refresh-tasks" type="button">Làm mới</button></div>
+  <p id="tasks-status" class="hint" role="status" aria-live="polite"></p>
+  <div id="tasks-list" class="tasks-list" aria-live="polite"><p class="hint">Đang tải tác vụ…</p></div>
+</main>
+
+<main class="library-main" id="audit-screen" hidden>
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Nhật ký quản trị</h2><p class="hint">Tối đa 200 sự kiện gần nhất. Nhật ký không chứa mật khẩu, cookie, token hoặc IP thô.</p></div><button class="small-action" id="refresh-audit" type="button">Làm mới</button></div>
+  <p id="audit-status" class="hint" role="status" aria-live="polite"></p>
+  <div class="panel audit-table-wrap"><table class="audit-table"><thead><tr><th>Thời gian</th><th>Sự kiện</th><th>Mục tiêu</th><th>Kết quả</th></tr></thead><tbody id="audit-list"><tr><td colspan="4">Đang tải nhật ký…</td></tr></tbody></table></div>
+</main>
+
+<main id="qa-screen" hidden>
   <section class="stage" aria-label="Video">
     <div class="player-wrap"><div id="player"><div class="player-msg">Đang tải danh sách video…</div></div></div>
     <div class="timeline-box">

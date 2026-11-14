@@ -591,7 +591,9 @@ def _queue_job(source, title=None):
             "job_id": job_id, "status": "queued", "phase": "queued",
             "message": "Đang chờ các tác vụ xử lý trước hoàn tất…",
             "video_id": source.get("video_id"), "document_id": source.get("document_id"),
-            "title": title or source.get("title"), "_source": source,
+            "title": title or source.get("title"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "_source": source,
         }
     _job_executor.submit(_process_ingest_job, job_id, source)
     return job_id
@@ -702,6 +704,21 @@ def get_job(job_id: str):
             result["error_type"] = job.get("_error", "pipeline")
             result["error_detail"] = job.get("_error_detail", "")
         return result
+
+
+def list_jobs(limit: int = 100):
+    with _jobs_lock:
+        snapshot = list(_jobs.values())
+        jobs = [dict(job) for job in reversed(snapshot[-max(1, min(int(limit), 100)):])]
+    result = []
+    for job in jobs:
+        item = {key: value for key, value in job.items() if not key.startswith("_")}
+        if item.get("status") == "error":
+            item["message"] = "Tác vụ thất bại. Xem nhật ký máy chủ."
+            item["error_type"] = str(job.get("_error", "pipeline"))[:80]
+            item["error_detail"] = _safe_diagnostic(job.get("_error_detail", ""))
+        result.append(item)
+    return result
 
 
 def retry_job(job_id: str):

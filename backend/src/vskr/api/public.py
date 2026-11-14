@@ -48,9 +48,15 @@ def _safe_source_link(source: dict) -> str | None:
         host = (parsed.hostname or "").lower()
     except ValueError:
         return None
-    if video_id and (host == "youtu.be" or host.endswith(("youtube.com", "youtube-nocookie.com"))):
+    if video_id and (
+        host == "youtu.be"
+        or host == "youtube.com"
+        or host.endswith(".youtube.com")
+        or host == "youtube-nocookie.com"
+        or host.endswith(".youtube-nocookie.com")
+    ):
         return f"https://www.youtube.com/watch?v={quote(video_id, safe='')}&t={start}s"
-    return None
+    return handlers._safe_source_url(link)
 
 
 @router.get("/")
@@ -66,6 +72,25 @@ def user_asset(asset_path: str):
 @router.get("/shared/{asset_path:path}")
 def shared_asset(asset_path: str):
     return _file_response(ROOT / "web" / "shared", asset_path, "Không tìm thấy tài nguyên.")
+
+
+@router.get("/manifest.webmanifest")
+def user_manifest():
+    path = ROOT / "web" / "user" / "manifest.webmanifest"
+    if not path.is_file():
+        raise HTTPException(404, "Không tìm thấy tài nguyên.")
+    return FileResponse(path, media_type="application/manifest+json")
+
+
+@router.get("/sw.js")
+def user_service_worker():
+    path = ROOT / "web" / "user" / "sw.js"
+    if not path.is_file():
+        raise HTTPException(404, "Không tìm thấy tài nguyên.")
+    return FileResponse(path, media_type="application/javascript", headers={
+        "Service-Worker-Allowed": "/",
+        "Cache-Control": "no-cache",
+    })
 
 
 @router.get("/admin/login")

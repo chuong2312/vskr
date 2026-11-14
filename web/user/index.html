@@ -1,18 +1,100 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#174a52">
-  <title>VSKR — Hỏi đáp bài giảng</title>
+  <meta name="description" content="Hỏi đáp tiếng Việt từ bài giảng, kèm nguồn video và tài liệu.">
+  <link rel="icon" href="/user/assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/shared/tokens.css">
   <link rel="stylesheet" href="/user/assets/styles.css">
+  <title>VSKR — Hỏi đáp bài giảng</title>
 </head>
 <body>
-  <main id="app" aria-live="polite">
-    <h1>VSKR</h1>
-    <p>Hỏi đáp từ nội dung bài giảng.</p>
-    <p>Giao diện đang được cập nhật.</p>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="VSKR, trang chủ">
+      <span class="brand-mark" aria-hidden="true">V</span>
+      <span><strong>VSKR</strong><small>Hỏi đáp bài giảng</small></span>
+    </a>
+    <div class="top-actions">
+      <span id="network-status" class="network-status" role="status" hidden></span>
+      <button id="install-app" class="quiet-button" type="button" hidden>Cài ứng dụng</button>
+      <a id="admin-link" class="quiet-button admin-link" hidden></a>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="library-panel" aria-label="Danh sách học liệu">
+      <section>
+        <div class="section-heading">
+          <div><p class="eyebrow">THƯ VIỆN</p><h2>Bài giảng</h2></div>
+          <span id="video-count" class="count-badge">—</span>
+        </div>
+        <p id="library-loading" class="muted">Đang tải học liệu…</p>
+        <p id="library-empty" class="muted" hidden>Chưa có bài giảng nào sẵn sàng.</p>
+        <div id="video-list" class="video-list" role="list"></div>
+      </section>
+      <section class="document-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">TÀI LIỆU</p><h2>Tài liệu học tập</h2></div>
+          <span id="document-count" class="count-badge">—</span>
+        </div>
+        <p id="document-empty" class="muted" hidden>Chưa có tài liệu nào sẵn sàng.</p>
+        <ul id="document-list" class="document-list"></ul>
+      </section>
+    </aside>
+
+    <section class="study-panel" aria-label="Hỏi đáp bài giảng">
+      <div id="welcome" class="welcome-card">
+        <span class="welcome-icon" aria-hidden="true">✦</span>
+        <p class="eyebrow">HỌC CÙNG VSKR</p>
+        <h1>Hỏi điều bạn muốn hiểu</h1>
+        <p>Đặt câu hỏi về bài giảng. Mỗi câu trả lời đi kèm đoạn video hoặc mục tài liệu để bạn tự đối chiếu.</p>
+      </div>
+
+      <section id="lecture-card" class="lecture-card" aria-label="Video bài giảng" hidden>
+        <div class="lecture-title-row">
+          <div><p class="eyebrow">ĐANG XEM</p><h2 id="lecture-title"></h2></div>
+          <span id="lecture-duration" class="duration-label"></span>
+        </div>
+        <div id="player" class="player" aria-label="Trình phát video"></div>
+        <div class="timeline-wrap">
+          <div class="timeline-heading"><h3>Vị trí nguồn trong video</h3><span id="timeline-range" class="muted"></span></div>
+          <div id="timeline" class="timeline" aria-label="Mốc thời gian của nguồn trả lời"></div>
+          <p id="timeline-empty" class="timeline-empty">Mốc nguồn sẽ hiện ở đây sau khi bạn đặt câu hỏi.</p>
+        </div>
+      </section>
+
+      <section id="conversation" class="conversation" aria-live="polite" aria-relevant="additions text">
+        <div id="result" class="result" hidden></div>
+        <div id="request-status" class="request-status" role="status" hidden></div>
+        <div id="retry-panel" class="retry-panel" hidden>
+          <span id="retry-countdown"></span>
+          <button id="retry-button" class="small-button" type="button" disabled>Thử lại</button>
+        </div>
+      </section>
+
+      <form id="question-form" class="question-composer">
+        <label class="sr-only" for="question-input">Câu hỏi về bài giảng</label>
+        <textarea id="question-input" rows="1" maxlength="500" placeholder="Hỏi về bài giảng hoặc tài liệu…" required></textarea>
+        <div class="composer-footer">
+          <span id="question-hint" class="muted">Tối đa 500 ký tự</span>
+          <button id="ask-button" class="primary-button" type="submit"><span aria-hidden="true">↗</span> Gửi câu hỏi</button>
+        </div>
+      </form>
+      <p class="privacy-note">Câu hỏi được dùng để tìm nội dung trong học liệu hiện có.</p>
+    </section>
   </main>
-  <script src="/user/assets/app.js" defer></script>
+
+  <dialog id="document-dialog" class="document-dialog" aria-labelledby="document-title">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">NGUỒN TÀI LIỆU</p><h2 id="document-title">Mục tài liệu</h2></div>
+      <button id="close-document" class="icon-button" type="button" aria-label="Đóng">×</button>
+    </div>
+    <pre id="document-text"></pre>
+  </dialog>
+
+  <script type="module" src="/user/assets/app.js"></script>
 </body>
 </html>

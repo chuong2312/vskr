@@ -161,7 +161,7 @@ def _safe_source_url(raw_url):
         parsed = urlsplit(raw_url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
             return None
-        netloc = parsed.hostname
+        netloc = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
         if parsed.port:
             netloc = f"{netloc}:{parsed.port}"
         return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
@@ -442,8 +442,16 @@ def public_videos():
         is_upload = meta.get("source_type") == "upload" and bool(meta.get("has_video_file"))
         host = (urlsplit(meta.get("url") or "").hostname or "").lower()
         playback_url = f"/api/videos/{video_id}/file" if is_upload else None
-        if not playback_url and (host == "youtu.be" or host.endswith(("youtube.com", "youtube-nocookie.com"))):
+        if not playback_url and (
+            host == "youtu.be"
+            or host == "youtube.com"
+            or host.endswith(".youtube.com")
+            or host == "youtube-nocookie.com"
+            or host.endswith(".youtube-nocookie.com")
+        ):
             playback_url = f"https://www.youtube.com/watch?v={video_id}"
+        if not playback_url:
+            playback_url = _safe_source_url(meta.get("url"))
         result.append({
             "video_id": video_id,
             "title": meta.get("title") or video_id,

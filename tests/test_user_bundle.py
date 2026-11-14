@@ -23,6 +23,32 @@ class TestUserBundle(unittest.TestCase):
                 for value in forbidden:
                     self.assertNotIn(value, contents, f"{value} leaked into {path.relative_to(web_root)}")
 
+    def test_user_pwa_shell_is_public_and_does_not_cache_api_or_video(self):
+        data_dir = tempfile.TemporaryDirectory()
+        try:
+            with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": data_dir.name}):
+                with ASGITestClient(app) as client:
+                    page = client.get("/")
+                    manifest = client.get("/manifest.webmanifest")
+                    worker = client.get("/sw.js")
+                    shared = client.get("/shared/tokens.css")
+                    icon = client.get("/user/assets/icons/icon.svg")
+            self.assertEqual(page.status_code, 200)
+            self.assertEqual(manifest.status_code, 200)
+            self.assertIn("application/manifest+json", manifest.headers["content-type"])
+            self.assertEqual(worker.status_code, 200)
+            self.assertEqual(worker.headers["service-worker-allowed"], "/")
+            self.assertEqual(shared.status_code, 200)
+            self.assertEqual(icon.status_code, 200)
+            shell = worker.text.split("self.addEventListener(\"install\"", 1)[0]
+            self.assertIn('"/"', shell)
+            self.assertNotIn("/api/", shell)
+            self.assertNotIn("/api/videos/", shell)
+            self.assertIn('url.pathname.startsWith("/api/")', worker.text)
+            self.assertNotIn("/admin", worker.text)
+        finally:
+            data_dir.cleanup()
+
     def test_unauthenticated_admin_page_and_bundle_do_not_return_admin_code(self):
         data_dir = tempfile.TemporaryDirectory()
         env = {

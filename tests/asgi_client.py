@@ -7,6 +7,8 @@ import httpx
 
 
 async def _inline_run_sync(call, *args, **kwargs):
+    kwargs.pop("limiter", None)
+    kwargs.pop("abandon_on_cancel", None)
     return call(*args, **kwargs)
 
 
@@ -16,13 +18,17 @@ class ASGITestClient:
         self.base_url = base_url
         self.loop = None
         self.client = None
-        self._patch = None
+        self._patches = []
 
     def __enter__(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self._patch = mock.patch("fastapi.routing.run_in_threadpool", new=_inline_run_sync)
-        self._patch.start()
+        self._patches = [
+            mock.patch("fastapi.routing.run_in_threadpool", new=_inline_run_sync),
+            mock.patch("anyio.to_thread.run_sync", new=_inline_run_sync),
+        ]
+        for patcher in self._patches:
+            patcher.start()
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.app),
             base_url=self.base_url,
@@ -40,8 +46,8 @@ class ASGITestClient:
             if self.client is not None:
                 self.loop.run_until_complete(self.client.__aexit__(exc_type, exc, tb))
         finally:
-            if self._patch is not None:
-                self._patch.stop()
+            for patcher in reversed(self._patches):
+                patcher.stop()
             self.loop.close()
             asyncio.set_event_loop(None)
 

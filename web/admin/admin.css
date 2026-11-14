@@ -255,3 +255,69 @@
     .task-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
     .details-list { grid-template-columns: 110px 1fr; }
   }
+
+/* VSKR admin workspace */
+:root { --navy:#142b38; --navy-soft:#203d4b; }
+body { min-height:100vh; padding-left:240px; background:var(--canvas); }
+.admin-header { position:sticky; top:0; z-index:12; max-width:none; height:72px; margin:0; padding:10px 28px; background:var(--surface); border-bottom:1px solid var(--line); box-shadow:0 2px 12px #102a2a08; }
+.admin-header .brand-mark { width:40px; height:40px; border-radius:11px; }
+.admin-header .brand-copy .eyebrow,.admin-header .brand-copy p:not(.eyebrow) { display:none; }
+.admin-header h1 { font-size:1.08rem; }
+.app-nav { position:fixed; z-index:15; inset:0 auto 0 0; width:240px; display:flex; flex-direction:column; gap:5px; padding:22px 14px; background:var(--navy); border:0; }
+.app-nav::before { content:"VSKR  ·  QUẢN TRỊ"; display:block; color:#c5d8dd; font-size:.8rem; font-weight:800; letter-spacing:.1em; padding:10px 12px 24px; }
+.app-nav button { position:relative; display:flex; align-items:center; min-height:44px; width:100%; padding:0 14px; border:0; border-radius:8px; background:transparent; color:#c6d5da; text-align:left; font:inherit; cursor:pointer; }
+.app-nav button:hover { background:var(--navy-soft); color:#fff; }
+.app-nav button[aria-current="page"] { background:#294956; color:#fff; font-weight:700; }
+.app-nav button[aria-current="page"]::before { content:""; position:absolute; left:-14px; top:7px; bottom:7px; width:3px; background:#7bc4bb; border-radius:0 3px 3px 0; }
+main.library-main, main#qa-screen { display:block; max-width:1500px; margin:0 auto; padding:28px; }
+main[hidden] { display:none!important; }
+main .panel { border-radius:14px; box-shadow:0 3px 16px #142b3809; }
+.screen-title { font-size:1.45rem; letter-spacing:-.02em; }
+.session-actions { gap:14px; }
+#session-status { color:var(--ink); font-weight:650; }
+.admin-menu-toggle { display:none; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); width:38px; height:38px; }
+.admin-nav-backdrop[hidden] { display:none; }
+.library-manager { padding:0; overflow:hidden; }
+.library-tabs { display:flex; gap:24px; padding:0 22px; border-bottom:1px solid var(--line); }
+.library-tabs button { padding:16px 2px 12px; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--muted); font:inherit; cursor:pointer; }
+.library-tabs button[aria-selected="true"] { border-bottom-color:var(--accent); color:var(--accent); font-weight:750; }
+.library-tabs button:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+.library-tabs span { margin-left:5px; padding:2px 7px; border-radius:20px; background:var(--canvas); font-size:.75rem; }
+.library-filters { display:flex; align-items:end; gap:12px; flex-wrap:wrap; padding:18px 22px; }
+.library-filters label { display:grid; gap:5px; min-width:180px; color:var(--muted); font-size:.78rem; }
+.library-filters label:first-child { flex:1; }
+.library-filters .field { min-height:40px; }
+.library-table-wrap { overflow-x:auto; }
+#library-list { min-width:720px; }
+.library-table-head,.library-item { display:grid; grid-template-columns:minmax(250px,2.4fr) .8fr 1.2fr .9fr 1fr; gap:14px; align-items:center; padding:13px 22px; }
+.library-table-head { background:var(--canvas); color:var(--muted); font-size:.75rem; font-weight:750; }
+.library-item { border-bottom:1px solid var(--line); transition:background .15s ease; }
+.library-item:nth-child(odd) { background:color-mix(in srgb,var(--canvas) 45%,var(--surface)); }
+.library-item:hover { background:var(--soft); }
+.library-item .item-title { display:block; min-width:0; font-weight:700; overflow-wrap:anywhere; }
+.library-title-cell { display:flex; align-items:center; gap:12px; min-width:0; }
+.library-thumb { display:grid; flex:none; place-items:center; width:76px; aspect-ratio:16/9; border-radius:7px; background:linear-gradient(135deg,var(--soft),var(--surface)); color:var(--accent); }
+.library-item .tag { width:max-content; }
+.library-item .state { width:max-content; }
+.library-item button { padding:5px 8px; }
+.library-actions { display:flex; gap:8px; align-items:center; }
+.library-empty { padding:28px; text-align:center; color:var(--muted); }
+.add-library-dialog { width:min(760px,calc(100vw - 28px)); max-height:88vh; overflow:auto; border:1px solid var(--line); border-radius:16px; padding:22px; background:var(--surface); color:var(--ink); box-shadow:0 24px 80px #0005; }
+.add-library-dialog::backdrop { background:#0c1c25a8; }
+.dialog-title { display:flex; justify-content:space-between; align-items:start; gap:12px; margin-bottom:16px; }
+.dialog-title h2 { margin:0; }
+.library-forms { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.library-forms .panel { padding:16px; }
+.library-forms form { display:grid; gap:10px; }
+.library-forms .hint { line-height:1.5; }
+@media(max-width:900px) {
+ body { padding-left:0; }
+ .admin-menu-toggle { display:block; }
+ .admin-header { padding:10px 14px; }
+ .admin-nav-backdrop { position:fixed; z-index:14; inset:72px 0 0; border:0; background:#07171c70; }
+ .app-nav { transform:translateX(-105%); transition:transform .2s ease; box-shadow:12px 0 32px #0003; }
+ .app-nav.open { transform:translateX(0); }
+ main.library-main, main#qa-screen { padding:18px 14px 40px; }
+ .library-forms { grid-template-columns:1fr; }
+}
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; } }

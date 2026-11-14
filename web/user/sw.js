@@ -1,4 +1,4 @@
-const CACHE_NAME = "vskr-user-shell-v3";
+const CACHE_NAME = "vskr-user-shell-v4";
 const SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -11,7 +11,7 @@ const SHELL = [
   "/user/assets/icons/icon.svg",
 ];
 
-self.addEventListener("install", (event) => {
+if (self.location.protocol === "http:" || self.location.protocol === "https:") self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
@@ -23,7 +23,7 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/api/videos/")) return;
+  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
   if (!SHELL.includes(url.pathname)) return;
   event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
     if (response.ok) {

@@ -37,7 +37,38 @@ const fmt = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 36
 
 let player = null, videos = [], current = null, lastSources = [], lastQuestion = "", lastGraphData = null, pendingJump = null, ytApiReady = false, qaInitialized = false;
 
+const adminNav = document.querySelector(".app-nav");
+const adminMenuToggle = $("#admin-menu-toggle");
+const adminNavBackdrop = $("#admin-nav-backdrop");
+const mobileAdminNav = window.matchMedia("(max-width: 900px)");
+function setAdminNavOpen(open, { restoreFocus = false } = {}) {
+  adminNav.classList.toggle("open", open);
+  adminMenuToggle.setAttribute("aria-expanded", String(open));
+  adminMenuToggle.setAttribute("aria-label", open ? "Đóng menu" : "Mở menu");
+  adminNavBackdrop.hidden = !open || !mobileAdminNav.matches;
+  adminNav.inert = mobileAdminNav.matches && !open;
+  if (open && mobileAdminNav.matches) adminNav.querySelector("button")?.focus();
+  else if (restoreFocus) adminMenuToggle.focus();
+}
+setAdminNavOpen(false);
+adminMenuToggle.addEventListener("click", () => setAdminNavOpen(!adminNav.classList.contains("open")));
+adminNavBackdrop.addEventListener("click", () => setAdminNavOpen(false, { restoreFocus: true }));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && adminNav.classList.contains("open") && mobileAdminNav.matches) {
+    setAdminNavOpen(false, { restoreFocus: true });
+  }
+});
+document.addEventListener("click", (event) => {
+  if (mobileAdminNav.matches && adminNav.classList.contains("open")
+      && event.target instanceof Node && !adminNav.contains(event.target)
+      && !adminMenuToggle.contains(event.target) && !adminNavBackdrop.contains(event.target)) {
+    setAdminNavOpen(false);
+  }
+});
+mobileAdminNav.addEventListener("change", () => setAdminNavOpen(false));
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => {
+  const wasOpen = adminNav.classList.contains("open") && mobileAdminNav.matches;
+  setAdminNavOpen(false, { restoreFocus: wasOpen });
   const target = `${button.dataset.page}-screen`;
   document.querySelectorAll("main").forEach((el) => { el.hidden = el.id !== target; });
   document.querySelectorAll("[data-page]").forEach((el) => el.setAttribute("aria-current", el === button ? "page" : "false"));
@@ -439,6 +470,41 @@ async function showDocumentSection(source) {
   } catch (err) { $("#pipeline-status").textContent = `Không mở được mục tài liệu: ${err.message}`; }
 }
 
+let libraryItems = [];
+let libraryKindFilter = "all";
+function renderLibraryTable() {
+  const title = $("#library-filter-title")?.value.trim().toLocaleLowerCase("vi") || "";
+  const statusFilter = $("#library-filter-status")?.value || "all";
+  const counts = { all: libraryItems.length, video: libraryItems.filter((x) => x.kind === "video").length, document: libraryItems.filter((x) => x.kind === "document").length };
+  Object.entries(counts).forEach(([key, value]) => { const node = $(`#count-${key}`); if (node) node.textContent = String(value); });
+  const filtered = libraryItems.filter((item) => {
+    const state = item.status?.state || "processing";
+    return (libraryKindFilter === "all" || item.kind === libraryKindFilter)
+      && (statusFilter === "all" || state === statusFilter)
+      && (!title || String(item.title || "").toLocaleLowerCase("vi").includes(title));
+  });
+  const list = $("#library-list");
+  if (!filtered.length) { list.innerHTML = `<p class="library-empty">${libraryItems.length ? "Không có học liệu phù hợp với bộ lọc." : "Chưa có video hoặc tài liệu. Hãy chọn Thêm học liệu để bắt đầu."}</p>`; return; }
+  const rows = filtered.map((item) => {
+    const jobId = item.job_id || (String(item.id).startsWith("job:") ? item.id.slice(4) : "");
+    const status = item.status || {};
+    const extra = item.kind === "document" ? (item.sections ? `${item.sections} mục` : "—") : item.duration ? fmt(item.duration) : "—";
+    const rawStatus = status.label || status.state || "Chưa rõ";
+    const statusText = status.state === "ready" || rawStatus === "Đã chia mục" ? "Sẵn sàng để hỏi" : rawStatus.includes("lập chỉ mục") ? rawStatus.replace("lập chỉ mục", "chuẩn bị nội dung để tìm") : rawStatus;
+    const stateClass = status.state === "ready" || rawStatus === "Đã chia mục" ? "ready" : status.state === "error" ? "error" : "processing";
+    const actions = [];
+    const isJobOnly = String(item.id).startsWith("job:");
+    if (status.state === "error" && jobId) actions.push(`<button class="small-action" data-retry="${esc(jobId)}" type="button">Thử lại</button>`);
+    if (isJobOnly) {
+      if (status.state === "error") actions.push(`<button class="small-action danger" data-delete-job="${esc(jobId)}" type="button">Xóa tác vụ</button>`);
+      else actions.push(`<span class="hint">Đang xử lý</span>`);
+    } else {
+      actions.push(`<button class="small-action danger" data-delete="${esc(item.kind)}:${esc(item.id)}" type="button">Xóa</button>`);
+    }
+    return `<article class="library-item"><div class="library-title-cell"><span class="library-thumb" aria-hidden="true">${item.kind === "document" ? "▤" : "▶"}</span><span class="item-title">${esc(item.title || "Học liệu chưa có tên")}</span></div><span>${item.kind === "document" ? "Tài liệu" : "Video"}</span><span class="state ${stateClass}">${esc(statusText)}</span><span>${esc(extra)}</span><span class="library-actions">${actions.join("")}</span></article>`;
+  }).join("");
+  list.innerHTML = `<div class="library-table-head" aria-hidden="true"><span>Tiêu đề</span><span>Loại</span><span>Trạng thái</span><span>Thời lượng / Số mục</span><span>Thao tác</span></div>${rows}`;
+}
 async function loadLibrary(showLoading = true) {
   const list = $("#library-list");
   if (showLoading) list.innerHTML = `<p class="hint">Đang tải thư viện…</p>`;
@@ -446,20 +512,9 @@ async function loadLibrary(showLoading = true) {
     const r = await fetch("/api/library");
     const items = await r.json();
     if (!r.ok) throw new Error(items.detail || r.statusText);
-    $("#welcome-guide").hidden = items.some((item) => item.status?.state === "ready" || item.status?.label === "Đã chia mục");
-    if (!items.length) { list.innerHTML = `<p class="hint">Chưa có video hoặc tài liệu. Thêm nội dung bằng các biểu mẫu bên trái.</p>`; return; }
-    list.innerHTML = items.map((item) => {
-      const jobId = item.job_id || (item.id.startsWith("job:") ? item.id.slice(4) : "");
-      const status = item.status || {};
-      const actions = [];
-      if (status.state === "error" && jobId) actions.push(`<button class="small-action" data-retry="${esc(jobId)}">Thử lại</button>`);
-      if (item.id.startsWith("job:") && status.state === "error") actions.push(`<button class="small-action danger" data-delete-job="${esc(jobId)}">Xóa</button>`);
-      else actions.push(`<button class="small-action danger" data-delete="${esc(item.kind)}:${esc(item.id)}">Xóa</button>`);
-      const extra = item.kind === "document" ? (item.sections ? `${item.sections} mục` : "—") : item.duration ? fmt(item.duration) : "—";
-      const rawStatus = status.label || status.state || "Chưa rõ";
-      const statusText = status.state === "ready" ? "Sẵn sàng để hỏi" : rawStatus === "Đã chia mục" ? "Sẵn sàng để hỏi" : rawStatus.includes("lập chỉ mục") ? rawStatus.replace("lập chỉ mục", "chuẩn bị nội dung để tìm") : rawStatus;
-      return `<article class="library-item"><span class="tag">${item.kind === "document" ? "Tài liệu" : "Video"}</span><span class="item-title">${esc(item.title)}</span><span class="hint">${esc(extra)}</span><span class="state ${status.state === "ready" ? "ready" : status.state === "error" ? "error" : ""}">${esc(statusText)}</span>${actions.join("")}</article>`;
-    }).join("");
+    libraryItems = Array.isArray(items) ? items : [];
+    $("#welcome-guide").hidden = libraryItems.some((item) => item.status?.state === "ready" || item.status?.label === "Đã chia mục");
+    renderLibraryTable();
   } catch (err) { list.innerHTML = `<p class="err">Không tải được thư viện: ${esc(err.message)}</p>`; }
 }
 
@@ -501,6 +556,33 @@ $("#library-list").addEventListener("click", async (e) => {
 });
 
 $("#refresh-library").addEventListener("click", () => loadLibrary());
+$("#apply-library-filter").addEventListener("click", renderLibraryTable);
+$("#library-filter-title").addEventListener("input", renderLibraryTable);
+$("#library-filter-status").addEventListener("change", renderLibraryTable);
+document.querySelectorAll("[data-kind]").forEach((button) => button.addEventListener("click", () => {
+  libraryKindFilter = button.dataset.kind;
+  document.querySelectorAll("[data-kind]").forEach((tab) => {
+    const selected = tab === button;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  $("#library-list").setAttribute("aria-labelledby", button.id);
+  renderLibraryTable();
+}));
+document.querySelector(".library-tabs").addEventListener("keydown", (event) => {
+  const tabs = [...document.querySelectorAll("[role=tab][data-kind]")];
+  const currentIndex = tabs.indexOf(document.activeElement);
+  if (currentIndex < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : (currentIndex + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length;
+  tabs[nextIndex].focus();
+  tabs[nextIndex].click();
+});
+const addLibraryDialog = $("#add-library-dialog");
+$("#open-add-library").addEventListener("click", () => addLibraryDialog.showModal());
+$("#close-add-library").addEventListener("click", () => addLibraryDialog.close());
+addLibraryDialog.addEventListener("click", (event) => { if (event.target === addLibraryDialog) addLibraryDialog.close(); });
 
 $("#library-video-url").addEventListener("input", () => { if ($("#library-video-url").value.trim()) $("#library-video-file").value = ""; });
 $("#library-video-file").addEventListener("change", () => { if ($("#library-video-file").files.length) $("#library-video-url").value = ""; });
@@ -530,6 +612,7 @@ $("#library-video-form").addEventListener("submit", async (e) => {
     await waitForIngest(result.job_id);
     $("#library-video-status").textContent = "Đã xử lý video.";
     $("#library-video-form").reset();
+    addLibraryDialog.close();
   } catch (error) {
     $("#library-video-status").textContent = error.message;
   } finally {
@@ -552,6 +635,7 @@ $("#library-doc-form").addEventListener("submit", async (e) => {
     await waitForIngest(data.job_id);
     $("#library-doc-status").textContent = "Tài liệu đã sẵn sàng để hỏi đáp.";
     $("#library-doc-form").reset();
+    addLibraryDialog.close();
   } catch (err) { $("#library-doc-status").textContent = err.message; }
   finally { button.disabled = false; }
 });

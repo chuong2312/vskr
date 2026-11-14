@@ -17,15 +17,20 @@
       <span class="brand-mark" aria-hidden="true">V</span>
       <span><strong>VSKR</strong><small>Hỏi đáp bài giảng</small></span>
     </a>
+    <div class="global-search">
+      <span aria-hidden="true">⌕</span><input id="library-search" type="search" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-autocomplete="list" placeholder="Tìm bài giảng hoặc tài liệu" autocomplete="off" aria-label="Tìm bài giảng hoặc tài liệu" aria-controls="search-results">
+      <div id="search-results" class="search-results" role="listbox" hidden></div>
+    </div>
     <div class="top-actions">
       <span id="network-status" class="network-status" role="status" hidden></span>
+      <button id="search-toggle" class="quiet-button search-toggle" type="button" aria-label="Tìm học liệu" aria-expanded="false" aria-controls="library-search">⌕</button>
       <button id="install-app" class="quiet-button" type="button" hidden>Cài ứng dụng</button>
-      <a id="admin-link" class="quiet-button admin-link" hidden></a>
+      <a id="admin-link" class="quiet-button admin-link" hidden>Quản trị</a>
     </div>
   </header>
 
   <main class="layout">
-    <aside class="library-panel" aria-label="Danh sách học liệu">
+    <aside class="library-panel" id="library-drawer" aria-label="Danh sách học liệu" aria-hidden="true" inert>
       <section>
         <div class="section-heading">
           <div><p class="eyebrow">THƯ VIỆN</p><h2>Bài giảng</h2></div>
@@ -44,9 +49,16 @@
         <ul id="document-list" class="document-list"></ul>
       </section>
     </aside>
+    <button id="drawer-backdrop" class="drawer-backdrop" type="button" aria-label="Đóng thư viện" hidden></button>
 
     <section class="study-panel" aria-label="Hỏi đáp bài giảng">
-      <div class="watch-column">
+      <div class="chat-toolbar">
+        <button id="drawer-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="library-drawer" aria-label="Mở thư viện">☰</button>
+        <strong>Hỏi VSKR</strong>
+        <button id="new-thread" class="icon-button" type="button" aria-label="Cuộc hỏi mới" title="Cuộc hỏi mới">✎</button>
+      </div>
+      <p id="app-status" class="request-status" role="status" hidden></p>
+      <div id="thread" class="thread" role="log" aria-live="polite" aria-relevant="additions text">
         <div id="welcome" class="welcome-card">
           <span class="welcome-icon" aria-hidden="true">✦</span>
           <p class="eyebrow">HỌC CÙNG VSKR</p>
@@ -56,7 +68,14 @@
 
         <section id="lecture-card" class="lecture-card" aria-label="Video bài giảng" hidden>
           <div class="lecture-title-row">
-            <div><p class="eyebrow">ĐANG XEM</p><h2 id="lecture-title"></h2></div>
+            <div class="stage-heading">
+              <div class="stage-navigation">
+                <button id="prev-video" type="button" aria-label="Bài giảng trước" disabled>‹</button>
+                <button id="video-position" type="button" class="stage-position">1/1 bài giảng</button>
+                <button id="next-video" type="button" aria-label="Bài giảng tiếp theo" disabled>›</button>
+              </div>
+              <h2 id="lecture-title"></h2>
+            </div>
             <span id="lecture-duration" class="duration-label"></span>
           </div>
           <div id="player" class="player" aria-label="Trình phát video"></div>
@@ -66,33 +85,31 @@
             <p id="timeline-empty" class="timeline-empty">Mốc nguồn sẽ hiện ở đây sau khi bạn đặt câu hỏi.</p>
           </div>
         </section>
+
+        <section id="conversation" class="conversation" aria-relevant="additions text"></section>
       </div>
+      <button id="thread-bottom" class="thread-bottom" type="button" aria-label="Cuộn đến câu trả lời mới nhất" hidden>↓</button>
 
-      <div class="ask-column">
-        <section id="conversation" class="conversation" aria-live="polite" aria-relevant="additions text">
-          <div id="ask-empty" class="ask-empty">
-            <h2>Hỏi điều bạn muốn hiểu</h2>
-            <p>Câu trả lời sẽ hiện ở đây, kèm nguồn để bạn bấm xem ngay trên video bên cạnh.</p>
-            <p class="muted">Nêu rõ tên khái niệm sẽ cho kết quả tốt hơn, ví dụ «X là gì?» hoặc «X và Y khác nhau ở điểm nào?»</p>
+      <form id="question-form" class="question-composer">
+        <label class="sr-only" for="question-input">Câu hỏi về bài giảng</label>
+        <div class="composer-tools">
+          <button id="suggest-toggle" class="suggest-button" type="button" aria-expanded="false" aria-controls="suggestions">✦ Gợi ý</button>
+          <div id="suggestions" class="suggestions" hidden>
+            <button type="button">Hãy tóm tắt nội dung chính của bài giảng.</button>
+            <button type="button">Giải thích một khái niệm trong học liệu bằng ví dụ.</button>
+            <button type="button">X là gì? Hãy giải thích dựa trên học liệu.</button>
           </div>
-          <div id="result" class="result" hidden></div>
-          <div id="request-status" class="request-status" role="status" hidden></div>
-          <div id="retry-panel" class="retry-panel" hidden>
-            <span id="retry-countdown"></span>
-            <button id="retry-button" class="small-button" type="button" disabled>Thử lại</button>
-          </div>
-        </section>
-
-        <form id="question-form" class="question-composer">
-          <label class="sr-only" for="question-input">Câu hỏi về bài giảng</label>
+        </div>
+        <div class="composer-input">
           <textarea id="question-input" rows="1" maxlength="500" placeholder="Hỏi về bất kỳ bài giảng hoặc tài liệu nào trong thư viện…" required></textarea>
-          <div class="composer-footer">
-            <span id="question-hint" class="muted" aria-live="polite">Tối đa 500 ký tự</span>
-            <button id="ask-button" class="primary-button" type="submit"><span aria-hidden="true">↗</span> Gửi câu hỏi</button>
-          </div>
-        </form>
-        <p class="privacy-note">Câu hỏi được tìm trên toàn bộ bài giảng và tài liệu trong thư viện, không chỉ video đang mở.</p>
-      </div>
+          <button id="ask-button" class="primary-button send-button" type="submit" aria-label="Gửi câu hỏi">➤</button>
+        </div>
+        <div class="composer-footer">
+          <span id="question-hint" class="muted" aria-live="polite">0/500 ký tự</span>
+          <span class="muted">Enter để gửi · Shift+Enter xuống dòng</span>
+        </div>
+      </form>
+      <p class="privacy-note">Mỗi câu hỏi được xử lý riêng, không dựa vào câu trước. Câu hỏi được tìm trên toàn bộ thư viện, không chỉ video đang mở.</p>
     </section>
   </main>
 

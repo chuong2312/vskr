@@ -3,10 +3,18 @@ import { ApiError, request } from "/shared/api.js";
 const $ = (selector) => document.querySelector(selector);
 const state = {
   videos: [], documents: [], currentVideo: null, sources: [], player: null,
-  youtubePromise: null, pendingJump: null, retryUntil: 0, retryQuestion: "", retryInterval: null,
+  sourcesByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
+  youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
+  retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false,
-  sourceNoticeTimeout: null, activeSourceNumber: null,
 };
+
+function sourceKey(source) {
+  return JSON.stringify([
+    String(source.n), source.source_type || "", source.video_id || "",
+    source.document_id || "", String(source.section ?? ""),
+  ]);
+}
 
 function formatTime(value) {
   const seconds = Math.max(0, Math.floor(Number(value) || 0));
@@ -24,32 +32,6 @@ function make(tag, className, text) {
   return node;
 }
 
-function sourcePreview(text, limit = 280) {
-  if (text.length <= limit) return null;
-  let end = text.lastIndexOf(" ", limit);
-  if (end < Math.floor(limit * 0.75)) end = text.indexOf(" ", limit);
-  if (end < 0) end = limit;
-  return text.slice(0, end).trimEnd() + "…";
-}
-
-function appendSourceText(card, text) {
-  const preview = sourcePreview(text);
-  const paragraph = make("p", "source-text", preview || text);
-  card.append(paragraph);
-  if (!preview) return;
-
-  const toggle = make("button", "small-button source-toggle", "Xem thêm");
-  toggle.type = "button";
-  toggle.setAttribute("aria-expanded", "false");
-  toggle.addEventListener("click", () => {
-    const expanded = toggle.getAttribute("aria-expanded") === "true";
-    paragraph.textContent = expanded ? preview : text;
-    toggle.setAttribute("aria-expanded", String(!expanded));
-    toggle.textContent = expanded ? "Xem thêm" : "Thu gọn";
-  });
-  card.append(toggle);
-}
-
 function isYouTube(video) {
   try {
     const host = new URL(video.playback_url).hostname.toLowerCase();
@@ -58,8 +40,8 @@ function isYouTube(video) {
   } catch { return false; }
 }
 
-function setStatus(message = "", kind = "") {
-  const status = $("#request-status");
+function setStatus(message = "", kind = "", status = $("#app-status")) {
+  if (!status) return;
   status.textContent = message;
   status.hidden = !message;
   status.classList.toggle("error", kind === "error");
@@ -69,22 +51,41 @@ function clearRetry() {
   if (state.retryInterval) clearInterval(state.retryInterval);
   state.retryInterval = null;
   state.retryUntil = 0;
-  $("#retry-panel").hidden = true;
+  state.retryPanel?.remove();
+  state.retryPanel = null;
+  state.retryButton = null;
+  state.retryTurn = null;
 }
 
-function waitBeforeRetry(seconds, question, status) {
+function waitBeforeRetry(seconds, question, message, turn) {
   clearRetry();
-  state.retryQuestion = question;
-  state.retryUntil = Date.now() + Math.max(1, seconds) * 1000;
-  $("#retry-panel").hidden = false;
-  $("#retry-button").disabled = true;
-  setStatus(status, "error");
+  const body = turn.querySelector(".turn-content");
+  const status = make("p", "request-status error");
+  status.setAttribute("role", "status");
+  setStatus(message, "error", status);
+  const panel = make("div", "retry-panel");
+  const countdown = make("span");
+  const button = make("button", "small-button", "Thử lại");
+  button.type = "button";
+  button.disabled = true;
+  panel.append(countdown, button);
+  body.replaceChildren(status, panel);
+  const waitSeconds = Math.max(1, Number(seconds) || 1);
+  state.retryUntil = Date.now() + waitSeconds * 1000;
+  state.retryPanel = panel;
+  state.retryButton = button;
+  state.retryTurn = turn;
+  button.addEventListener("click", () => {
+    questionInput.value = question;
+    updateQuestionInput();
+    submitQuestion(question, { retryTurn: turn });
+  });
   const update = () => {
     const left = Math.max(0, Math.ceil((state.retryUntil - Date.now()) / 1000));
-    $("#retry-countdown").textContent = left
+    countdown.textContent = left
       ? `Bạn có thể gửi lại sau ${left} giây.`
       : "Đã có thể thử lại.";
-    $("#retry-button").disabled = left > 0 || state.asking;
+    button.disabled = left > 0 || state.asking;
     if (!left && state.retryInterval) {
       clearInterval(state.retryInterval);
       state.retryInterval = null;
@@ -101,6 +102,8 @@ function renderDocuments() {
   $("#document-empty").hidden = state.documents.length > 0;
   for (const doc of state.documents) {
     const item = make("li");
+    item.dataset.documentId = String(doc.document_id || doc.id || "");
+    item.tabIndex = -1;
     item.append(make("span", "document-icon", "▤"));
     const details = make("span");
     details.append(make("span", "document-title", doc.title || "Tài liệu"));
@@ -126,7 +129,10 @@ function renderVideos() {
     text.append(make("span", "video-choice-title", video.title || "Bài giảng"));
     text.append(make("span", "video-choice-meta", video.duration ? formatTime(video.duration) : "Video bài giảng"));
     button.append(text);
-    button.addEventListener("click", () => selectVideo(video));
+    button.addEventListener("click", () => {
+      selectVideo(video);
+      closeDrawer({ restoreFocus: true });
+    });
     list.append(button);
   }
 }
@@ -216,15 +222,25 @@ function selectVideo(video) {
   $("#lecture-title").textContent = video.title || "Bài giảng";
   $("#lecture-duration").textContent = video.duration ? formatTime(video.duration) : "";
   renderVideos();
+  const index = state.videos.findIndex((item) => item.video_id === video.video_id);
+  $("#video-position").textContent = `${Math.max(0, index) + 1}/${state.videos.length} bài giảng`;
+  $("#prev-video").disabled = index <= 0;
+  $("#next-video").disabled = index < 0 || index >= state.videos.length - 1;
   setupPlayer(video);
   renderTimeline();
 }
 
-function setActiveSource(sourceNumber) {
-  state.activeSourceNumber = sourceNumber == null ? null : String(sourceNumber);
+function setActiveSource(turnId, source) {
+  state.activeTurnId = turnId == null ? null : String(turnId);
+  state.activeSourceKey = source ? sourceKey(source) : null;
   for (const item of document.querySelectorAll(".source-card, .timeline-mark")) {
-    const active = item.dataset.sourceNumber === state.activeSourceNumber;
+    const active = item.dataset.turnId === state.activeTurnId
+      && item.dataset.sourceKey === state.activeSourceKey;
     item.classList.toggle("is-active", active);
+    if (active) {
+      const details = item.closest("details");
+      if (details) details.open = true;
+    }
     if (active) item.setAttribute("aria-current", "true");
     else item.removeAttribute("aria-current");
   }
@@ -234,23 +250,25 @@ function renderTimeline() {
   const timeline = $("#timeline");
   timeline.replaceChildren();
   const duration = Number(state.currentVideo?.duration || 0);
-  const sources = state.sources.filter((source) => source.video_id === state.currentVideo?.video_id && Number.isFinite(Number(source.start)));
+  const sources = duration ? state.sources.filter((source) => source.video_id === state.currentVideo?.video_id && Number.isFinite(Number(source.start))) : [];
   $("#timeline-range").textContent = duration ? `0:00 – ${formatTime(duration)}` : "";
   $("#timeline-empty").hidden = Boolean(duration && sources.length);
   for (const source of sources) {
     const mark = make("button", "timeline-mark");
     mark.type = "button";
+    mark.dataset.turnId = String(state.activeTurnId || "");
+    mark.dataset.sourceNumber = String(source.n);
+    mark.dataset.sourceKey = sourceKey(source);
     mark.style.left = `${Math.max(0, Math.min(100, Number(source.start) / duration * 100))}%`;
     const width = Number(source.end) > Number(source.start) ? Number(source.end) - Number(source.start) : 1;
     mark.style.width = `${Math.max(.8, Math.min(30, width / duration * 100))}%`;
-    mark.dataset.sourceNumber = String(source.n);
     mark.title = `Nguồn ${source.n} · ${source.label || formatTime(source.start)}`;
     mark.setAttribute("aria-label", `Tua đến nguồn ${source.n}, ${source.label || formatTime(source.start)}`);
-    if (String(source.n) === state.activeSourceNumber) {
+    if (sourceKey(source) === state.activeSourceKey && String(state.activeTurnId) === String(mark.dataset.turnId)) {
       mark.classList.add("is-active");
       mark.setAttribute("aria-current", "true");
     }
-    mark.addEventListener("click", () => openSource(source));
+    mark.addEventListener("click", () => openSource(source, state.activeTurnId));
     timeline.append(mark);
   }
 }
@@ -270,8 +288,13 @@ function jumpCurrentVideo(start) {
   }
 }
 
-async function openSource(source) {
-  setActiveSource(source.n);
+async function openSource(source, turnId = state.activeTurnId) {
+  const turnSources = state.sourcesByTurn.get(String(turnId));
+  if (turnSources) {
+    state.sources = turnSources;
+    setActiveSource(turnId, source);
+    renderTimeline();
+  }
   if (source.source_type === "document") {
     try {
       const data = await request(source.link);
@@ -288,20 +311,12 @@ async function openSource(source) {
   if (state.currentVideo?.video_id !== video.video_id) {
     state.pendingJump = { videoId: video.video_id, start: Number(source.start) || 0 };
     selectVideo(video);
-    const title = video.title || "bài giảng";
-    const notice = "Đã chuyển sang «" + title + "» để mở nguồn này.";
-    setStatus(notice);
-    if (state.sourceNoticeTimeout) clearTimeout(state.sourceNoticeTimeout);
-    state.sourceNoticeTimeout = setTimeout(() => {
-      if ($("#request-status").textContent === notice) setStatus("");
-      state.sourceNoticeTimeout = null;
-    }, 6000);
     return;
   }
   jumpCurrentVideo(Number(source.start) || 0);
 }
 
-function appendCitedAnswer(container, answer, sources) {
+function appendCitedAnswer(container, answer, sources, turnId) {
   const citationPattern = /\[\s*(?:Nguồn\s*)?(\d+(?:\s*[,;]\s*(?:Nguồn\s*)?\d+)*)\s*\]/gi;
   let cursor = 0;
   for (const match of answer.matchAll(citationPattern)) {
@@ -310,12 +325,13 @@ function appendCitedAnswer(container, answer, sources) {
     if (numbers.every((number) => sources.some((source) => source.n === number))) {
       numbers.forEach((number, index) => {
         if (index) container.append(document.createTextNode(", "));
-        const cite = make("button", "citation", String(number));
+        const sourceItem = sources.find((item) => item.n === number);
+        const cite = make("button", "citation", `[${number}] ${sourceItem?.source_type === "document" ? "▤" : "▶"}`);
         cite.type = "button";
         cite.setAttribute("aria-label", `Mở nguồn ${number}`);
         cite.addEventListener("click", () => {
           const source = sources.find((item) => item.n === number);
-          if (source) openSource(source);
+          if (source) openSource(source, turnId);
         });
         container.append(cite);
       });
@@ -327,24 +343,25 @@ function appendCitedAnswer(container, answer, sources) {
   container.append(document.createTextNode(answer.slice(cursor)));
 }
 
-function renderResult(result) {
+function renderResult(result, root, turnId) {
   state.sources = Array.isArray(result.sources) ? result.sources : [];
-  state.activeSourceNumber = null;
-  $("#ask-empty").hidden = true;
-  const root = $("#result");
+  state.activeTurnId = String(turnId);
+  state.activeSourceKey = null;
+  state.sourcesByTurn.set(state.activeTurnId, state.sources);
   root.replaceChildren();
-  root.hidden = false;
   const answer = make("div", `answer${result.found ? "" : " not-found"}`);
-  appendCitedAnswer(answer, result.answer || "Chưa có câu trả lời.", state.sources);
+  appendCitedAnswer(answer, result.answer || "Chưa có câu trả lời.", state.sources, turnId);
   root.append(answer);
   if (result.found && state.sources.length) {
-    root.append(make("p", "coverage-note", "Câu trả lời dựa trên các đoạn gần nhất với câu hỏi, không phải toàn bộ bài giảng. Hãy mở nguồn để đối chiếu."));
+    root.append(make("p", "coverage-note", "Câu trả lời dựa trên các đoạn gần nhất tìm được trong thư viện. Hãy mở nguồn để đối chiếu."));
   }
   if (state.sources.length) {
     const cards = make("div", "source-list");
     for (const source of state.sources) {
       const card = make("article", "source-card");
+      card.dataset.turnId = String(turnId);
       card.dataset.sourceNumber = String(source.n);
+      card.dataset.sourceKey = sourceKey(source);
       const heading = make("div", "source-heading");
       heading.append(make("span", "source-number", `Nguồn ${source.n}`));
       heading.append(make("span", "source-title", source.title || (source.source_type === "document" ? "Tài liệu" : "Bài giảng")));
@@ -354,7 +371,7 @@ function renderResult(result) {
       const actions = make("div", "source-actions");
       const open = make("button", "small-button", source.source_type === "document" ? "Mở mục tài liệu" : `Phát từ ${formatTime(source.start)}`);
       open.type = "button";
-      open.addEventListener("click", () => openSource(source));
+      open.addEventListener("click", () => openSource(source, turnId));
       actions.append(open);
       if (source.source_type !== "document" && source.link && /^https:\/\//i.test(source.link)) {
         const link = make("a", "source-link", "Mở video nguồn ↗");
@@ -366,23 +383,87 @@ function renderResult(result) {
       card.append(actions);
       cards.append(card);
     }
-    root.append(cards);
+    const details = make("details", "source-details");
+    details.append(make("summary", "source-summary", `Nguồn (${state.sources.length})`), cards);
+    root.append(details);
   }
   renderTimeline();
-  if (window.matchMedia("(min-width: 1100px)").matches) {
-    $("#conversation").scrollTo({ top: 0, behavior: "smooth" });
-  } else {
-    root.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }
+  scrollThreadToEnd();
 }
 
-async function submitQuestion(question = $("#question-input").value.trim()) {
+function sourcePreview(text, limit = 280) {
+  if (text.length <= limit) return null;
+  let end = text.lastIndexOf(" ", limit);
+  if (end < Math.floor(limit * .75)) end = text.indexOf(" ", limit);
+  if (end < 0) end = limit;
+  return `${text.slice(0, end).trimEnd()}…`;
+}
+
+function appendSourceText(card, text) {
+  const preview = sourcePreview(text);
+  const paragraph = make("p", "source-text", preview || text);
+  card.append(paragraph);
+  if (!preview) return;
+  const toggle = make("button", "small-button source-toggle", "Xem thêm");
+  toggle.type = "button";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.addEventListener("click", () => {
+    const expanded = toggle.getAttribute("aria-expanded") === "true";
+    paragraph.textContent = expanded ? preview : text;
+    toggle.setAttribute("aria-expanded", String(!expanded));
+    toggle.textContent = expanded ? "Xem thêm" : "Thu gọn";
+  });
+  card.append(toggle);
+}
+
+function scrollThreadToEnd() {
+  const thread = $("#thread");
+  thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" });
+}
+
+function addTurn(role, content, pending = false) {
+  const row = make("div", role === "user" ? "user-turn" : "assistant-turn");
+  const turnId = `turn-${++state.turnCounter}`;
+  row.id = turnId;
+  row.dataset.turnId = turnId;
+  const avatar = make("span", "turn-avatar", role === "user" ? "B" : "V");
+  avatar.setAttribute("aria-hidden", "true");
+  const body = make("div", "turn-content", content);
+  row.append(avatar, body);
+  if (pending) row.dataset.pending = "true";
+  $("#conversation").append(row);
+  scrollThreadToEnd();
+  return row;
+}
+
+function setTurnStatus(turn, message, kind = "") {
+  const status = make("p", "request-status");
+  status.setAttribute("role", "status");
+  setStatus(message, kind, status);
+  turn.querySelector(".turn-content").replaceChildren(status);
+  turn.removeAttribute("data-pending");
+}
+
+async function submitQuestion(question = $("#question-input").value.trim(), options = {}) {
   if (!question || state.asking) return;
+  const retryTurn = options.retryTurn || null;
+  clearRetry();
+  let turn;
+  if (retryTurn?.isConnected) {
+    turn = retryTurn;
+    turn.querySelector(".turn-content").replaceChildren();
+  } else {
+    $("#welcome").hidden = true;
+    addTurn("user", question);
+    turn = addTurn("assistant", "", true);
+  }
+  const pending = make("p", "request-status", retryTurn ? "Đang thử gửi lại câu hỏi…" : "Đang tìm trong bài giảng và tài liệu…");
+  pending.setAttribute("role", "status");
+  turn.querySelector(".turn-content").replaceChildren(pending);
   state.asking = true;
   $("#ask-button").disabled = true;
-  $("#retry-button").disabled = true;
-  clearRetry();
-  setStatus("Đang tìm trong bài giảng và tài liệu…");
+  $("#new-thread").disabled = true;
+  setStatus("");
   try {
     const result = await request("/api/ask", {
       method: "POST",
@@ -390,27 +471,31 @@ async function submitQuestion(question = $("#question-input").value.trim()) {
       body: JSON.stringify({ question }),
     });
     $("#question-input").value = "";
-    updateQuestionHint("");
-    setStatus("");
-    renderResult(result);
+    updateQuestionInput();
+    const resultNode = make("div", "result");
+    turn.querySelector(".turn-content").replaceChildren(resultNode);
+    turn.removeAttribute("data-pending");
+    renderResult(result, resultNode, turn.dataset.turnId);
   } catch (error) {
     if (!navigator.onLine) {
-      setStatus("Bạn đang ngoại tuyến. Kết nối lại internet rồi thử gửi câu hỏi.", "error");
+      setTurnStatus(turn, "Bạn đang ngoại tuyến. Kết nối lại internet rồi thử gửi lại câu hỏi.", "error");
     } else if (error instanceof ApiError && error.status === 429) {
-      waitBeforeRetry(error.retryAfter || 60, question, "Bạn đã gửi nhiều câu hỏi trong thời gian ngắn.");
+      waitBeforeRetry(error.retryAfter || 60, question, "Bạn đã gửi nhiều câu hỏi trong thời gian ngắn.", turn);
     } else if (error instanceof ApiError && error.status === 503) {
-      waitBeforeRetry(error.retryAfter || 10, question, error.message || "Hệ thống đang xử lý nhiều câu hỏi cùng lúc, bạn thử lại sau vài giây.");
+      waitBeforeRetry(error.retryAfter || 10, question, error.message || "Hệ thống đang xử lý nhiều câu hỏi cùng lúc, bạn thử lại sau vài giây.", turn);
     } else if (error instanceof ApiError && error.status >= 500) {
-      setStatus("Hiện chưa thể trả lời câu hỏi. Vui lòng thử lại sau.", "error");
+      setTurnStatus(turn, "Hiện chưa thể trả lời câu hỏi. Vui lòng thử lại sau.", "error");
     } else if (error instanceof ApiError) {
-      setStatus(error.message || "Không gửi được câu hỏi. Hãy thử lại.", "error");
+      setTurnStatus(turn, error.message || "Không gửi được câu hỏi. Hãy thử lại.", "error");
     } else {
-      setStatus("Không kết nối được máy chủ. Kiểm tra kết nối rồi thử lại.", "error");
+      setTurnStatus(turn, "Không kết nối được máy chủ. Kiểm tra kết nối rồi thử lại.", "error");
     }
+    scrollThreadToEnd();
   } finally {
     state.asking = false;
     $("#ask-button").disabled = false;
-    if (state.retryUntil > Date.now()) $("#retry-button").disabled = true;
+    $("#new-thread").disabled = false;
+    if (state.retryButton) state.retryButton.disabled = state.retryUntil > Date.now();
   }
 }
 
@@ -456,29 +541,22 @@ async function loadLibrary() {
 
 $("#question-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  $("#suggestions").hidden = true;
+  $("#suggest-toggle").setAttribute("aria-expanded", "false");
   submitQuestion();
 });
-$("#retry-button").addEventListener("click", () => submitQuestion(state.retryQuestion));
 $("#close-document").addEventListener("click", () => $("#document-dialog").close());
 $("#document-dialog").addEventListener("click", (event) => {
   if (event.target === $("#document-dialog")) $("#document-dialog").close();
 });
-function updateQuestionHint(value) {
-  const hint = $("#question-hint");
-  if (value.length >= 500) {
-    hint.textContent = "Đã đạt giới hạn 500 ký tự, phần dài hơn sẽ bị bỏ.";
-    hint.classList.add("limit-reached");
-    return;
-  }
-  hint.textContent = value ? value.length + "/500 ký tự" : "Tối đa 500 ký tự";
-  hint.classList.remove("limit-reached");
+const questionInput = $("#question-input");
+function updateQuestionInput() {
+  questionInput.style.height = "auto";
+  questionInput.style.height = `${Math.min(questionInput.scrollHeight, 144)}px`;
+  const count = questionInput.value.length;
+  $("#question-hint").textContent = `${count}/500 ký tự${count >= 500 ? " · Đã đạt giới hạn" : ""}`;
 }
-
-$("#question-input").addEventListener("input", (event) => updateQuestionHint(event.target.value));
-$("#question-input").addEventListener("paste", (event) => {
-  const input = event.currentTarget;
-  setTimeout(() => updateQuestionHint(input.value), 0);
-});
+questionInput.addEventListener("input", updateQuestionInput);
 window.addEventListener("online", setNetworkStatus);
 window.addEventListener("offline", setNetworkStatus);
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -493,6 +571,179 @@ $("#install-app").addEventListener("click", async () => {
   state.installPrompt = null;
   $("#install-app").hidden = true;
 });
+
+// Search, drawer, fresh thread and composer interactions.
+const searchInput = $("#library-search");
+const searchResults = $("#search-results");
+const searchToggle = $("#search-toggle");
+const topbar = document.querySelector(".topbar");
+let searchIndex = -1;
+function closeSearch() {
+  topbar.classList.remove("search-open");
+  searchToggle.setAttribute("aria-expanded", "false");
+  searchResults.hidden = true;
+  searchResults.replaceChildren();
+  searchInput.value = "";
+  searchInput.setAttribute("aria-expanded", "false");
+  searchInput.removeAttribute("aria-activedescendant");
+}
+function updateSearch() {
+  const query = searchInput.value.trim().toLocaleLowerCase("vi");
+  searchResults.replaceChildren(); searchIndex = -1;
+  searchInput.removeAttribute("aria-activedescendant");
+  if (!query) { searchResults.hidden = true; searchInput.setAttribute("aria-expanded", "false"); return; }
+  const matches = [
+    ...state.videos.map((item) => ({ type: "video", title: item.title || "Bài giảng", item })),
+    ...state.documents.map((item) => ({ type: "document", title: item.title || "Tài liệu", item })),
+  ].filter((entry) => entry.title.toLocaleLowerCase("vi").includes(query)).slice(0, 8);
+  for (const [index, entry] of matches.entries()) {
+    const button = make("button", "search-result"); button.type = "button"; button.role = "option";
+    button.id = `search-result-${index}`;
+    button.setAttribute("aria-selected", "false");
+    button.append(make("span", "video-icon", entry.type === "video" ? "▶" : "▤"), make("span", "", entry.title));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (entry.type === "video") {
+        selectVideo(entry.item);
+        closeDrawer({ restoreFocus: false });
+      } else {
+        openDrawer();
+        window.setTimeout(() => {
+          const target = [...$("#document-list").children].find((node) => node.dataset.documentId === String(entry.item.document_id || entry.item.id || ""));
+          target?.classList.add("search-target");
+          target?.scrollIntoView({ block: "nearest" });
+          target?.focus({ preventScroll: true });
+          window.setTimeout(() => target?.classList.remove("search-target"), 1800);
+        }, 240);
+      }
+      searchResults.hidden = true;
+      searchInput.setAttribute("aria-expanded", "false");
+      searchInput.value = "";
+      searchInput.removeAttribute("aria-activedescendant");
+      if (window.matchMedia("(max-width: 899px)").matches) closeSearch();
+    });
+    searchResults.append(button);
+  }
+  if (!matches.length) searchResults.append(make("p", "muted", "Không tìm thấy học liệu phù hợp."));
+  searchResults.hidden = false; searchInput.setAttribute("aria-expanded", "true");
+}
+searchInput.addEventListener("input", updateSearch);
+searchInput.addEventListener("keydown", (event) => {
+  const options = [...searchResults.querySelectorAll("button")];
+  if (event.key === "Escape") {
+    if (!searchResults.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      searchResults.hidden = true;
+      searchInput.setAttribute("aria-expanded", "false");
+      searchInput.removeAttribute("aria-activedescendant");
+    } else if (window.matchMedia("(max-width: 899px)").matches && topbar.classList.contains("search-open")) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSearch();
+    }
+  }
+  if ((event.key === "ArrowDown" || event.key === "ArrowUp") && options.length) {
+    event.preventDefault();
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    searchIndex = searchIndex < 0 ? (step > 0 ? 0 : options.length - 1) : (searchIndex + step + options.length) % options.length;
+    options.forEach((el, i) => el.setAttribute("aria-selected", String(i === searchIndex)));
+    searchInput.setAttribute("aria-activedescendant", options[searchIndex].id);
+  }
+  if (event.key === "Enter" && searchIndex >= 0) { event.preventDefault(); options[searchIndex]?.click(); }
+});
+document.addEventListener("click", (event) => {
+  if (event.target instanceof Element && !event.target.closest(".global-search")) {
+    searchResults.hidden = true;
+    searchInput.setAttribute("aria-expanded", "false");
+    searchInput.removeAttribute("aria-activedescendant");
+    if (window.matchMedia("(max-width: 899px)").matches) closeSearch();
+  }
+});
+searchToggle.addEventListener("click", () => {
+  const open = topbar.classList.toggle("search-open");
+  searchToggle.setAttribute("aria-expanded", String(open));
+  if (open) searchInput.focus();
+  else closeSearch();
+});
+const drawer = $("#library-drawer"), drawerToggle = $("#drawer-toggle"), drawerBackdrop = $("#drawer-backdrop");
+function openDrawer() {
+  drawer.classList.add("open");
+  drawer.inert = false;
+  drawer.setAttribute("aria-hidden", "false");
+  drawerBackdrop.hidden = false;
+  drawerToggle.setAttribute("aria-expanded", "true");
+  drawerToggle.setAttribute("aria-label", "Đóng thư viện");
+  drawer.querySelector("button")?.focus();
+}
+function closeDrawer({ restoreFocus = false } = {}) {
+  if (!drawer.classList.contains("open")) return;
+  drawer.classList.remove("open");
+  drawer.inert = true;
+  drawer.setAttribute("aria-hidden", "true");
+  drawerBackdrop.hidden = true;
+  drawerToggle.setAttribute("aria-expanded", "false");
+  drawerToggle.setAttribute("aria-label", "Mở thư viện");
+  if (restoreFocus) drawerToggle.focus();
+}
+drawerToggle.addEventListener("click", () => {
+  if (drawer.classList.contains("open")) closeDrawer();
+  else openDrawer();
+});
+drawerBackdrop.addEventListener("click", () => closeDrawer({ restoreFocus: true }));
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const suggestions = $("#suggestions");
+  if (!suggestions.hidden) {
+    suggestions.hidden = true;
+    $("#suggest-toggle").setAttribute("aria-expanded", "false");
+    $("#suggest-toggle").focus();
+    return;
+  }
+  if (drawer.classList.contains("open")) closeDrawer({ restoreFocus: true });
+});
+document.addEventListener("click", (event) => {
+  if (event.target instanceof Node && drawer.classList.contains("open") && !drawer.contains(event.target) && !drawerToggle.contains(event.target) && !searchResults.contains(event.target)) {
+    closeDrawer();
+  }
+});
+document.addEventListener("click", (event) => {
+  if (event.target instanceof Element && !event.target.closest(".composer-tools")) {
+    $("#suggestions").hidden = true;
+    $("#suggest-toggle").setAttribute("aria-expanded", "false");
+  }
+});
+$("#video-position").addEventListener("click", () => drawerToggle.click());
+$("#prev-video").addEventListener("click", () => { const i = state.videos.findIndex((v) => v.video_id === state.currentVideo?.video_id); if (i > 0) selectVideo(state.videos[i - 1]); });
+$("#next-video").addEventListener("click", () => { const i = state.videos.findIndex((v) => v.video_id === state.currentVideo?.video_id); if (i >= 0 && i < state.videos.length - 1) selectVideo(state.videos[i + 1]); });
+$("#new-thread").addEventListener("click", () => {
+  if (state.asking) return;
+  clearRetry();
+  $("#conversation").replaceChildren();
+  $("#welcome").hidden = false;
+  questionInput.value = "";
+  questionInput.style.height = "auto";
+  updateQuestionInput();
+  setStatus("");
+  state.sources = [];
+  state.sourcesByTurn.clear();
+  state.activeTurnId = null;
+  state.activeSourceKey = null;
+  renderTimeline();
+  $("#thread").scrollTo({ top: 0, behavior: "smooth" });
+  questionInput.focus();
+});
+$("#suggest-toggle").addEventListener("click", () => { const box = $("#suggestions"), open = box.hidden; box.hidden = !open; $("#suggest-toggle").setAttribute("aria-expanded", String(open)); });
+$("#suggestions").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#question-input").value = button.textContent; $("#question-input").dispatchEvent(new Event("input")); $("#question-input").focus(); $("#suggestions").hidden = true; $("#suggest-toggle").setAttribute("aria-expanded", "false"); });
+questionInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    $("#question-form").requestSubmit();
+  }
+});
+const thread = $("#thread"), bottomButton = $("#thread-bottom");
+thread.addEventListener("scroll", () => { bottomButton.hidden = thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 100; });
+bottomButton.addEventListener("click", () => thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" }));
 
 setNetworkStatus();
 loadLibrary();

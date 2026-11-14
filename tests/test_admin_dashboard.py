@@ -2,6 +2,7 @@ import os
 import secrets
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from vskr import auth
@@ -15,6 +16,11 @@ TEST_HASH = hash_password(TEST_PASSWORD)
 
 
 class TestAdminDashboardApi(unittest.TestCase):
+    def test_library_deletion_actions_require_a_confirmation_prompt(self):
+        admin_bundle = Path(__file__).parents[1] / "web" / "admin" / "admin.js"
+        self.assertIn("window.confirm(`Xóa ${kindLabel}", admin_bundle.read_text(encoding="utf-8"))
+        self.assertIn("window.confirm(\"Xóa tác vụ lỗi", admin_bundle.read_text(encoding="utf-8"))
+
     def setUp(self):
         self.data_dir = tempfile.TemporaryDirectory()
         self.original_jobs = handlers._jobs.copy()

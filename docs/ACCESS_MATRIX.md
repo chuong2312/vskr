@@ -26,7 +26,7 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 | `POST` | `/api/ask` | Public | Không nhận `mode` từ người dùng; dùng mode mặc định phía server. Câu trả lời chỉ gồm nội dung, trạng thái tìm thấy và nguồn hiển thị cần thiết. Bỏ điểm retrieval, chunk ID, matched concepts và timing debug. Giới hạn độ dài, rate limit và số request đang chờ. |
 | `POST` | `/api/admin/ask` *(mới)* | Admin session + CSRF | Cho phép chọn retrieval mode và trả timing/diagnostic cho màn thử hỏi. Không trả path hoặc exception thô. |
 | `GET` | `/api/status` | Public | Chỉ `{"ready": bool}`. Không lộ `error`, `phase`, `gpu_busy` hay chi tiết kết nối. |
-| `GET` | `/api/auth/me` | Public | Không có phiên: `{"admin": false}`; có phiên hợp lệ: `{"admin": true, "csrf_token": ...}`. Không trả session token. |
+| `GET` | `/api/auth/me` | Public | Không có phiên: `{"admin": false}`; có phiên hợp lệ: `{"admin": true, "csrf_token": ..., "admin_url": "/admin"}` để UI chỉ hiện liên kết quản trị sau khi xác thực. Không trả session token. |
 | `POST` | `/api/auth/login` | Public | Throttle theo IP và username. Thông báo lỗi chung; không trả hash hoặc chi tiết xác thực. Cookie session chỉ qua `Set-Cookie`, không trả token trong JSON. |
 | `POST` | `/api/auth/logout` | Public auth route; yêu cầu phiên hợp lệ và CSRF | Thu hồi session phía server và xóa cookie; không nhận session token trong body. |
 | `GET` | `/api/library` | Admin session | Có job, trạng thái, URL nguồn, filename và thông tin quản lý; chỉ hiển thị cho admin. Loại đường dẫn filesystem, exception/stack trace và chuỗi lỗi thô. |

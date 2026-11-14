@@ -469,6 +469,13 @@ $("#library-list").addEventListener("click", async (e) => {
   const remove = e.target.closest("[data-delete]");
   const action = retry || removeJob || remove;
   if (action?.disabled) return;
+  if (remove) {
+    const [kind] = remove.dataset.delete.split(":");
+    const title = remove.closest(".library-item")?.querySelector(".item-title")?.textContent || "nội dung này";
+    const kindLabel = kind === "document" ? "tài liệu" : "video";
+    if (!window.confirm(`Xóa ${kindLabel} “${title}” khỏi thư viện và chỉ mục?`)) return;
+  }
+  if (removeJob && !window.confirm("Xóa tác vụ lỗi cùng file nguồn liên quan? Hành động này không thể hoàn tác.")) return;
   if (action) action.disabled = true;
   try {
     let r;

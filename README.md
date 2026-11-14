@@ -1,13 +1,13 @@
-# VSKR — phát triển local bằng venv
+# VSKR — hỏi đáp bài giảng và quản trị học liệu
 
-VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ mục để hỏi đáp tiếng Việt và trả lời kèm nguồn. Giai đoạn hiện tại phát triển/test trực tiếp trong `.venv`; chưa cấu hình Docker. OCR, VLM, SQLite và frontend SvelteKit chưa thuộc luồng MVP hiện tại.
+VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ mục để hỏi đáp tiếng Việt và trả lời kèm nguồn. App Người dùng công khai ở `/`; bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. OCR, VLM, SQLite và frontend SvelteKit chưa thuộc luồng MVP hiện tại.
 
 ## Thành phần đang dùng
 
 - `backend/src/vskr`: package Python của ứng dụng. Môi trường venv dùng Python 3.12, FFmpeg, yt-dlp, faster-whisper, PySceneDetect, E5-small, BM25/RRF và FastAPI. Embedding chạy CPU; ASR dùng GPU qua CTranslate2.
 - QA gọi Ollama API tại `localhost:11434`; cần cài/chạy Ollama riêng. VSKR chạy trực tiếp trong venv.
 - Dữ liệu nằm trong `./data`, model/download cache trong `./cache`.
-- Hỏi đáp mặc định kết hợp **vector E5 + BM25 + truy xuất đồ thị**, rồi hợp nhất thứ hạng bằng RRF. Người dùng chỉ cần đặt câu hỏi; có thể chọn riêng `hybrid`, `vector`, `bm25` hoặc `graph` để so sánh. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
+- Hỏi đáp mặc định kết hợp **vector E5 + BM25 + truy xuất đồ thị**, rồi hợp nhất thứ hạng bằng RRF. App Người dùng dùng mode mặc định; admin có thể chọn `hybrid`, `vector`, `bm25` hoặc `graph` để so sánh. Lệnh CLI `vskr ask` cũng nhận cờ `--mode`. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
 - Knowledge Graph hỗ trợ node phân cảnh có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn tối đa ba bước. Trong giao diện và lệnh `vskr ingest`, video URL mặc định tải cả hình 720p để tự phát hiện cảnh; dùng `--audio-only` nếu không cần scene graph. Chạy `vskr index` để dựng lại đồ thị sau khi thay đổi học liệu/cấu hình. Liên kết video–tài liệu tự động dựa trên cosine và khái niệm chung (hoặc cosine rất cao), chưa có bước người duyệt.
 - Quan hệ có kiểu như `DEPENDS_ON`, `PART_OF`, `CAUSES` được trích từ transcript/tài liệu bằng Ollama trên tối đa 24 đoạn mỗi lần dựng index. Quan hệ chỉ được lưu nếu chủ thể, đối tượng và câu bằng chứng xuất hiện trong nguồn. Nếu Ollama không sẵn sàng, index vẫn tạo graph khái niệm và liên kết video–tài liệu.
 
@@ -57,18 +57,20 @@ vskr asr --video <video_id>
 vskr index
 vskr ask "câu hỏi về video"                 # mặc định vector + BM25 + đồ thị
 vskr ask "câu hỏi về video" --mode graph    # chỉ truy xuất đồ thị
-vskr serve --host 0.0.0.0
+vskr serve --host 127.0.0.1
 ```
 
-Thêm tài liệu TXT, MD, RST, PDF hoặc DOCX bằng `vskr doc <đường_dẫn_tệp>` hoặc tại màn **Thư viện** trên giao diện web. Tài liệu được chia mục, lập chỉ mục và có thể truy xuất cùng video. Giao diện cũng cho phép xóa nội dung và thử lại tác vụ lỗi.
+Thêm tài liệu TXT, MD, RST, PDF hoặc DOCX bằng `vskr doc <đường_dẫn_tệp>` hoặc tại màn **Học liệu** của giao diện Quản trị. Tài liệu được chia mục, lập chỉ mục và có thể truy xuất cùng video. Giao diện cũng cho phép xóa nội dung và thử lại tác vụ lỗi.
 
 Màn **Đánh giá** nhận bộ câu hỏi thật qua giao diện hoặc `data/eval/questions.jsonl`; mỗi dòng có dạng `{"id":"...","question":"...","type":"fact","relevant":[{"video_id":"...","start":12,"end":28}]}` hoặc dùng `document_id` và `section`. `multihop` có thể có nhiều mục đúng. Recall@5 tính một câu fact là tìm thấy nếu có ít nhất một mục đúng; với multihop là tỷ lệ mục đúng được phủ. MRR là trung bình nghịch đảo thứ hạng của kết quả đúng đầu tiên. Đánh giá chỉ chạy retrieval, không gọi LLM. Repo không kèm câu hỏi hay kết quả mẫu; số liệu chỉ xuất hiện sau khi bạn thêm bộ dữ liệu.
 
 Trong giao diện, các thử nghiệm IDF, mở rộng khái niệm từ những đoạn gần nghĩa theo embedding E5 và Personalized PageRank (PPR) chạy trên cùng bộ câu hỏi với baseline. Mỗi lựa chọn được đo riêng; nếu bật nhiều lựa chọn, giao diện cũng đo tổ hợp của chúng. Các điều khiển ở trang graph áp dụng ngay cho truy vấn đang xem và đồng bộ với cấu hình đánh giá. PPR dùng `damping` để điều khiển mức lan truyền và `seed_weight` để phân bổ điểm ban đầu cho các nguồn khớp trực tiếp.
 
-Mở `http://localhost:8000` để dùng giao diện. `Ctrl+C` dừng server. Trong giao diện, người dùng có thể dán URL được yt-dlp hỗ trợ hoặc upload MP4/MOV/MKV/WebM/AVI; mỗi video tối đa 2 giờ và 1 GB. Video URL được tải ở mức tối đa 720p để phát hiện phân cảnh; video tải lên cũng được phân tích cảnh tự động. Audio tự chia thành các phần 15 phút để nhận dạng, transcript giữ mốc thời gian gốc, rồi index tạo scene graph và liên kết video với tài liệu bằng embedding. Quan hệ có kiểu kèm bằng chứng được Ollama trích trên tối đa 24 đoạn/mục mỗi lần dựng index; nếu Ollama không sẵn sàng, index vẫn dựng khái niệm và liên kết nguồn. Job ingest → phát hiện cảnh → ASR → index chạy tuần tự, giao diện cập nhật tiến độ từng phần. YouTube có player nhúng; video upload phát bằng HTML5 player; nền tảng khác mở URL gốc để đối chiếu.
+Mở `http://localhost:8000` để dùng app Người dùng. Admin mở `/admin`; đăng nhập bằng tài khoản cấu hình trong `.env`. Người dùng ẩn danh chỉ thấy nội dung đã lập chỉ mục và dùng mode retrieval mặc định. Giao diện Quản trị có Học liệu, Tác vụ, Thử hỏi, Đánh giá, Sơ đồ và Nhật ký. App Người dùng có thể cài như PWA; khi ngoại tuyến chỉ khung giao diện được cache, không cache API hay video. `Ctrl+C` dừng server.
 
-API hiện chưa có xác thực. Chạy với `--host 0.0.0.0` chỉ trong mạng tin cậy; endpoint nhận URL để yt-dlp tải nội dung.
+Trong giao diện Quản trị có thể dán URL được yt-dlp hỗ trợ hoặc upload MP4/MOV/MKV/WebM/AVI; mỗi video tối đa 2 giờ và 1 GB. Video URL được tải ở mức tối đa 720p để phát hiện phân cảnh; video tải lên cũng được phân tích cảnh tự động. Audio tự chia thành các phần 15 phút để nhận dạng, transcript giữ mốc thời gian gốc, rồi index tạo scene graph và liên kết video với tài liệu bằng embedding. Quan hệ có kiểu kèm bằng chứng được Ollama trích trên tối đa 24 đoạn/mục mỗi lần dựng index; nếu Ollama không sẵn sàng, index vẫn dựng khái niệm và liên kết nguồn. Job ingest → phát hiện cảnh → ASR → index chạy tuần tự, giao diện cập nhật tiến độ từng phần. YouTube có player nhúng; video upload phát bằng HTML5 player; nền tảng khác mở URL gốc để đối chiếu.
+
+URL ingest được kiểm tra scheme, DNS và IP trước khi tải. yt-dlp có thể đi theo redirect sau bước kiểm tra ban đầu; chỉ cho admin đáng tin cậy dùng chức năng ingest URL và đặt server sau reverse proxy/firewall phù hợp.
 
 Nếu Ollama đang chạy bằng service Windows/WSL, để Ollama phục vụ `localhost:11434`. Nếu cài native Ollama, pull model một lần bằng `ollama pull qwen3.5:4b`; không cài/chạy hai Ollama cùng lúc trên một cổng.
 
@@ -99,7 +101,44 @@ Script so sánh model ASR hiện tại với `vinai/PhoWhisper-medium`, báo WER
 
 ## Cấu hình
 
-Sửa `configs/models.yaml`; venv đọc file này trực tiếp mỗi lần chạy lệnh. Nếu đổi `embedding.model`, tiền tố embedding hoặc tham số chunk, hãy chạy lại `vskr index`. Có thể ghi đè cấu hình bằng biến môi trường, ví dụ `VSKR__ASR__DEVICE=cpu` hoặc `VSKR__RETRIEVAL__MODE=hybrid`.
+Sửa `configs/models.yaml`; venv đọc file này trực tiếp mỗi lần chạy lệnh. Nếu đổi `embedding.model`, tiền tố embedding hoặc tham số chunk, hãy chạy lại `vskr index`. Có thể ghi đè cấu hình bằng biến môi trường, ví dụ `VSKR__ASR__DEVICE=cpu` hoặc `VSKR__RETRIEVAL__MODE=hybrid`. Ứng dụng cũng nạp `.env` ở thư mục gốc; biến đã export trong môi trường tiến trình được ưu tiên hơn nội dung `.env`.
+
+### Tài khoản quản trị
+
+Tạo `.env` từ mẫu rồi sinh hash bằng lệnh tương tác. Lệnh không nhận mật khẩu qua argv và không ghi mật khẩu thô ra file:
+
+```bash
+cp .env.example .env
+source scripts/activate-venv.sh
+vskr admin hash-password
+```
+
+Đặt `VSKR_ADMIN_USER` và dán hash Argon2id được in vào `VSKR_ADMIN_PASSWORD_HASH` trong `.env`. Không đặt mật khẩu mặc định và không commit `.env`. Khi chưa có cả hai giá trị hợp lệ, các route quản trị bị tắt; login báo admin chưa được cấu hình. `VSKR_COOKIE_SECURE` mặc định là `true`. Chỉ đặt `false` cho phát triển qua `http://localhost`; ứng dụng từ chối cookie không Secure trên host bên ngoài. `VSKR_TRUSTED_PROXIES` nhận danh sách IP/CIDR, phân cách bằng dấu phẩy; nếu để trống, app bỏ qua `X-Forwarded-For`.
+
+## Triển khai
+
+Chạy app chỉ trên loopback rồi để reverse proxy kết thúc HTTPS. Ví dụ với Caddy, cấu hình domain trỏ tới server:
+
+```caddyfile
+vskr.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Trong terminal khác:
+
+```bash
+source scripts/activate-venv.sh
+vskr serve --host 127.0.0.1 --port 8000
+```
+
+Caddy tự cấp/chăm sóc chứng chỉ TLS cho domain công khai đủ điều kiện. Với Cloudflare Tunnel, trỏ tunnel tới `http://127.0.0.1:8000` và giữ cổng ứng dụng không mở ra Internet. Nếu chạy app trong container hoặc cần bind `0.0.0.0`, chỉ mở cổng đó trong mạng nội bộ giữa proxy và app; firewall không cho client truy cập trực tiếp. Giữ `VSKR_COOKIE_SECURE=true` khi người dùng vào qua HTTPS và bảo đảm reverse proxy chuyển tiếp đúng `Host`.
+
+Chỉ điền `VSKR_TRUSTED_PROXIES` bằng địa chỉ/CIDR thực của proxy trực tiếp gọi app, ví dụ `127.0.0.1/32,::1/128` khi Caddy chạy cùng máy. Không tin proxy hoặc header do client tùy ý cung cấp. Không cần bật CORS; frontend và API được phục vụ từ cùng origin.
+
+Sao lưu thư mục `data/` định kỳ để giữ video, audio, transcript, chỉ mục, tài liệu, kết quả đánh giá và `audit.jsonl`. Tạo bản sao nhất quán bằng cách dừng VSKR trước khi sao chép, hoặc dùng snapshot filesystem. Sao lưu `.env` và `configs/models.yaml` riêng ở kho mã hóa có quyền truy cập hạn chế; `.env` chứa hash xác thực. `cache/` chỉ chứa model/download cache và có thể tải lại, nhưng giữ nó giúp tránh tải model lớn lần nữa.
+
+Admin session được giữ trong RAM, hết sau 8 giờ tuyệt đối hoặc 60 phút không hoạt động; restart server thu hồi mọi session. Hàng đợi tác vụ cũng ở RAM nên trạng thái job hiện tại mất khi restart. URL ingest được kiểm tra DNS/IP trước khi gọi yt-dlp nhưng redirect có thể đưa request tới đích khác; giới hạn tính năng này cho admin đáng tin cậy.
 
 Để giảm tải GPU nếu Whisper float16 thiếu VRAM, đặt `asr.compute_type` thành `int8_float16`. Để chạy ASR bằng CPU, đặt `asr.device: cpu` và `asr.compute_type: int8`; tốc độ sẽ chậm hơn.
 

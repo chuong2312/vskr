@@ -15,6 +15,7 @@ htmlcov/
 *.log
 .env
 .env.*
+!.env.example
 .agents/
 .aws/
 .codex/

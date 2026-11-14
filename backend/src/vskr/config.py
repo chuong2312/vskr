@@ -2,12 +2,21 @@ import os
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 _MODULE_PATH = Path(__file__).resolve()
 ROOT = next(
     (parent for parent in _MODULE_PATH.parents if (parent / "configs" / "models.yaml").is_file()),
     _MODULE_PATH.parents[2],
 )
+
+
+def load_local_environment(root=None):
+    """Load the repository .env without overriding variables exported by the process."""
+    load_dotenv(Path(root or ROOT) / ".env", override=False)
+
+
+load_local_environment()
 
 ENV_PREFIX = "VSKR__"
 

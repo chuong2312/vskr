@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>VSKR – Hỏi đáp video bài giảng</title>
+<link rel="stylesheet" href="/admin/assets/admin.css">
+</head>
+<body>
+<header class="admin-header">
+  <div class="brand-mark" aria-hidden="true">V</div>
+  <div class="brand-copy">
+  <p class="eyebrow">Video Semantic Knowledge Retrieval</p>
+    <h1>VSKR · Trợ lý bài giảng</h1>
+    <p>Bảng điều khiển quản trị học liệu và tìm kiếm.</p>
+  </div>
+  <div class="session-actions"><span id="session-status">Admin</span><button class="small-action" id="logout-button" type="button">Đăng xuất</button></div>
+</header>
+
+<nav class="app-nav" aria-label="Điều hướng chính">
+  <button type="button" data-page="overview" aria-current="page">Tổng quan</button>
+  <button type="button" data-page="library" aria-current="false">Học liệu</button>
+  <button type="button" data-page="tasks" aria-current="false">Tác vụ</button>
+  <button type="button" data-page="qa" aria-current="false">Thử hỏi</button>
+  <button type="button" data-page="evaluation" aria-current="false">Đánh giá</button>
+  <button type="button" data-page="graph" aria-current="false">Sơ đồ</button>
+  <button type="button" data-page="audit" aria-current="false">Nhật ký</button>
+</nav>
+
+<main class="library-main dashboard-main" id="overview-screen">
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Tổng quan hệ thống</h2><p class="hint">Trạng thái dịch vụ, bộ xử lý và nội dung đã sẵn sàng.</p></div><button class="small-action" id="refresh-dashboard" type="button">Làm mới</button></div>
+  <p id="dashboard-status" class="hint" role="status" aria-live="polite">Đang tải trạng thái…</p>
+  <section class="dashboard-grid" aria-label="Trạng thái hệ thống">
+    <article class="panel metric-card"><span class="metric-label">Dịch vụ</span><strong id="system-ready" class="metric-value">—</strong><span id="system-phase" class="hint">—</span></article>
+    <article class="panel metric-card"><span class="metric-label">GPU</span><strong id="system-gpu" class="metric-value">—</strong><span class="hint">Tình trạng bộ xử lý</span></article>
+    <article class="panel metric-card"><span class="metric-label">Video sẵn sàng</span><strong id="system-videos" class="metric-value">—</strong><span class="hint">Đã lập chỉ mục</span></article>
+    <article class="panel metric-card"><span class="metric-label">Tài liệu sẵn sàng</span><strong id="system-documents" class="metric-value">—</strong><span class="hint">Đã lập chỉ mục</span></article>
+    <article class="panel metric-card"><span class="metric-label">Ollama</span><strong id="system-ollama" class="metric-value">—</strong><span class="hint">Kết nối mô hình ngôn ngữ</span></article>
+    <article class="panel metric-card"><span class="metric-label">Chỉ mục</span><strong id="system-index" class="metric-value">—</strong><span class="hint">Số đoạn đã lập chỉ mục</span></article>
+  </section>
+  <section class="panel dashboard-details"><h3>Thông tin chỉ mục</h3><dl id="index-details" class="details-list"><dt>Ngày tạo</dt><dd>—</dd><dt>Phiên bản</dt><dd>—</dd></dl><p id="system-error" class="err" role="status"></p></section>
+</main>
+
+<main class="library-main" id="tasks-screen" hidden>
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Tác vụ xử lý</h2><p class="hint">Theo dõi tiến độ ingest, phân cảnh, ASR và lập chỉ mục trong phiên server hiện tại.</p></div><button class="small-action" id="refresh-tasks" type="button">Làm mới</button></div>
+  <p id="tasks-status" class="hint" role="status" aria-live="polite"></p>
+  <div id="tasks-list" class="tasks-list" aria-live="polite"><p class="hint">Đang tải tác vụ…</p></div>
+</main>
+
+<main class="library-main" id="audit-screen" hidden>
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Nhật ký quản trị</h2><p class="hint">Tối đa 200 sự kiện gần nhất. Nhật ký không chứa mật khẩu, cookie, token hoặc IP thô.</p></div><button class="small-action" id="refresh-audit" type="button">Làm mới</button></div>
+  <p id="audit-status" class="hint" role="status" aria-live="polite"></p>
+  <div class="panel audit-table-wrap"><table class="audit-table"><thead><tr><th>Thời gian</th><th>Sự kiện</th><th>Mục tiêu</th><th>Kết quả</th></tr></thead><tbody id="audit-list"><tr><td colspan="4">Đang tải nhật ký…</td></tr></tbody></table></div>
+</main>
+
+<main id="qa-screen" hidden>
+  <section class="stage" aria-label="Video">
+    <div class="player-wrap"><div id="player"><div class="player-msg">Đang tải danh sách video…</div></div></div>
+    <div class="timeline-box">
+      <div class="timeline-title"><span id="tl-title">Vị trí các nguồn trong video</span><span id="tl-dur"></span></div>
+      <div class="timeline" id="timeline"><div class="empty">Chưa có câu hỏi</div></div>
+    </div>
+    <div class="tabs" id="tabs"></div>
+  </section>
+
+  <section aria-label="Hỏi đáp">
+    <div class="panel">
+      <h2 class="qa-title">Hỏi nội dung trong học liệu</h2>
+    <p class="hint qa-intro">Đặt câu hỏi bằng lời thường. VSKR tìm trong transcript video và tài liệu đã sẵn sàng, rồi trả lời kèm nguồn để bạn kiểm tra.</p>
+      <div class="welcome-guide" id="welcome-guide">
+        <strong>Bắt đầu trong 3 bước</strong>
+        <ol><li>Vào <b>Học liệu</b> để thêm video hoặc tài liệu.</li><li>Chờ trạng thái là <b>Sẵn sàng để hỏi</b>.</li><li>Quay lại đây, nhập câu hỏi và bấm <b>Hỏi bài</b>.</li></ol>
+      </div>
+      <form id="form">
+        <label for="q" class="hint">Câu hỏi</label>
+        <textarea id="q" required placeholder="Ví dụ: Bài giảng giải thích khái niệm này như thế nào?"></textarea>
+        <div class="row"><button class="primary" id="go" type="submit">Hỏi bài</button></div>
+        <details class="query-settings">
+          <summary>Đổi cách tìm (mặc định: kết hợp)</summary>
+          <div class="query-settings-body">
+          <label class="hint" for="mode">Chọn cách truy xuất</label>
+          <select id="mode">
+            <option value="hybrid_graph" selected>Mặc định: nghĩa + từ khóa + sơ đồ liên kết</option>
+            <option value="hybrid">Nghĩa + từ khóa</option>
+            <option value="vector">Chỉ tìm theo nghĩa</option>
+            <option value="bm25">Chỉ tìm từ khóa</option>
+            <option value="graph">Chỉ tìm qua sơ đồ liên kết</option>
+          </select>
+          <p class="hint mode-help">Các cách tìm riêng chủ yếu để so sánh. Nếu chưa biết chọn gì, cứ để Mặc định.</p>
+          </div>
+        </details>
+      </form>
+      <div id="result"></div>
+    </div>
+  </section>
+</main>
+
+<main class="library-main" id="library-screen" hidden>
+  <h2 class="screen-title">Học liệu</h2>
+  <p class="hint library-intro">Thêm video hoặc tài liệu tại đây. Khi trạng thái chuyển thành <b>Sẵn sàng để hỏi</b>, nội dung đã được chuẩn bị để tìm kiếm.</p>
+  <div class="library-grid">
+    <div class="library-forms">
+      <div class="panel">
+        <form id="library-video-form">
+          <strong>1. Thêm video bài giảng</strong>
+          <label for="library-video-url" class="hint">Dán đường dẫn video</label>
+          <input class="field" id="library-video-url" type="url" placeholder="https://…" autocomplete="url">
+          <label for="library-video-file" class="hint">Hoặc chọn một file video trên máy</label>
+          <input class="field" id="library-video-file" type="file" accept="video/*">
+          <p class="hint">VSKR phát hiện phân cảnh, tự chia âm thanh thành các phần 15 phút để nhận dạng và giữ mốc thời gian gốc. Video tối đa 2 giờ và 1 GB. Dùng link hoặc file, không điền cả hai. Hỗ trợ MP4, MOV, MKV, WebM, AVI.</p>
+          <button class="primary" type="submit">Thêm và xử lý video</button>
+          <span class="hint" id="library-video-status" role="status" aria-live="polite"></span>
+        </form>
+      </div>
+      <div class="panel">
+        <form id="library-doc-form">
+          <strong>2. Thêm tài liệu bài giảng</strong>
+          <label for="document-file" class="hint">Chọn tài liệu TXT, Markdown, PDF hoặc DOCX</label>
+          <input class="field" id="document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx" required>
+          <p class="hint">VSKR trích văn bản, chia thành các mục và kết hợp chúng với video khi tìm. Hình, bảng và công thức trong PDF có thể chưa được đọc đầy đủ.</p>
+          <button class="primary" type="submit">Thêm và xử lý tài liệu</button>
+          <span class="hint" id="library-doc-status" role="status" aria-live="polite"></span>
+        </form>
+      </div>
+    </div>
+    <section class="panel" aria-labelledby="library-heading">
+      <div class="row" style="justify-content:space-between"><h2 id="library-heading">Nội dung đã thêm</h2><button class="small-action" id="refresh-library" type="button">Làm mới</button></div>
+      <p class="hint">Chỉ nội dung có trạng thái <b>Sẵn sàng để hỏi</b> mới được dùng cho câu hỏi mới. Nếu tác vụ lỗi, bấm Thử lại.</p>
+      <div class="library-list" id="library-list" aria-live="polite"><p class="hint">Đang tải thư viện…</p></div>
+      <div class="timing" id="pipeline-status" role="status" aria-live="polite"></div>
+    </section>
+  </div>
+</main>
+
+<main class="library-main" id="evaluation-screen" hidden>
+  <h2 class="screen-title">Kiểm tra hệ thống có tìm đúng nguồn không</h2>
+  <div class="eval-intro">
+    <strong>Công cụ này đo khả năng tìm nguồn, không chấm câu trả lời do AI viết.</strong>
+    <p>Bạn cần nhập câu hỏi và tự xác nhận video/đoạn hoặc mục tài liệu đúng. Nên có 20–30 câu; nếu mới có một vài câu, điểm số chỉ là chạy thử.</p>
+    <p>Nếu vừa hỏi ở màn Hỏi đáp, dùng nút <b>Dùng câu hỏi này để kiểm tra tìm nguồn</b> rồi xác nhận nguồn đúng trước khi lưu.</p>
+  </div>
+  <div class="eval-layout">
+    <div class="stack">
+      <section class="panel">
+        <form class="eval-form" id="eval-question-form">
+          <strong>Thêm một câu hỏi chuẩn</strong>
+          <p class="hint">Câu hỏi chuẩn là câu hỏi kèm nguồn đúng mà bạn đã đối chiếu với học liệu.</p>
+          <label for="eval-question" class="hint">Câu hỏi cần kiểm tra</label>
+          <textarea id="eval-question" required></textarea>
+          <label for="eval-type" class="hint">Câu này cần tìm loại đáp án nào?</label>
+          <select id="eval-type"><option value="fact">Một nguồn là đủ</option><option value="multihop">Cần kết hợp nhiều nguồn</option></select>
+          <label for="eval-relevant" class="hint">Nguồn đúng bạn đã xác nhận (nhập theo mẫu)</label>
+          <textarea id="eval-relevant" required placeholder='[{"video_id":"ID_VIDEO","start":12,"end":28}]'></textarea>
+          <details class="format-help"><summary>Xem mẫu nhập nguồn</summary>
+            <p class="hint">Video: <code>{"video_id":"ID_VIDEO","start":12,"end":28}</code></p>
+            <p class="hint">Tài liệu: <code>{"document_id":"ID_TAI_LIEU","section":1}</code></p>
+            <p class="hint">Câu cần nhiều nguồn: đặt nhiều object trong cùng mảng JSON. Mốc video được so theo khoảng thời gian chồng lấp.</p>
+          </details>
+          <button class="primary" type="submit">Lưu câu hỏi chuẩn</button>
+          <span id="eval-form-status" class="hint" role="status" aria-live="polite"></span>
+        </form>
+      </section>
+      <section class="panel">
+        <strong>Đã có sẵn bộ câu hỏi?</strong>
+        <label for="eval-import" class="hint">Chọn tệp JSONL để nhập nhiều câu cùng lúc</label>
+        <input id="eval-import" class="field" type="file" accept=".jsonl,.txt,application/json">
+        <p class="hint">Mỗi dòng trong tệp là một câu hỏi chuẩn. Đây là cách tiện hơn khi có nhiều câu.</p>
+        <button class="small-action" id="eval-import-button" type="button">Nhập bộ câu hỏi</button>
+      </section>
+    </div>
+    <div class="stack">
+      <section class="panel">
+        <div class="row" style="justify-content:space-between"><strong>Câu hỏi đã lưu: <span id="eval-question-count">0</span></strong><button class="primary" id="eval-run" type="button" disabled>Chạy kiểm tra</button></div>
+        <p class="hint">Bạn có thể chạy thử với ít câu, nhưng hãy dùng 20–30 câu để so sánh đáng tin hơn.</p>
+        <p class="hint" id="eval-empty-hint">Thêm ít nhất một câu hỏi và xác nhận nguồn đúng trước khi chạy đánh giá.</p>
+        <div class="question-list" id="eval-question-list"><p class="hint">Chưa có câu hỏi đánh giá. Hãy tự thêm hoặc nhập JSONL.</p></div>
+        <p class="hint" id="eval-run-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="panel">
+        <strong>Kết quả tìm nguồn</strong>
+        <div style="overflow:auto;margin-top:8px">
+          <table class="metric-table"><thead><tr><th>Cách tìm</th><th>Dữ kiện · nguồn đúng trong 5 kết quả</th><th>Dữ kiện · thứ hạng nguồn đúng</th><th>Nhiều bước · nguồn đúng trong 5 kết quả</th><th>Nhiều bước · thứ hạng nguồn đúng</th></tr></thead><tbody id="eval-results"><tr><td>Chưa có dữ liệu</td><td>—</td><td>—</td><td>—</td><td>—</td></tr></tbody></table>
+        </div>
+        <p class="hint">Cột “nguồn đúng trong 5 kết quả” cho biết hệ thống có tìm thấy nguồn bạn xác nhận trong 5 kết quả đầu hay không. “Thứ hạng nguồn đúng” càng cao khi nguồn ấy xuất hiện càng gần đầu. Dấu — nghĩa là bộ câu hỏi chưa có câu thuộc loại đó.</p>
+        <p class="hint" id="eval-results-meta">Chưa có kết quả đánh giá.</p>
+      </section>
+      <section class="panel">
+        <details class="experiment-options">
+        <summary>Thử nghiệm thêm cách tìm (không bắt buộc)</summary>
+        <p class="hint">Các cách tìm cơ bản luôn được so sánh. Chọn bên dưới nếu muốn đo riêng từng thử nghiệm; bật nhiều mục sẽ có thêm kết quả kết hợp.</p>
+        <div class="graph-settings">
+          <label><input id="eval-exp-idf" type="checkbox"> Ưu tiên khái niệm ít gặp (IDF)</label>
+          <label><input id="eval-exp-semantic" type="checkbox"> Mở rộng từ các đoạn gần nghĩa (E5)</label>
+          <label><input id="eval-exp-ppr" type="checkbox"> Lan điểm qua các liên kết (PPR)</label>
+          <label for="eval-exp-damping">Mức điểm tiếp tục lan sang liên kết kế bên</label><input class="field" id="eval-exp-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
+          <label for="eval-exp-seed">Điểm ban đầu dành cho nguồn khớp thẳng</label><input class="field" id="eval-exp-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
+        </div>
+        <p class="hint">Thiết lập này cũng dùng cho lần tìm ở trang Sơ đồ liên kết.</p>
+        </details>
+      </section>
+      <div class="rule-box"><strong>Hiểu kết quả</strong><p>Nếu chỉ có một câu hỏi mà hiện 100%, điều đó mới chứng minh luồng đánh giá chạy được; chưa đủ để kết luận cách tìm tốt hơn.</p></div>
+    </div>
+  </div>
+</main>
+
+<main class="library-main" id="graph-screen" hidden>
+  <h2 class="screen-title">Sơ đồ liên kết cho câu hỏi</h2>
+  <section class="panel">
+    <form id="graph-form" class="row">
+      <label for="graph-query" class="hint">Nhập câu hỏi muốn xem các nguồn liên quan</label>
+      <input class="field" style="flex:1" id="graph-query" type="search" required>
+      <button class="primary" type="submit">Xem sơ đồ</button>
+    </form>
+    <p id="graph-status" class="hint" role="status" aria-live="polite">Sơ đồ chỉ hiện các nội dung liên quan đến câu hỏi, không phải toàn bộ thư viện. Mặc định hiện tối đa 8 khái niệm để dễ đọc.</p>
+    <div class="node-legend"><span><i class="legend-dot"></i> Khái niệm</span><span><i class="legend-square"></i> Video/phân cảnh hoặc tài liệu</span><span>Đường xám: khái niệm xuất hiện trong nguồn.</span><span>Nhãn đường nối: loại quan hệ cụ thể.</span><span>Đường cam đứt: đoạn kế tiếp hoặc khái niệm cùng xuất hiện.</span></div>
+    <p class="graph-help">Đọc sơ đồ từ trái sang phải: khái niệm → nguồn bài giảng. Mở nhóm nguồn bên dưới để xem từng đoạn hoặc mục tài liệu.</p>
+    <div class="graph-layout" style="margin-top:12px">
+      <div class="graph-canvas" id="graph-canvas"><div class="empty">Chưa có đường đi để hiển thị</div></div>
+      <aside class="graph-settings">
+        <fieldset><legend>Tùy chọn hiển thị</legend>
+          <label><input id="graph-adjacent" type="checkbox"> Thêm đoạn video liền trước / sau để xem bối cảnh</label>
+          <label><input id="graph-all-concepts" type="checkbox"> Hiện tất cả khái niệm</label>
+          <label><input id="graph-cooccurs" type="checkbox"> Hiện cạnh “cùng xuất hiện”</label>
+        </fieldset>
+        <details class="graph-experiments">
+          <summary>Thử thay đổi thứ tự nguồn (tùy chọn)</summary>
+          <p class="hint">Mặc định cứ để tắt. Các thử nghiệm này đổi cách xếp nguồn; bạn có thể đo kết quả ở trang Đánh giá tìm nguồn.</p>
+          <fieldset><legend>Cách xếp nguồn</legend>
+            <label><input id="graph-idf" type="checkbox"> Ưu tiên khái niệm ít gặp (IDF)</label>
+            <label><input id="graph-semantic" type="checkbox"> Mở rộng từ đoạn gần nghĩa (E5)</label>
+            <label><input id="graph-ppr" type="checkbox"> Lan điểm qua các liên kết (PPR)</label>
+            <label for="graph-damping">Mức điểm tiếp tục lan sang liên kết kế bên</label><input class="field" id="graph-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
+            <label for="graph-seed">Điểm dành cho nguồn khớp thẳng</label><input class="field" id="graph-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
+          </fieldset>
+        </details>
+      </aside>
+    </div>
+    <div id="graph-path-list" class="sources"></div>
+  </section>
+</main>
+
+<dialog class="doc-viewer" id="doc-viewer">
+  <form method="dialog"><div class="row" style="justify-content:space-between"><h2 id="doc-viewer-title">Mục tài liệu</h2><button class="small-action" aria-label="Đóng">Đóng</button></div></form>
+  <pre id="doc-viewer-text"></pre>
+</dialog>
+
+<script src="/admin/assets/admin.js" defer></script>
+</body>
+</html>

@@ -1,40 +1,64 @@
 import asyncio
 import os
+import secrets
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from fastapi.testclient import TestClient
-
 from vskr import api
+from vskr.api import handlers
+from vskr import auth
+from vskr.auth import hash_password
+
+from tests.asgi_client import ASGITestClient
+
+TEST_PASSWORD = secrets.token_urlsafe(24)
+TEST_PASSWORD_HASH = hash_password(TEST_PASSWORD)
 
 
 class TestIngestApi(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
+        with auth._failures_lock:
+            auth._failures.clear()
+        with auth._sessions_lock:
+            auth._sessions.clear()
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _post_upload(self, content, env=None, duration=20):
-        env = {"VSKR__PATHS__DATA_DIR": str(self.tmp), **(env or {})}
+        env = {
+            "VSKR__PATHS__DATA_DIR": str(self.tmp),
+            "VSKR_ADMIN_USER": "test-admin",
+            "VSKR_ADMIN_PASSWORD_HASH": TEST_PASSWORD_HASH,
+            "VSKR_COOKIE_SECURE": "false",
+            **(env or {}),
+        }
         with mock.patch.dict(os.environ, env):
-            with mock.patch.object(api._job_executor, "submit") as submit:
-                with mock.patch("vskr.api.probe_duration", return_value=duration):
-                    with TestClient(api.app) as client:
+            with mock.patch.object(handlers._job_executor, "submit") as submit:
+                with mock.patch("vskr.api.handlers.probe_duration", return_value=duration):
+                    with ASGITestClient(api.app) as client:
+                        login = client.post(
+                            "/api/auth/login",
+                            json={"username": "test-admin", "password": TEST_PASSWORD},
+                            headers={"Origin": "http://localhost"},
+                        )
+                        self.assertEqual(login.status_code, 200)
                         response = client.post(
                             "/api/ingest",
                             files={"file": ("lecture.mp4", content, "video/mp4")},
+                            headers={"Origin": "http://localhost", "X-CSRF-Token": login.json()["csrf_token"]},
                         )
                 if response.status_code == 202:
-                    api._jobs.pop(response.json()["job_id"], None)
+                    handlers._jobs.pop(response.json()["job_id"], None)
                 return response, submit
 
     def test_video_list_is_empty_before_first_index(self):
         with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-            with TestClient(api.app) as client:
+            with ASGITestClient(api.app) as client:
                 response = client.get("/api/videos")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
@@ -77,17 +101,19 @@ class TestIngestApi(unittest.TestCase):
                 pass
 
         with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-            with mock.patch.object(api._job_executor, "submit") as submit:
-                response = asyncio.run(api.upload_document(FakeUpload()))
+            with mock.patch.object(handlers._job_executor, "submit") as submit:
+                response = asyncio.run(handlers.upload_document(FakeUpload()))
         self.assertEqual(response["status"], "queued")
         source = submit.call_args.args[2]
         self.assertEqual(source["kind"], "document")
         self.assertEqual(source["title"], "notes")
         self.assertTrue(Path(source["path"]).is_file())
-        api._jobs.pop(response["job_id"], None)
+        handlers._jobs.pop(response["job_id"], None)
 
     def test_upload_over_duration_has_direct_duration_message(self):
-        response, submit = self._post_upload(b"fake video bytes", duration=1801)
+        response, submit = self._post_upload(
+            b"fake video bytes", env={"VSKR__INGEST__MAX_DURATION_S": "1800"}, duration=1801
+        )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Video dài 30.0 phút", response.json()["detail"])
         self.assertNotIn("Không đọc được video", response.json()["detail"])
@@ -100,9 +126,9 @@ class TestIngestApi(unittest.TestCase):
         (target / "meta.json").write_text("{}", encoding="utf-8")
         env = {"VSKR__PATHS__DATA_DIR": str(self.tmp)}
 
-        with mock.patch.dict(os.environ, env), mock.patch.object(api, "_rebuild_or_clear"):
-            first = api.delete_video(video_id)
-            second = api.delete_video(video_id)
+        with mock.patch.dict(os.environ, env), mock.patch.object(handlers, "_rebuild_or_clear"):
+            first = handlers.delete_video(video_id)
+            second = handlers.delete_video(video_id)
 
         self.assertFalse(first["already_absent"])
         self.assertTrue(second["already_absent"])
@@ -117,10 +143,10 @@ class TestIngestApi(unittest.TestCase):
         env = {"VSKR__PATHS__DATA_DIR": str(self.tmp)}
 
         with mock.patch.dict(os.environ, env), mock.patch.object(
-            api, "_rebuild_or_clear", side_effect=RuntimeError("index failed")
+            handlers, "_rebuild_or_clear", side_effect=RuntimeError("index failed")
         ):
             with self.assertRaises(api.HTTPException) as raised:
-                api.delete_video(video_id)
+                handlers.delete_video(video_id)
 
         self.assertEqual(raised.exception.status_code, 500)
         self.assertTrue(marker.is_file())

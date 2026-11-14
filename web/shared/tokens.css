@@ -13,6 +13,8 @@
   --focus: #d27612;
 }
 
+[hidden] { display: none !important; }
+
 @media (prefers-color-scheme: dark) {
   :root {
     --canvas: #10191a;

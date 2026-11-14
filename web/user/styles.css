@@ -68,6 +68,9 @@ h1, h2, h3, p { margin-top: 0; }
 .source-title { flex: 1; min-width: 130px; font-size: .86rem; font-weight: 700; }
 .source-time { color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
 .source-text { margin: .55rem 0 .7rem; color: var(--ink); font-size: .88rem; line-height: 1.55; white-space: pre-wrap; }
+.source-toggle { margin: 0 0 .7rem; }
+.coverage-note { margin: .55rem 0 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+#question-hint.limit-reached { color: var(--focus); }
 .source-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .small-button { min-height: 36px; padding: .4rem .7rem; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font-size: .8rem; font-weight: 700; cursor: pointer; }
 .small-button:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }

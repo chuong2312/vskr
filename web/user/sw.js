@@ -1,4 +1,4 @@
-const CACHE_NAME = "vskr-user-shell-v1";
+const CACHE_NAME = "vskr-user-shell-v2";
 const SHELL = [
   "/",
   "/manifest.webmanifest",

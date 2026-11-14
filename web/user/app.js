@@ -5,6 +5,7 @@ const state = {
   videos: [], documents: [], currentVideo: null, sources: [], player: null,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryQuestion: "", retryInterval: null,
   installPrompt: null, asking: false,
+  sourceNoticeTimeout: null,
 };
 
 function formatTime(value) {
@@ -21,6 +22,32 @@ function make(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+function sourcePreview(text, limit = 280) {
+  if (text.length <= limit) return null;
+  let end = text.lastIndexOf(" ", limit);
+  if (end < Math.floor(limit * 0.75)) end = text.indexOf(" ", limit);
+  if (end < 0) end = limit;
+  return text.slice(0, end).trimEnd() + "…";
+}
+
+function appendSourceText(card, text) {
+  const preview = sourcePreview(text);
+  const paragraph = make("p", "source-text", preview || text);
+  card.append(paragraph);
+  if (!preview) return;
+
+  const toggle = make("button", "small-button source-toggle", "Xem thêm");
+  toggle.type = "button";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.addEventListener("click", () => {
+    const expanded = toggle.getAttribute("aria-expanded") === "true";
+    paragraph.textContent = expanded ? preview : text;
+    toggle.setAttribute("aria-expanded", String(!expanded));
+    toggle.textContent = expanded ? "Xem thêm" : "Thu gọn";
+  });
+  card.append(toggle);
 }
 
 function isYouTube(video) {
@@ -245,6 +272,14 @@ async function openSource(source) {
   if (state.currentVideo?.video_id !== video.video_id) {
     state.pendingJump = { videoId: video.video_id, start: Number(source.start) || 0 };
     selectVideo(video);
+    const title = video.title || "bài giảng";
+    const notice = "Đã chuyển sang «" + title + "» để mở nguồn này.";
+    setStatus(notice);
+    if (state.sourceNoticeTimeout) clearTimeout(state.sourceNoticeTimeout);
+    state.sourceNoticeTimeout = setTimeout(() => {
+      if ($("#request-status").textContent === notice) setStatus("");
+      state.sourceNoticeTimeout = null;
+    }, 6000);
     return;
   }
   jumpCurrentVideo(Number(source.start) || 0);
@@ -284,6 +319,9 @@ function renderResult(result) {
   const answer = make("div", `answer${result.found ? "" : " not-found"}`);
   appendCitedAnswer(answer, result.answer || "Chưa có câu trả lời.", state.sources);
   root.append(answer);
+  if (result.found && state.sources.length) {
+    root.append(make("p", "coverage-note", "Câu trả lời dựa trên các đoạn gần nhất với câu hỏi, không phải toàn bộ bài giảng. Hãy mở nguồn để đối chiếu."));
+  }
   if (state.sources.length) {
     const cards = make("div", "source-list");
     for (const source of state.sources) {
@@ -293,7 +331,7 @@ function renderResult(result) {
       heading.append(make("span", "source-title", source.title || (source.source_type === "document" ? "Tài liệu" : "Bài giảng")));
       heading.append(make("span", "source-time", source.label || (source.source_type === "document" ? `Mục ${source.section}` : formatTime(source.start))));
       card.append(heading);
-      card.append(make("p", "source-text", source.text || ""));
+      appendSourceText(card, source.text || "");
       const actions = make("div", "source-actions");
       const open = make("button", "small-button", source.source_type === "document" ? "Mở mục tài liệu" : `Phát từ ${formatTime(source.start)}`);
       open.type = "button";
@@ -329,6 +367,7 @@ async function submitQuestion(question = $("#question-input").value.trim()) {
       body: JSON.stringify({ question }),
     });
     $("#question-input").value = "";
+    updateQuestionHint("");
     setStatus("");
     renderResult(result);
   } catch (error) {
@@ -401,8 +440,21 @@ $("#close-document").addEventListener("click", () => $("#document-dialog").close
 $("#document-dialog").addEventListener("click", (event) => {
   if (event.target === $("#document-dialog")) $("#document-dialog").close();
 });
-$("#question-input").addEventListener("input", (event) => {
-  $("#question-hint").textContent = `${event.target.value.length}/500 ký tự`;
+function updateQuestionHint(value) {
+  const hint = $("#question-hint");
+  if (value.length >= 500) {
+    hint.textContent = "Đã đạt giới hạn 500 ký tự, phần dài hơn sẽ bị bỏ.";
+    hint.classList.add("limit-reached");
+    return;
+  }
+  hint.textContent = value ? value.length + "/500 ký tự" : "Tối đa 500 ký tự";
+  hint.classList.remove("limit-reached");
+}
+
+$("#question-input").addEventListener("input", (event) => updateQuestionHint(event.target.value));
+$("#question-input").addEventListener("paste", (event) => {
+  const input = event.currentTarget;
+  setTimeout(() => updateQuestionHint(input.value), 0);
 });
 window.addEventListener("online", setNetworkStatus);
 window.addEventListener("offline", setNetworkStatus);

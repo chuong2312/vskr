@@ -1,6 +1,7 @@
 """Xây và nạp chỉ mục: chunks.json + vectors.npy (numpy, tích vô hướng trên vector đã chuẩn hóa)."""
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -130,6 +131,9 @@ def build(cfg, embedder, progress=None, output_dir=None):
     write_json(idir / "knowledge_graph.json", graph)
     info = {
         "n_chunks": len(chunks),
+        "chunk_count": len(chunks),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "version": 1,
         "embedding": cfg["embedding"],
         "chunk": ch,
         "embed_seconds": round(time.time() - t0, 1),

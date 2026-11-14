@@ -1,6 +1,6 @@
 # VSKR — hỏi đáp bài giảng và quản trị học liệu
 
-VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ mục để hỏi đáp tiếng Việt và trả lời kèm nguồn. App Người dùng công khai ở `/`; bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. OCR, VLM, SQLite và frontend SvelteKit chưa thuộc luồng MVP hiện tại.
+VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ mục để hỏi đáp tiếng Việt và trả lời kèm nguồn. App Người dùng công khai ở `/`; bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Video/tài liệu cũ được giữ công khai; nội dung mới chỉ xuất hiện sau khi index và mặc định công khai, có thể tắt riêng từng mục trong Quản trị. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. SQLite lưu session, job, cờ hiển thị và phản hồi câu hỏi.
 
 ## Thành phần đang dùng
 
@@ -36,6 +36,8 @@ uv pip install --editable backend --no-deps
 vskr doctor --gpu-test
 ```
 
+Để chạy kiểm tra và lint trong môi trường phát triển, cài thêm `backend/requirements/dev.txt`, rồi chạy `pytest -q` và `ruff check backend/src/vskr`.
+
 Các thư viện CUDA tải lần đầu khá lớn. Script kích hoạt venv đặt `HF_HOME`, `PYTHONPATH` và đường dẫn cuBLAS/cuDNN cần cho faster-whisper. Chỉ tiếp tục khi `doctor --gpu-test` báo `OK`.
 
 ## Chạy pipeline trong venv
@@ -66,7 +68,7 @@ Màn **Đánh giá** nhận bộ câu hỏi thật qua giao diện hoặc `data/
 
 Trong giao diện, các thử nghiệm IDF, mở rộng khái niệm từ những đoạn gần nghĩa theo embedding E5 và Personalized PageRank (PPR) chạy trên cùng bộ câu hỏi với baseline. Mỗi lựa chọn được đo riêng; nếu bật nhiều lựa chọn, giao diện cũng đo tổ hợp của chúng. Các điều khiển ở trang graph áp dụng ngay cho truy vấn đang xem và đồng bộ với cấu hình đánh giá. PPR dùng `damping` để điều khiển mức lan truyền và `seed_weight` để phân bổ điểm ban đầu cho các nguồn khớp trực tiếp.
 
-Mở `http://localhost:8000` để dùng app Người dùng. Admin mở `/admin`; đăng nhập bằng tài khoản cấu hình trong `.env`. Người dùng ẩn danh chỉ thấy nội dung đã lập chỉ mục và dùng mode retrieval mặc định. Giao diện Quản trị có Học liệu, Tác vụ, Thử hỏi, Đánh giá, Sơ đồ và Nhật ký. App Người dùng có thể cài như PWA; khi ngoại tuyến chỉ khung giao diện được cache, không cache API hay video. `Ctrl+C` dừng server.
+Mở `http://localhost:8000` để dùng app Người dùng. Admin mở `/admin`; đăng nhập bằng tài khoản cấu hình trong `.env`. Người dùng ẩn danh chỉ thấy học liệu đã lập chỉ mục và được bật công khai; retrieval cũng loại các chunk riêng tư trước khi gọi mô hình. Câu hỏi được lưu trong SQLite để quản trị xem tối đa 200 câu gần nhất; IP không được ghi, và người dùng có thể đánh giá câu trả lời bằng 👍/👎. Giao diện Quản trị có Học liệu, Tác vụ, Thử hỏi, Đánh giá, Sơ đồ, Nhật ký và Phản hồi. App Người dùng có thể cài như PWA; khi ngoại tuyến chỉ khung giao diện được cache, không cache API hay video. `Ctrl+C` dừng server.
 
 Trong giao diện Quản trị có thể dán URL được yt-dlp hỗ trợ hoặc upload MP4/MOV/MKV/WebM/AVI; mỗi video tối đa 2 giờ và 1 GB. Video URL được tải ở mức tối đa 720p để phát hiện phân cảnh; video tải lên cũng được phân tích cảnh tự động. Audio tự chia thành các phần 15 phút để nhận dạng, transcript giữ mốc thời gian gốc, rồi index tạo scene graph và liên kết video với tài liệu bằng embedding. Quan hệ có kiểu kèm bằng chứng được Ollama trích trên tối đa 24 đoạn/mục mỗi lần dựng index; nếu Ollama không sẵn sàng, index vẫn dựng khái niệm và liên kết nguồn. Job ingest → phát hiện cảnh → ASR → index chạy tuần tự, giao diện cập nhật tiến độ từng phần. YouTube có player nhúng; video upload phát bằng HTML5 player; nền tảng khác mở URL gốc để đối chiếu.
 
@@ -136,9 +138,33 @@ Caddy tự cấp/chăm sóc chứng chỉ TLS cho domain công khai đủ điề
 
 Chỉ điền `VSKR_TRUSTED_PROXIES` bằng địa chỉ/CIDR thực của proxy trực tiếp gọi app, ví dụ `127.0.0.1/32,::1/128` khi Caddy chạy cùng máy. Không tin proxy hoặc header do client tùy ý cung cấp. Không cần bật CORS; frontend và API được phục vụ từ cùng origin.
 
-Sao lưu thư mục `data/` định kỳ để giữ video, audio, transcript, chỉ mục, tài liệu, kết quả đánh giá và `audit.jsonl`. Tạo bản sao nhất quán bằng cách dừng VSKR trước khi sao chép, hoặc dùng snapshot filesystem. Sao lưu `.env` và `configs/models.yaml` riêng ở kho mã hóa có quyền truy cập hạn chế; `.env` chứa hash xác thực. `cache/` chỉ chứa model/download cache và có thể tải lại, nhưng giữ nó giúp tránh tải model lớn lần nữa.
+Sao lưu thư mục `data/` định kỳ để giữ video, audio, transcript, chỉ mục, tài liệu, kết quả đánh giá, SQLite và nhật ký. Tạo bản sao nhất quán bằng cách dừng VSKR trước khi sao chép, hoặc dùng snapshot filesystem. Sao lưu `.env` và `configs/models.yaml` riêng ở kho mã hóa có quyền truy cập hạn chế; `.env` chứa hash xác thực. `cache/` chỉ chứa model/download cache và có thể tải lại, nhưng giữ nó giúp tránh tải model lớn lần nữa.
 
-Admin session được giữ trong RAM, hết sau 8 giờ tuyệt đối hoặc 60 phút không hoạt động; restart server thu hồi mọi session. Hàng đợi tác vụ cũng ở RAM nên trạng thái job hiện tại mất khi restart. URL ingest được kiểm tra DNS/IP trước khi gọi yt-dlp nhưng redirect có thể đưa request tới đích khác; giới hạn tính năng này cho admin đáng tin cậy.
+Session admin và job được lưu trong `data/vskr.sqlite3`. Session hết sau 8 giờ tuyệt đối hoặc 60 phút không hoạt động và vẫn có hiệu lực qua lần restart nếu chưa hết hạn. Job đang chạy lúc server dừng được đánh dấu lỗi để admin có thể retry; executor vẫn chạy một worker trong một tiến trình. SQLite giữ trạng thái khi restart, nhưng không biến pipeline/GPU thành dịch vụ multi-worker an toàn: hãy chạy một worker và giữ rate limit trong một tiến trình. Câu hỏi gần nhất được giữ tối đa 10.000 bản ghi; audit JSONL xoay vòng ở 5 MiB, giữ ba file cũ.
+
+Upload `/api/ingest`, `/api/documents` và `/api/eval/questions/import` được xác thực trước khi FastAPI đọc multipart body, đồng thời bị giới hạn kích thước trong middleware. Cấu hình giới hạn ở reverse proxy nữa để từ chối body quá lớn trước khi chuyển tới ứng dụng. Ví dụ sau dùng `request_body` của Caddy 2.10+ (directive được đánh dấu experimental trong [tài liệu Caddy](https://caddyserver.com/docs/caddyfile/directives/request_body)); các mức gồm giới hạn file mặc định cộng 1 MiB multipart overhead:
+
+```caddyfile
+vskr.example.com {
+    route {
+        @videoUpload path /api/ingest
+        request_body @videoUpload {
+            max_size 1025MiB
+        }
+        @documentUpload path /api/documents
+        request_body @documentUpload {
+            max_size 101MiB
+        }
+        @evaluationImport path /api/eval/questions/import
+        request_body @evaluationImport {
+            max_size 6MiB
+        }
+        reverse_proxy 127.0.0.1:8000
+    }
+}
+```
+
+`/api/ingest` và URL tải bằng yt-dlp được kiểm tra DNS/IP trước khi tải, nhưng downloader có thể đi theo redirect sau bước kiểm tra ban đầu. Chỉ cho admin đáng tin cậy dùng URL ingest; nếu cần chặn SSRF mạnh hơn, giới hạn egress của tiến trình ở firewall/network policy.
 
 Để giảm tải GPU nếu Whisper float16 thiếu VRAM, đặt `asr.compute_type` thành `int8_float16`. Để chạy ASR bằng CPU, đặt `asr.device: cpu` và `asr.compute_type: int8`; tốc độ sẽ chậm hơn.
 
@@ -146,13 +172,15 @@ Admin session được giữ trong RAM, hết sau 8 giờ tuyệt đối hoặc 
 
 - `data/videos/<id>/`: video/audio, metadata, transcript và timestamp.
 - `data/index/`: chunks, vectors và metadata chỉ mục.
+- `data/vskr.sqlite3`: session admin, job pipeline, quyền hiển thị và log câu hỏi/phản hồi.
+- `data/audit.jsonl*`: nhật ký quản trị xoay vòng.
 - `cache/`: model cache của Hugging Face và yt-dlp.
 
 Không xóa `data/` hoặc `cache/` nếu còn cần video, transcript, index hay model đã tải. Ollama lưu model theo cách cài đặt Ollama đang dùng.
 
 ## Phạm vi hiện tại
 
-Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect (cắt cảnh hình ảnh), không dùng LLM để sửa ranh giới theo mạch bài giảng; trích quan hệ có kiểu dùng Ollama với giới hạn số đoạn; liên kết video–tài liệu được kiểm tra bằng ngưỡng embedding và trùng khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; hãy đánh giá với bộ câu hỏi có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật mặc định trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
+Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect (cắt cảnh hình ảnh), không dùng LLM để sửa ranh giới theo mạch bài giảng; trích quan hệ có kiểu dùng Ollama với giới hạn số đoạn; liên kết video–tài liệu được kiểm tra bằng ngưỡng embedding và trùng khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; hãy đánh giá với bộ câu hỏi có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`) và frontend SvelteKit chưa được bật mặc định trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
 
 ## Cấu trúc dự án
 
@@ -165,6 +193,8 @@ vskr/
 ├── configs/models.yaml    # cấu hình model và pipeline
 ├── scripts/               # tiện ích phát triển local (venv)
 ├── tests/                 # unit/integration tests
+├── docs/                  # ma trận quyền truy cập
+├── .github/workflows/     # CI: pytest + Ruff
 ├── web/                   # giao diện demo MVP
 ├── data/                  # video, transcript, index (local, không commit)
 ├── cache/                 # model/download cache (local, không commit)

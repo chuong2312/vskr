@@ -59,3 +59,6 @@ class ASGITestClient:
 
     def delete(self, *args, **kwargs):
         return self.loop.run_until_complete(self.client.delete(*args, **kwargs))
+
+    def patch(self, *args, **kwargs):
+        return self.loop.run_until_complete(self.client.patch(*args, **kwargs))

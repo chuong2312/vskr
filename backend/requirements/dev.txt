@@ -1,0 +1,4 @@
+-r base.txt
+pytest
+Pillow
+ruff>=0.11,<1

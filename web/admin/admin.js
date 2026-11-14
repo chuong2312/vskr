@@ -1,35 +1,6 @@
-const nativeFetch = window.fetch.bind(window);
-let adminCsrf = "";
-let authReady = nativeFetch("/api/auth/me", { credentials: "same-origin" })
-  .then((response) => response.ok ? response.json() : Promise.reject(new Error("auth")))
-  .then((data) => {
-    if (!data.admin || !data.csrf_token) {
-      location.replace("/admin/login?expired=1");
-      throw new Error("Admin session expired");
-    }
-    adminCsrf = data.csrf_token;
-    return true;
-  })
-  .catch((error) => {
-    if (!location.pathname.endsWith("/admin/login")) location.replace("/admin/login?expired=1");
-    throw error;
-  });
+import { adminFetch } from "/shared/api.js";
 
-window.fetch = (input, init = {}) => {
-  const url = new URL(typeof input === "string" ? input : input.url, location.href);
-  if (!url.pathname.startsWith("/api/") || url.pathname === "/api/auth/me" || url.pathname === "/api/auth/login") {
-    return nativeFetch(input, init);
-  }
-  return authReady.then(() => {
-    const method = String(init.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
-    const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
-    if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-CSRF-Token", adminCsrf);
-    return nativeFetch(input, { ...init, headers, credentials: "same-origin" }).then((response) => {
-      if (response.status === 401) location.replace("/admin/login?expired=1");
-      return response;
-    });
-  });
-};
+const fetch = adminFetch;
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -47,6 +18,7 @@ document.querySelectorAll("[data-page]").forEach((button) => button.addEventList
   if (button.dataset.page === "qa" && !qaInitialized) init();
   if (button.dataset.page === "evaluation") loadEvaluation();
   if (button.dataset.page === "audit") loadAudit();
+  if (button.dataset.page === "feedback") loadFeedback();
 }));
 
 function displayTime(value) {
@@ -90,7 +62,7 @@ async function loadTasks() {
     const jobs = await response.json();
     if (!response.ok) throw new Error(jobs.detail || response.statusText);
     if (!jobs.length) {
-      list.innerHTML = `<p class="hint">Chưa có tác vụ trong phiên server này.</p>`;
+      list.innerHTML = `<p class="hint">Chưa có tác vụ nào.</p>`;
       status.textContent = "";
       return;
     }
@@ -102,7 +74,7 @@ async function loadTasks() {
       const error = job.status === "error" && job.error_detail ? `<p class="task-diagnostic">${esc(job.error_type || "Lỗi")}: ${esc(job.error_detail)}</p>` : "";
       return `<article class="task-card"><div class="task-heading"><div><span class="state ${job.status === "done" ? "ready" : job.status === "error" ? "error" : ""}">${esc(stateLabels[job.status] || job.status)}</span><strong>${esc(target)}</strong></div><time>${esc(displayTime(job.created_at))}</time></div><p class="task-phase">${esc(phaseLabels[job.phase] || job.phase || "Đang xử lý")}</p><p class="hint">${esc(job.message || "")}</p>${error}<div class="task-actions">${retry}<code>${esc(job.job_id)}</code></div></article>`;
     }).join("");
-    status.textContent = `Hiển thị ${jobs.length} tác vụ gần nhất. Tác vụ mất khỏi danh sách sau khi server khởi động lại.`;
+    status.textContent = `Hiển thị ${jobs.length} tác vụ gần nhất. Tác vụ đang chạy khi server dừng sẽ được đánh dấu lỗi để có thể thử lại.`;
   } catch (error) {
     status.textContent = `Không tải được tác vụ: ${error.message}`;
   }
@@ -127,9 +99,26 @@ async function loadAudit() {
   }
 }
 
+async function loadFeedback() {
+  const list = $("#feedback-list");
+  const status = $("#feedback-status");
+  status.textContent = "Đang tải câu hỏi…";
+  try {
+    const response = await fetch("/api/admin/questions");
+    const questions = await response.json();
+    if (!response.ok) throw new Error(questions.detail || response.statusText);
+    if (!questions.length) list.innerHTML = `<tr><td colspan="4">Chưa có câu hỏi nào.</td></tr>`;
+    else list.innerHTML = questions.map((item) => `<tr><td><time>${esc(displayTime(item.created_at))}</time></td><td>${esc(item.question)}</td><td>${item.found === null ? "—" : item.found ? "Có" : "Không"}</td><td>${item.feedback === "up" ? "👍 Hữu ích" : item.feedback === "down" ? "👎 Chưa hữu ích" : "Chưa đánh giá"}</td></tr>`).join("");
+    status.textContent = `Hiển thị ${questions.length} câu hỏi gần nhất.`;
+  } catch (error) {
+    status.textContent = `Không tải được câu hỏi: ${error.message}`;
+  }
+}
+
 $("#refresh-dashboard").addEventListener("click", loadDashboard);
 $("#refresh-tasks").addEventListener("click", loadTasks);
 $("#refresh-audit").addEventListener("click", loadAudit);
+$("#refresh-feedback").addEventListener("click", loadFeedback);
 
 $("#tasks-list").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-task-retry]");
@@ -165,6 +154,7 @@ setInterval(() => {
   if (activePage === "overview") loadDashboard();
   if (activePage === "tasks") loadTasks();
   if (activePage === "audit") loadAudit();
+  if (activePage === "feedback") loadFeedback();
 }, 10_000);
 
 function isYouTube(v) {
@@ -458,7 +448,10 @@ async function loadLibrary(showLoading = true) {
       const extra = item.kind === "document" ? (item.sections ? `${item.sections} mục` : "—") : item.duration ? fmt(item.duration) : "—";
       const rawStatus = status.label || status.state || "Chưa rõ";
       const statusText = status.state === "ready" ? "Sẵn sàng để hỏi" : rawStatus === "Đã chia mục" ? "Sẵn sàng để hỏi" : rawStatus.includes("lập chỉ mục") ? rawStatus.replace("lập chỉ mục", "chuẩn bị nội dung để tìm") : rawStatus;
-      return `<article class="library-item"><span class="tag">${item.kind === "document" ? "Tài liệu" : "Video"}</span><span class="item-title">${esc(item.title)}</span><span class="hint">${esc(extra)}</span><span class="state ${status.state === "ready" ? "ready" : status.state === "error" ? "error" : ""}">${esc(statusText)}</span>${actions.join("")}</article>`;
+      const visibility = !item.id.startsWith("job:")
+        ? `<label class="visibility-control"><input type="checkbox" data-visibility-kind="${esc(item.kind)}" data-visibility-id="${esc(item.id)}" ${item.is_public ? "checked" : ""}> Công khai sau khi index</label>`
+        : "";
+      return `<article class="library-item"><span class="tag">${item.kind === "document" ? "Tài liệu" : "Video"}</span><span class="item-title">${esc(item.title)}</span><span class="hint">${esc(extra)}</span><span class="state ${status.state === "ready" ? "ready" : status.state === "error" ? "error" : ""}">${esc(statusText)}</span>${visibility}${actions.join("")}</article>`;
     }).join("");
   } catch (err) { list.innerHTML = `<p class="err">Không tải được thư viện: ${esc(err.message)}</p>`; }
 }
@@ -497,6 +490,27 @@ $("#library-list").addEventListener("click", async (e) => {
     await refreshVideos();
   } finally {
     if (action?.isConnected) action.disabled = false;
+  }
+});
+
+$("#library-list").addEventListener("change", async (event) => {
+  const checkbox = event.target.closest("[data-visibility-kind]");
+  if (!checkbox) return;
+  const previous = !checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    const response = await fetch(`/api/library/${encodeURIComponent(checkbox.dataset.visibilityKind)}/${encodeURIComponent(checkbox.dataset.visibilityId)}/visibility`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_public: checkbox.checked }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || response.statusText);
+    $("#pipeline-status").textContent = checkbox.checked ? "Học liệu sẽ công khai sau khi index." : "Đã ẩn học liệu khỏi catalog và hỏi đáp công khai.";
+  } catch (error) {
+    checkbox.checked = previous;
+    $("#pipeline-status").textContent = `Không đổi được quyền hiển thị: ${error.message}`;
+  } finally {
+    checkbox.disabled = false;
   }
 });
 

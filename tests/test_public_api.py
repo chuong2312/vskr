@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from vskr.api import app, handlers
+from vskr.api import app, library as library_api, runtime
 from vskr.api.public import _safe_source_link
 
 from tests.asgi_client import ASGITestClient
@@ -26,8 +26,8 @@ class TestPublicCatalog(unittest.TestCase):
             },
             index=SimpleNamespace(chunks=[{"video_id": "video-ready"}]),
         )
-        with mock.patch.dict(handlers.state, {"service": service}):
-            result = handlers.public_videos()
+        with mock.patch.dict(runtime.state, {"service": service}):
+            result = library_api.public_videos()
         self.assertEqual(result, [{
             "video_id": "video-ready", "title": "Bài giảng", "duration": 180,
             "playback_url": "https://lectures.example/watch",
@@ -48,8 +48,8 @@ class TestPublicCatalog(unittest.TestCase):
                 index=SimpleNamespace(chunks=[{"document_id": "doc-ready"}]),
             )
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}), \
-                    mock.patch.dict(handlers.state, {"service": service}):
-                result = handlers.public_catalog()
+                    mock.patch.dict(runtime.state, {"service": service}):
+                result = library_api.public_catalog()
         self.assertEqual(result, {
             "videos": [],
             "documents": [{"document_id": "doc-ready", "title": "doc-ready", "sections": 2}],

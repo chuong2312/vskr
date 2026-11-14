@@ -87,6 +87,14 @@ class TestAdminAuth(unittest.TestCase):
                 self.assertEqual(limited.status_code, 429)
                 self.assertGreater(int(limited.headers["retry-after"]), 0)
 
+    def test_login_throttle_does_not_let_another_ip_lock_the_admin_username(self):
+        with auth._failures_lock:
+            auth._failures.clear()
+        for attempt in range(auth.LOGIN_FAILURES):
+            auth._record_login_failure("203.0.113.10", "admin", now=1000 + attempt)
+        self.assertIsNotNone(auth.login_retry_after("203.0.113.10", "admin", now=1005))
+        self.assertIsNone(auth.login_retry_after("198.51.100.20", "admin", now=1005))
+
     def test_login_rotates_session_and_logout_revokes_it(self):
         with mock.patch.dict(os.environ, self.env):
             with ASGITestClient(app) as client:

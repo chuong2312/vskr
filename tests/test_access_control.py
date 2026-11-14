@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from vskr import auth
 from vskr.api import app
 from vskr.auth import hash_password
 
@@ -23,6 +24,7 @@ PUBLIC_API_ROUTES = {
     ("GET", "/api/auth/me"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/logout"),
+    ("POST", "/api/feedback"),
 }
 
 
@@ -59,12 +61,17 @@ def _send_route(client, method, path, *, origin=None, csrf=None):
         return client.get(concrete, **options)
     if method == "DELETE":
         return client.delete(concrete, **options)
+    if method == "PATCH":
+        options["json"] = {"is_public": False}
+        return client.patch(concrete, **options)
     if path == "/api/documents":
         options["files"] = {"file": ("notes.txt", b"notes", "text/plain")}
     elif path == "/api/eval/questions/import":
         options["files"] = {"file": ("questions.jsonl", b"", "application/json")}
     elif path == "/api/ingest":
         options["data"] = {}
+    elif path == "/api/feedback":
+        options["json"] = {"request_id": "missing-request-id-0000", "feedback": "up"}
     elif path in {"/api/eval/questions", "/api/admin/ask", "/api/eval/run"}:
         options["json"] = {"questions": []} if path.endswith("/questions") else {"question": "test"} if path.endswith("/ask") else {}
     return client.post(concrete, **options)
@@ -73,6 +80,10 @@ def _send_route(client, method, path, *, origin=None, csrf=None):
 class TestAccessControl(unittest.TestCase):
     def setUp(self):
         self.data_dir = tempfile.TemporaryDirectory()
+        with auth._failures_lock:
+            auth._failures.clear()
+        with auth._sessions_lock:
+            auth._sessions.clear()
         self.env = {
             "VSKR__PATHS__DATA_DIR": self.data_dir.name,
             "VSKR_ADMIN_USER": "test-admin",
@@ -107,7 +118,8 @@ class TestAccessControl(unittest.TestCase):
                 for route in routes:
                     for method in route.methods - {"HEAD", "OPTIONS"}:
                         response = _send_route(client, method, route.path)
-                        self.assertEqual(response.status_code, 401, f"{method} {route.path}: {response.text}")
+                        expected = 303 if method == "GET" and route.path in {"/admin", "/admin/"} else 401
+                        self.assertEqual(response.status_code, expected, f"{method} {route.path}: {response.text}")
 
     def test_authenticated_admin_writes_require_origin_and_csrf_on_every_route(self):
         with mock.patch.dict(os.environ, self.env):

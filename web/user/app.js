@@ -4,7 +4,7 @@ const $ = (selector) => document.querySelector(selector);
 const state = {
   videos: [], documents: [], currentVideo: null, sources: [], player: null,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryQuestion: "", retryInterval: null,
-  installPrompt: null, asking: false,
+  installPrompt: null, asking: false, requestId: null,
 };
 
 function formatTime(value) {
@@ -278,6 +278,7 @@ function appendCitedAnswer(container, answer, sources) {
 
 function renderResult(result) {
   state.sources = Array.isArray(result.sources) ? result.sources : [];
+  state.requestId = result.request_id || null;
   const root = $("#result");
   root.replaceChildren();
   root.hidden = false;
@@ -310,6 +311,30 @@ function renderResult(result) {
       cards.append(card);
     }
     root.append(cards);
+  }
+  if (state.requestId) {
+    const feedback = make("div", "answer-feedback");
+    const prompt = make("span", "hint", "Câu trả lời này có hữu ích không?");
+    feedback.append(prompt);
+    for (const [value, label] of [["up", "👍 Hữu ích"], ["down", "👎 Chưa hữu ích"]]) {
+      const button = make("button", "small-button", label);
+      button.type = "button";
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          await request("/api/feedback", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ request_id: state.requestId, feedback: value }),
+          });
+          feedback.replaceChildren(make("span", "hint", "Cảm ơn phản hồi của bạn."));
+        } catch {
+          button.disabled = false;
+          setStatus("Chưa gửi được phản hồi. Bạn có thể thử lại.", "error");
+        }
+      });
+      feedback.append(button);
+    }
+    root.append(feedback);
   }
   renderTimeline();
   root.scrollIntoView({ block: "nearest", behavior: "smooth" });

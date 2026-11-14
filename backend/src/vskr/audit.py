@@ -4,12 +4,26 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from datetime import datetime, timezone
 
 from .config import data_dir, load_config
 
 _lock = threading.Lock()
+MAX_BYTES = 5 * 1024 * 1024
+ROTATIONS = 3
+
+
+def _rotate(path):
+    oldest = path.with_name(path.name + f".{ROTATIONS}")
+    oldest.unlink(missing_ok=True)
+    for number in range(ROTATIONS - 1, 0, -1):
+        source = path.with_name(path.name + f".{number}")
+        if source.exists():
+            os.replace(source, path.with_name(path.name + f".{number + 1}"))
+    if path.exists():
+        os.replace(path, path.with_name(path.name + ".1"))
 
 
 def write_event(event: str, *, actor: str = "admin", target_id: str | None = None, kind: str | None = None,
@@ -29,7 +43,14 @@ def write_event(event: str, *, actor: str = "admin", target_id: str | None = Non
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with _lock, path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
+            line = json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n"
+            if path.stat().st_size + len(line.encode("utf-8")) > MAX_BYTES:
+                handle.close()
+                _rotate(path)
+                with path.open("a", encoding="utf-8") as rotated_handle:
+                    rotated_handle.write(line)
+            else:
+                handle.write(line)
     except OSError:
         logging.exception("Could not append VSKR audit event %s", event)
 

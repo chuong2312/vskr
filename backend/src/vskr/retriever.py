@@ -10,10 +10,10 @@ class Retriever:
         self.index, self.embedder, self.cfg = index, embedder, rcfg
         self._semantic_terms_cache = {}
 
-    def _semantic_graph_terms(self, vector_scores, query, limit=5):
+    def _semantic_graph_terms(self, vector_scores, query, limit=5, eligible_indices=None):
         """Use E5-near chunks to add their graph concepts as soft query anchors."""
         cache_key = query.casefold().strip()
-        if cache_key in self._semantic_terms_cache:
+        if eligible_indices is None and cache_key in self._semantic_terms_cache:
             return self._semantic_terms_cache[cache_key]
         concepts_by_source = {}
         nodes = {node["id"]: node for node in self.index.graph.get("nodes", [])}
@@ -26,7 +26,10 @@ class Retriever:
                 concepts_by_source.setdefault(source, set()).add(concept.get("label", ""))
 
         query_terms = set(tokenize(query))
-        ranked_chunks = np.argsort(-vector_scores)[:limit]
+        if eligible_indices is None:
+            ranked_chunks = np.argsort(-vector_scores)[:limit]
+        else:
+            ranked_chunks = sorted(eligible_indices, key=lambda idx: float(vector_scores[idx]), reverse=True)[:limit]
         semantic_terms = {}
         for idx in ranked_chunks:
             similarity = max(0.0, min(1.0, float(vector_scores[idx])))
@@ -39,17 +42,26 @@ class Retriever:
                 if label_tokens and label_tokens <= query_terms:
                     continue
                 semantic_terms[label] = max(semantic_terms.get(label, 0.0), weight)
+        if eligible_indices is not None:
+            return semantic_terms
         if len(self._semantic_terms_cache) >= 512:
             self._semantic_terms_cache.clear()
         self._semantic_terms_cache[cache_key] = semantic_terms
         return semantic_terms
 
-    def search(self, query, mode=None, top_k=None, experiment=None):
+    def search(self, query, mode=None, top_k=None, experiment=None, allowed_chunk_ids=None):
         mode = mode or self.cfg.get("mode", "hybrid_graph")
         top_k = top_k or self.cfg.get("top_k", 5)
         cand = self.cfg.get("candidate_k", 20)
         idx = self.index
         experiment = experiment or {}
+        allowed = None if allowed_chunk_ids is None else set(allowed_chunk_ids)
+        eligible = [
+            i for i, chunk in enumerate(idx.chunks)
+            if allowed is None or chunk.get("chunk_id") in allowed
+        ]
+        if not eligible:
+            return []
         graph_options = {
             "idf_weights": idx.bm25.idf if experiment.get("idf_weighting") else None,
             "ppr": bool(experiment.get("ppr")),
@@ -61,8 +73,14 @@ class Retriever:
                 raise RuntimeError("Chỉ mục chưa có Đồ thị tri thức. Hãy chạy lại: vskr index")
             if experiment.get("semantic_expansion"):
                 query_vector = self.embedder.encode_query(query)
-                graph_options["semantic_terms"] = self._semantic_graph_terms(idx.vectors @ query_vector, query)
-            return search_graph(idx.graph, idx.chunks, query, top_k=top_k, **graph_options)
+                graph_options["semantic_terms"] = self._semantic_graph_terms(
+                    idx.vectors @ query_vector, query, eligible_indices=eligible if allowed is not None else None
+                )
+            hits = search_graph(
+                idx.graph, idx.chunks, query, top_k=top_k,
+                allowed_chunk_ids=allowed, **graph_options,
+            )
+            return hits
         if mode == "hybrid_graph" and not idx.graph.get("nodes"):
             raise RuntimeError("Chỉ mục chưa có Đồ thị tri thức. Hãy chạy lại: vskr index")
         vec_scores = None
@@ -70,27 +88,33 @@ class Retriever:
             q = self.embedder.encode_query(query)
             vec_scores = idx.vectors @ q
             thr = self.cfg.get("min_vector_score")
-            if mode == "vector" and thr is not None and float(vec_scores.max()) < thr:
+            eligible_max = max(float(vec_scores[i]) for i in eligible)
+            if mode == "vector" and thr is not None and eligible_max < thr:
                 return []
         if mode == "vector":
-            order = np.argsort(-vec_scores)[:top_k]
+            order = sorted(eligible, key=lambda i: float(vec_scores[i]), reverse=True)[:top_k]
             pairs = [(int(i), float(vec_scores[i])) for i in order]
         elif mode == "bm25":
             s = np.array(idx.bm25.scores(tokenize(query)))
-            order = [int(i) for i in np.argsort(-s)[:top_k] if s[i] > 0]
+            order = [int(i) for i in sorted(eligible, key=lambda i: float(s[i]), reverse=True)[:top_k] if s[i] > 0]
             pairs = [(i, float(s[i])) for i in order]
         elif mode in ("hybrid", "hybrid_graph"):
-            vr = [int(i) for i in np.argsort(-vec_scores)[:cand]]
+            vr = [int(i) for i in sorted(eligible, key=lambda i: float(vec_scores[i]), reverse=True)[:cand]]
             thr = self.cfg.get("min_vector_score")
-            if mode == "hybrid_graph" and thr is not None and float(vec_scores.max()) < thr:
+            if mode == "hybrid_graph" and thr is not None and max(float(vec_scores[i]) for i in eligible) < thr:
                 vr = []
             s = np.array(idx.bm25.scores(tokenize(query)))
-            br = [int(i) for i in np.argsort(-s)[:cand] if s[i] > 0]
+            br = [int(i) for i in sorted(eligible, key=lambda i: float(s[i]), reverse=True)[:cand] if s[i] > 0]
             rankings = [vr, br]
             if mode == "hybrid_graph":
                 if experiment.get("semantic_expansion"):
-                    graph_options["semantic_terms"] = self._semantic_graph_terms(vec_scores, query)
-                graph_hits = search_graph(idx.graph, idx.chunks, query, top_k=cand, **graph_options)
+                    graph_options["semantic_terms"] = self._semantic_graph_terms(
+                        vec_scores, query, eligible_indices=eligible if allowed is not None else None
+                    )
+                graph_hits = search_graph(
+                    idx.graph, idx.chunks, query, top_k=cand,
+                    allowed_chunk_ids=allowed, **graph_options,
+                )
                 graph_ranking = [hit["idx"] for hit in graph_hits]
                 rankings.append(graph_ranking)
             fused = rrf_fuse(rankings, k=self.cfg.get("rrf_k", 60))[:top_k]

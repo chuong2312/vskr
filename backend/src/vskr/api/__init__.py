@@ -2,16 +2,26 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
 
 from ..auth import warn_if_unconfigured
-from . import admin, handlers, public
+from ..config import load_config
+from .. import auth
+from . import admin, public
+from .runtime import init_service, recover_jobs
+
+
+class _BodyTooLarge(Exception):
+    pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     warn_if_unconfigured()
-    handlers._init_service()
+    recover_jobs()
+    init_service()
     yield
 
 
@@ -72,15 +82,62 @@ class SecurityHeadersMiddleware:
                 message["headers"] = headers
             await send(message)
 
-        await self.app(scope, receive, send_with_headers)
+        path = scope.get("path", "")
+        method = scope.get("method", "").upper()
+        limit = None
+        if method == "POST":
+            if path == "/api/ingest":
+                limit = int(load_config().get("ingest", {}).get("max_upload_bytes", 1_073_741_824)) + 1_048_576
+            elif path == "/api/documents":
+                limit = 100 * 1024 * 1024 + 1_048_576
+            elif path == "/api/eval/questions/import":
+                limit = 5 * 1024 * 1024 + 1_048_576
+        body_receive = receive
+        if limit is not None:
+            try:
+                # These routes use multipart forms. Authenticate before FastAPI can
+                # parse or spool any part of an anonymous request body.
+                auth.validate_admin_request(Request(scope, receive=receive))
+            except HTTPException as exc:
+                response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
+                await response(scope, receive, send_with_headers)
+                return
+            try:
+                raw_length = next((value.decode("latin-1") for key, value in scope.get("headers", []) if key.lower() == b"content-length"), None)
+                if raw_length is not None and int(raw_length) > limit:
+                    response = JSONResponse({"detail": "Kích thước request vượt giới hạn cho phép."}, status_code=413)
+                    await response(scope, receive, send_with_headers)
+                    return
+            except ValueError:
+                response = JSONResponse({"detail": "Content-Length không hợp lệ."}, status_code=400)
+                await response(scope, receive, send_with_headers)
+                return
+            received = 0
+
+            async def receive_limited():
+                nonlocal received
+                message = await receive()
+                if message["type"] == "http.request":
+                    received += len(message.get("body", b""))
+                    if received > limit:
+                        raise _BodyTooLarge
+                return message
+
+            body_receive = receive_limited
+        response_started = False
+
+        async def track_response(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send_with_headers(message)
+
+        try:
+            await self.app(scope, body_receive, track_response)
+        except _BodyTooLarge:
+            if not response_started:
+                response = JSONResponse({"detail": "Kích thước request vượt giới hạn cho phép."}, status_code=413)
+                await response(scope, receive, send_with_headers)
 
 
 app.add_middleware(SecurityHeadersMiddleware)
-
-
-def __getattr__(name):
-    """Keep the historic ``vskr.api`` import path while implementation lives in handlers."""
-    try:
-        return getattr(handlers, name)
-    except AttributeError:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None

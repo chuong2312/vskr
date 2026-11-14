@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .. import audit, auth
+from .. import state_store
 from ..config import ROOT
-from . import handlers
+from ..util import is_youtube_url, youtube_watch_url
+from . import handlers, library as library_api
 from .limits import check_ask_rate, enter_ask_slot, leave_ask_slot
 
 router = APIRouter()
@@ -25,6 +28,11 @@ class PublicAskRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=256)
     password: str = Field(min_length=1, max_length=1024)
+
+
+class FeedbackRequest(BaseModel):
+    request_id: str = Field(min_length=16, max_length=128)
+    feedback: str = Field(pattern="^(up|down)$")
 
 
 def _file_response(root: Path, relative_path: str, not_found: str):
@@ -43,20 +51,9 @@ def _safe_source_link(source: dict) -> str | None:
     start = max(0, int(source.get("start") or 0))
     if link.startswith("/api/videos/") and video_id:
         return f"/api/videos/{quote(video_id, safe='')}/file#t={start}"
-    try:
-        parsed = urlsplit(link)
-        host = (parsed.hostname or "").lower()
-    except ValueError:
-        return None
-    if video_id and (
-        host == "youtu.be"
-        or host == "youtube.com"
-        or host.endswith(".youtube.com")
-        or host == "youtube-nocookie.com"
-        or host.endswith(".youtube-nocookie.com")
-    ):
-        return f"https://www.youtube.com/watch?v={quote(video_id, safe='')}&t={start}s"
-    return handlers._safe_source_url(link)
+    if video_id and is_youtube_url(link):
+        return youtube_watch_url(video_id, start)
+    return library_api.safe_source_url(link)
 
 
 @router.get("/")
@@ -105,39 +102,44 @@ def admin_login_asset(asset_path: str):
 
 @router.get("/api/videos")
 def public_videos():
-    return handlers.public_videos()
+    return library_api.public_videos()
 
 
 @router.get("/api/catalog")
 def public_catalog():
-    return handlers.public_catalog()
+    return library_api.public_catalog()
 
 
 @router.get("/api/documents/{document_id}/sections/{section}")
 def public_document_section(document_id: str, section: int):
-    if not handlers._indexed_document(document_id):
+    if not library_api.document_is_indexed(document_id) or not state_store.visibility("document", document_id):
         raise HTTPException(404, "Không tìm thấy mục tài liệu.")
-    return handlers.document_section(document_id, section)
+    return library_api.document_section(document_id, section)
 
 
 @router.get("/api/videos/{video_id}/file")
 def public_video_file(video_id: str):
-    if not handlers._indexed_video(video_id):
+    if not library_api.video_is_indexed(video_id) or not state_store.visibility("video", video_id):
         raise HTTPException(404, "Không tìm thấy video.")
-    return handlers.uploaded_video_file(video_id)
+    return library_api.uploaded_video_file(video_id)
 
 
 @router.get("/api/status")
 def public_status():
-    return {"ready": handlers.state["service"] is not None}
+    return {"ready": library_api.service_ready()}
 
 
 @router.post("/api/ask")
 def ask(request: Request, payload: PublicAskRequest):
     check_ask_rate(auth.client_ip(request))
     enter_ask_slot()
+    request_id = secrets.token_urlsafe(18)
     try:
-        result = handlers.ask(handlers.AskRequest(question=payload.question), use_request_mode=False)
+        state_store.log_question(payload.question.strip(), request_id)
+        result = handlers.ask(
+            handlers.AskRequest(question=payload.question), use_request_mode=False, public_only=True
+        )
+        state_store.finish_question(request_id, found=bool(result.get("found")))
         sources = []
         for source in result.get("sources", []):
             item = {
@@ -147,14 +149,27 @@ def ask(request: Request, payload: PublicAskRequest):
             }
             item["link"] = _safe_source_link(source)
             sources.append(item)
-        return {"answer": result["answer"], "found": result["found"], "cited": result["cited"], "sources": sources}
+        return {
+            "request_id": request_id, "answer": result["answer"], "found": result["found"],
+            "cited": result["cited"], "sources": sources,
+        }
     except HTTPException as exc:
+        state_store.finish_question(request_id)
         if exc.status_code == 503:
             raise
         logging.info("Public ask returned status %s", exc.status_code)
         raise
     finally:
         leave_ask_slot()
+
+
+@router.post("/api/feedback")
+def submit_feedback(request: Request, payload: FeedbackRequest):
+    if not auth._same_origin(request):
+        raise HTTPException(403, "Yêu cầu phản hồi không hợp lệ.")
+    if not state_store.submit_feedback(payload.request_id, payload.feedback):
+        raise HTTPException(404, "Không tìm thấy câu hỏi cần phản hồi.")
+    return {"saved": True}
 
 
 @router.get("/api/auth/me")

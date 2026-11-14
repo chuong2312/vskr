@@ -191,6 +191,8 @@
   .library-list { display: grid; gap: 10px; }
   .library-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 5px; }
   .library-item .item-title { min-width: 180px; flex: 1; font-weight: 600; }
+  .visibility-control { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: .82rem; }
+  .visibility-control input { width: 18px; height: 18px; accent-color: var(--accent); }
   .state { padding: 3px 8px; border-radius: 999px; background: var(--canvas); color: var(--muted); font-size: .84rem; }
   .state.ready { color: #14532d; background: #dcfce7; }
   .state.error { color: #7f1d1d; background: #fee2e2; }

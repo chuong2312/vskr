@@ -26,6 +26,7 @@
   <button type="button" data-page="evaluation" aria-current="false">Đánh giá</button>
   <button type="button" data-page="graph" aria-current="false">Sơ đồ</button>
   <button type="button" data-page="audit" aria-current="false">Nhật ký</button>
+  <button type="button" data-page="feedback" aria-current="false">Phản hồi</button>
 </nav>
 
 <main class="library-main dashboard-main" id="overview-screen">
@@ -52,6 +53,12 @@
   <div class="row screen-heading-row"><div><h2 class="screen-title">Nhật ký quản trị</h2><p class="hint">Tối đa 200 sự kiện gần nhất. Nhật ký không chứa mật khẩu, cookie, token hoặc IP thô.</p></div><button class="small-action" id="refresh-audit" type="button">Làm mới</button></div>
   <p id="audit-status" class="hint" role="status" aria-live="polite"></p>
   <div class="panel audit-table-wrap"><table class="audit-table"><thead><tr><th>Thời gian</th><th>Sự kiện</th><th>Mục tiêu</th><th>Kết quả</th></tr></thead><tbody id="audit-list"><tr><td colspan="4">Đang tải nhật ký…</td></tr></tbody></table></div>
+</main>
+
+<main class="library-main" id="feedback-screen" hidden>
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Câu hỏi và phản hồi</h2><p class="hint">Tối đa 200 câu hỏi gần nhất. Nhật ký không lưu địa chỉ IP.</p></div><button class="small-action" id="refresh-feedback" type="button">Làm mới</button></div>
+  <p id="feedback-status" class="hint" role="status" aria-live="polite"></p>
+  <div class="panel audit-table-wrap"><table class="audit-table"><thead><tr><th>Thời gian</th><th>Câu hỏi</th><th>Có nguồn phù hợp</th><th>Đánh giá</th></tr></thead><tbody id="feedback-list"><tr><td colspan="4">Đang tải…</td></tr></tbody></table></div>
 </main>
 
 <main id="qa-screen" hidden>
@@ -245,6 +252,6 @@
   <pre id="doc-viewer-text"></pre>
 </dialog>
 
-<script src="/admin/assets/admin.js" defer></script>
+<script type="module" src="/admin/assets/admin.js"></script>
 </body>
 </html>

@@ -62,7 +62,8 @@ class TestUserBundle(unittest.TestCase):
                 with ASGITestClient(app) as client:
                     for path in ("/admin", "/admin/assets/admin.js"):
                         response = client.get(path)
-                        self.assertEqual(response.status_code, 401)
+                        expected = 303 if path == "/admin" else 401
+                        self.assertEqual(response.status_code, expected)
                         self.assertNotIn("<html", response.text.lower())
                         self.assertNotIn("function init", response.text)
         finally:

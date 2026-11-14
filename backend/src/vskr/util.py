@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 
 def fmt_time(sec):
@@ -29,13 +29,29 @@ def to_srt(segments):
     return "\n".join(blocks)
 
 
+def is_youtube_url(url):
+    try:
+        host = (urlsplit(url or "").hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return host in {"youtu.be", "youtube.com", "youtube-nocookie.com"} or host.endswith(
+        (".youtube.com", ".youtube-nocookie.com")
+    )
+
+
+def youtube_watch_url(video_id, start=None):
+    query = f"v={quote(str(video_id), safe='')}"
+    if start is not None:
+        query += f"&t={max(0, int(start))}s"
+    return f"https://www.youtube.com/watch?{query}"
+
+
 def source_link(url, video_id, start):
     """Build a timestamp link where the platform convention is known; otherwise keep source URL."""
     if not url:
-        return f"https://www.youtube.com/watch?v={video_id}&t={int(start)}s"
-    parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
-    if host == "youtu.be" or host.endswith("youtube.com") or host.endswith("youtube-nocookie.com"):
+        return youtube_watch_url(video_id, start)
+    if is_youtube_url(url):
+        parts = urlsplit(url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         query["t"] = f"{int(start)}s"
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))

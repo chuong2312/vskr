@@ -106,7 +106,6 @@ def main():
         print(f"[doc] {meta['document_id']} | {meta['title']} | đã lập chỉ mục")
     elif args.cmd == "ask":
         from .service import Service
-        from .util import fmt_time
 
         res = Service(cfg).ask(args.question, mode=args.mode)
         print("\n" + res["answer"] + "\n")

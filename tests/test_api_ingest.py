@@ -8,7 +8,9 @@ from pathlib import Path
 from unittest import mock
 
 from vskr import api
-from vskr.api import handlers
+from vskr.api import jobs as jobs_api
+from vskr.api import library as library_api
+from vskr.api import runtime
 from vskr import auth
 from vskr.auth import hash_password
 
@@ -38,8 +40,8 @@ class TestIngestApi(unittest.TestCase):
             **(env or {}),
         }
         with mock.patch.dict(os.environ, env):
-            with mock.patch.object(handlers._job_executor, "submit") as submit:
-                with mock.patch("vskr.api.handlers.probe_duration", return_value=duration):
+            with mock.patch.object(runtime._job_executor, "submit") as submit:
+                with mock.patch.object(jobs_api, "probe_duration", return_value=duration):
                     with ASGITestClient(api.app) as client:
                         login = client.post(
                             "/api/auth/login",
@@ -53,7 +55,7 @@ class TestIngestApi(unittest.TestCase):
                             headers={"Origin": "http://localhost", "X-CSRF-Token": login.json()["csrf_token"]},
                         )
                 if response.status_code == 202:
-                    handlers._jobs.pop(response.json()["job_id"], None)
+                    runtime._jobs.pop(response.json()["job_id"], None)
                 return response, submit
 
     def test_video_list_is_empty_before_first_index(self):
@@ -101,14 +103,14 @@ class TestIngestApi(unittest.TestCase):
                 pass
 
         with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-            with mock.patch.object(handlers._job_executor, "submit") as submit:
-                response = asyncio.run(handlers.upload_document(FakeUpload()))
+            with mock.patch.object(runtime._job_executor, "submit") as submit:
+                response = asyncio.run(jobs_api.upload_document(FakeUpload()))
         self.assertEqual(response["status"], "queued")
         source = submit.call_args.args[2]
         self.assertEqual(source["kind"], "document")
         self.assertEqual(source["title"], "notes")
         self.assertTrue(Path(source["path"]).is_file())
-        handlers._jobs.pop(response["job_id"], None)
+        runtime._jobs.pop(response["job_id"], None)
 
     def test_upload_over_duration_has_direct_duration_message(self):
         response, submit = self._post_upload(
@@ -126,9 +128,9 @@ class TestIngestApi(unittest.TestCase):
         (target / "meta.json").write_text("{}", encoding="utf-8")
         env = {"VSKR__PATHS__DATA_DIR": str(self.tmp)}
 
-        with mock.patch.dict(os.environ, env), mock.patch.object(handlers, "_rebuild_or_clear"):
-            first = handlers.delete_video(video_id)
-            second = handlers.delete_video(video_id)
+        with mock.patch.dict(os.environ, env), mock.patch("vskr.api.library._rebuild_or_clear"):
+            first = library_api.delete_video(video_id)
+            second = library_api.delete_video(video_id)
 
         self.assertFalse(first["already_absent"])
         self.assertTrue(second["already_absent"])
@@ -143,10 +145,10 @@ class TestIngestApi(unittest.TestCase):
         env = {"VSKR__PATHS__DATA_DIR": str(self.tmp)}
 
         with mock.patch.dict(os.environ, env), mock.patch.object(
-            handlers, "_rebuild_or_clear", side_effect=RuntimeError("index failed")
+            library_api, "_rebuild_or_clear", side_effect=RuntimeError("index failed")
         ):
             with self.assertRaises(api.HTTPException) as raised:
-                handlers.delete_video(video_id)
+                library_api.delete_video(video_id)
 
         self.assertEqual(raised.exception.status_code, 500)
         self.assertTrue(marker.is_file())

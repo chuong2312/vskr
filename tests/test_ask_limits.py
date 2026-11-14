@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from vskr.api import app, handlers
+from vskr.api import app, handlers, runtime
 from vskr.api.limits import _ask_slots, _ask_attempts, _lock, check_ask_rate, enter_ask_slot, leave_ask_slot
 from vskr.service import ModelBusyError, Service
 
@@ -24,7 +24,7 @@ class TestAskLimits(unittest.TestCase):
 
     def test_public_ask_hides_unexpected_model_errors(self):
         service = SimpleNamespace(ask=mock.Mock(side_effect=TimeoutError("/srv/private/model-state")))
-        with mock.patch.dict(handlers.state, {"service": service, "error": None}):
+        with mock.patch.dict(runtime.state, {"service": service, "error": None}):
             with ASGITestClient(app) as client:
                 response = client.post("/api/ask", json={"question": "Câu hỏi?"})
         self.assertEqual(response.status_code, 502)
@@ -62,18 +62,18 @@ class TestAskLimits(unittest.TestCase):
 
     def test_gpu_lock_wait_expires_with_friendly_503_and_retry_after(self):
         data_dir = tempfile.TemporaryDirectory()
-        old_service = handlers.state["service"]
-        old_error = handlers.state["error"]
-        old_timeout = handlers.GPU_LOCK_TIMEOUT_S
+        old_service = runtime.state["service"]
+        old_error = runtime.state["error"]
+        old_timeout = runtime.GPU_LOCK_TIMEOUT_S
         service = object.__new__(Service)
         service.retriever = SimpleNamespace(search=lambda *_args, **_kwargs: [])
         service.cfg = {"llm": {}}
         service.meta = {}
         service.document_meta = {}
-        handlers.state["service"] = service
-        handlers.state["error"] = None
-        handlers.GPU_LOCK_TIMEOUT_S = 0.02
-        handlers._gpu_model_lock.acquire()
+        runtime.state["service"] = service
+        runtime.state["error"] = None
+        runtime.GPU_LOCK_TIMEOUT_S = 0.02
+        runtime._gpu_model_lock.acquire()
         try:
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": data_dir.name}):
                 with ASGITestClient(app) as client:
@@ -85,8 +85,8 @@ class TestAskLimits(unittest.TestCase):
             self.assertEqual(response.json()["detail"], "Hệ thống đang cập nhật học liệu, thử lại sau ít phút")
             self.assertLess(elapsed, 1)
         finally:
-            handlers._gpu_model_lock.release()
-            handlers.GPU_LOCK_TIMEOUT_S = old_timeout
-            handlers.state["service"] = old_service
-            handlers.state["error"] = old_error
+            runtime._gpu_model_lock.release()
+            runtime.GPU_LOCK_TIMEOUT_S = old_timeout
+            runtime.state["service"] = old_service
+            runtime.state["error"] = old_error
             data_dir.cleanup()

@@ -14,6 +14,8 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
 
+from . import state_store
+
 COOKIE_NAME = "vskr_admin"
 ABSOLUTE_TTL = 8 * 60 * 60
 IDLE_TTL = 60 * 60
@@ -158,7 +160,10 @@ def _prune_failures(now: float) -> None:
 
 
 def _login_keys(ip: str, username: str):
-    return ("ip", ip), ("username", username.strip().casefold())
+    normalized_user = username.strip().casefold()
+    # Keep the username bucket scoped to the source IP. A global username
+    # bucket lets any remote client lock the sole admin account temporarily.
+    return ("ip", ip), ("username_ip", f"{ip}\0{normalized_user}")
 
 
 def login_retry_after(ip: str, username: str, now: float | None = None) -> int | None:
@@ -208,6 +213,7 @@ def create_session() -> tuple[str, dict]:
     session = {"created": now, "last_seen": now, "csrf": secrets.token_urlsafe(32)}
     with _sessions_lock:
         _sessions[token] = session
+    state_store.save_session(token, session)
     return token, dict(session)
 
 
@@ -215,6 +221,7 @@ def revoke_session(token: str | None) -> None:
     if token:
         with _sessions_lock:
             _sessions.pop(token, None)
+        state_store.delete_session(token)
 
 
 def get_session(token: str | None, *, touch: bool = True, now: float | None = None):
@@ -222,14 +229,17 @@ def get_session(token: str | None, *, touch: bool = True, now: float | None = No
         return None
     now = time.time() if now is None else now
     with _sessions_lock:
-        session = _sessions.get(token)
+        session = state_store.load_session(token) or _sessions.get(token)
         if session is None:
             return None
         if now - session["created"] >= ABSOLUTE_TTL or now - session["last_seen"] >= IDLE_TTL:
             _sessions.pop(token, None)
+            state_store.delete_session(token)
             return None
         if touch:
             session["last_seen"] = now
+            state_store.touch_session(token, now)
+        _sessions[token] = dict(session)
         return dict(session)
 
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from vskr import auth
-from vskr.api import app, handlers
+from vskr.api import app, runtime
 from vskr.auth import hash_password
 
 from tests.asgi_client import ASGITestClient
@@ -23,8 +23,8 @@ class TestAdminDashboardApi(unittest.TestCase):
 
     def setUp(self):
         self.data_dir = tempfile.TemporaryDirectory()
-        self.original_jobs = handlers._jobs.copy()
-        handlers._jobs.clear()
+        self.original_jobs = runtime._jobs.copy()
+        runtime._jobs.clear()
         with auth._sessions_lock:
             auth._sessions.clear()
         self.env = {
@@ -35,12 +35,12 @@ class TestAdminDashboardApi(unittest.TestCase):
         }
 
     def tearDown(self):
-        handlers._jobs.clear()
-        handlers._jobs.update(self.original_jobs)
+        runtime._jobs.clear()
+        runtime._jobs.update(self.original_jobs)
         self.data_dir.cleanup()
 
     def test_admin_job_list_is_bounded_and_does_not_expose_job_source_paths(self):
-        handlers._jobs["job-safe"] = {
+        runtime._jobs["job-safe"] = {
             "job_id": "job-safe", "status": "error", "phase": "error", "message": "internal",
             "created_at": "2026-11-14T00:00:00+00:00", "title": "Lecture",
             "_source": {"path": "/srv/secret/video.mp4"},

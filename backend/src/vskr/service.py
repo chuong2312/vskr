@@ -35,26 +35,9 @@ class Service:
         self.embedder = Embedder(cfg["embedding"])
         self.retriever = Retriever(self.index, self.embedder, cfg["retrieval"])
 
-    def videos(self):
-        return [
-            {
-                "video_id": m["video_id"],
-                "title": m.get("title"),
-                "duration": m.get("duration"),
-                "url": m.get("url"),
-                "source_type": m.get("source_type", "url"),
-                "file_url": (
-                    f"/api/videos/{m['video_id']}/file"
-                    if m.get("source_type") == "upload" and m.get("has_video_file")
-                    else None
-                ),
-            }
-            for m in self.meta.values()
-        ]
-
-    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10):
+    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, allowed_chunk_ids=None):
         t0 = time.time()
-        hits = self.retriever.search(question, mode=mode)
+        hits = self.retriever.search(question, mode=mode, allowed_chunk_ids=allowed_chunk_ids)
         t1 = time.time()
         if llm_lock is not None and not llm_lock.acquire(timeout=lock_timeout):
             raise ModelBusyError("Shared GPU slot did not become available before the request deadline.")

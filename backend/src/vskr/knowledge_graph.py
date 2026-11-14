@@ -159,13 +159,28 @@ def build_graph(chunks, max_keywords_per_segment=12, vectors=None,
 
 def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_hops=3,
                 semantic_terms=None, idf_weights=None, ppr=False, damping=0.5,
-                seed_weight=0.05):
+                seed_weight=0.05, allowed_chunk_ids=None):
     """Traverse query concepts through typed relations and cross-modal links.
 
     The result shape matches the existing vector/BM25 retrievers, preserving
     the current answer generation and timestamp citation behavior.
     """
     nodes = {node["id"]: node for node in graph.get("nodes", [])}
+    edges = graph.get("edges", [])
+    if allowed_chunk_ids is not None:
+        allowed = set(allowed_chunk_ids)
+        hidden_sources = {
+            node_id
+            for node_id, node in nodes.items()
+            if node.get("chunk_id") is not None and str(node["chunk_id"]) not in allowed
+        }
+        nodes = {node_id: node for node_id, node in nodes.items() if node_id not in hidden_sources}
+        edges = [
+            edge for edge in edges
+            if edge.get("from") not in hidden_sources
+            and edge.get("to") not in hidden_sources
+            and (edge.get("evidence_chunk_id") is None or str(edge["evidence_chunk_id"]) in allowed)
+        ]
     query_terms = list(dict.fromkeys(keywords(question, limit=32)))
     query_tokens = set(tokenize(question))
     normalized_question = " ".join(tokenize(question))
@@ -187,7 +202,7 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
         return []
 
     adjacency = defaultdict(list)
-    for edge in graph.get("edges", []):
+    for edge in edges:
         left, right = edge.get("from"), edge.get("to")
         if left in nodes and right in nodes:
             adjacency[left].append((right, edge))

@@ -104,6 +104,11 @@ class TestQA(unittest.TestCase):
         self.assertNotIn("abc", user)
         self.assertNotIn("32", user)
 
+    def test_prompt_tells_comparisons_to_stay_with_source_topics(self):
+        hits = [{"chunk": {"text": "Nguồn chỉ nói về K-means."}}]
+        messages = build_messages("K-means khác DBSCAN ở điểm nào?", hits)
+        self.assertIn("Nếu một đối tượng được hỏi không xuất hiện trong nguồn, nói rõ điều đó và không thay bằng đối tượng khác.", messages[0]["content"])
+
 
 class TestUtil(unittest.TestCase):
     def test_fmt(self):

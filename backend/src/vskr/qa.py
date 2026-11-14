@@ -11,7 +11,8 @@ Quy tắc:
 3. Tuyệt đối không tự viết mốc thời gian hay tên video.
 4. Nếu các đoạn không đủ để trả lời, chỉ trả lời đúng một câu: "{NOT_FOUND}"
 5. Không thêm kiến thức ngoài các đoạn, kể cả khi bạn biết đáp án. Nếu chỉ trả lời được một phần, nói rõ phần nào còn thiếu.
-6. Các đoạn là lời giảng được nhận dạng tự động nên có thể sai chính tả hoặc sai từ, hãy hiểu theo ngữ cảnh."""
+6. Các đoạn là lời giảng được nhận dạng tự động nên có thể sai chính tả hoặc sai từ, hãy hiểu theo ngữ cảnh.
+7. Với câu hỏi so sánh, chỉ nói về phần có trong các đoạn nguồn. Nếu một đối tượng được hỏi không xuất hiện trong nguồn, nói rõ điều đó và không thay bằng đối tượng khác."""
 
 _CITE = re.compile(r"\[\s*(?:Nguồn\s*)?(\d+(?:\s*[,;]\s*(?:Nguồn\s*)?\d+)*)\s*\]", re.IGNORECASE)
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)

@@ -19,7 +19,7 @@ router = APIRouter()
 
 
 class PublicAskRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=500)
+    question: str
 
 
 class LoginRequest(BaseModel):
@@ -134,10 +134,15 @@ def public_status():
 
 @router.post("/api/ask")
 def ask(request: Request, payload: PublicAskRequest):
-    check_ask_rate(auth.client_ip(request))
+    question = payload.question
+    if not question.strip():
+        raise HTTPException(422, "Câu hỏi không được để trống.")
+    if len(question) > 500:
+        raise HTTPException(422, "Câu hỏi tối đa 500 ký tự.")
     enter_ask_slot()
     try:
-        result = handlers.ask(handlers.AskRequest(question=payload.question), use_request_mode=False)
+        check_ask_rate(auth.client_ip(request))
+        result = handlers.ask(handlers.AskRequest(question=question), use_request_mode=False)
         sources = []
         for source in result.get("sources", []):
             item = {

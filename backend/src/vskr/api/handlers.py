@@ -30,6 +30,34 @@ class AskRequest(BaseModel):
     mode: Optional[str] = None
 
 
+_CONTEXT_REFERENCE = re.compile(
+    r"\b(?:hồi\s+nãy|vừa\s+rồi|ý\s+trên|câu\s+trước|ở\s+trên|như\s+trên|cái\s+đó|nó)\b",
+    re.IGNORECASE,
+)
+_SPECIFIC_TOPIC = re.compile(r"\bvề\s+([\w-]+)", re.IGNORECASE)
+_FOLLOWUP_FILLER = {
+    "cái", "đó", "nó", "ý", "là", "gì", "sao", "thế", "vậy", "ở", "trên",
+    "vừa", "rồi", "hồi", "nãy", "trước", "như", "cho", "mình", "tôi", "bạn",
+    "của", "về", "thì", "này", "giúp", "nói", "thầy", "cô", "em", "nghĩa",
+    "mốc", "thời", "gian",
+}
+_FOLLOWUP_FILLER_PHRASES = re.compile(r"\b(?:nghĩa\s+là\s+gì|mốc\s+thời\s+gian)\b", re.IGNORECASE)
+_GENERIC_TOPICS = {"cái", "đó", "nó", "này", "điều", "ý", "phần"}
+
+
+def _is_contextless_followup(question: str) -> bool:
+    normalized = re.sub(r"[^\w\s-]", " ", question.casefold())
+    if not _CONTEXT_REFERENCE.search(normalized):
+        return False
+    topic = _SPECIFIC_TOPIC.search(normalized)
+    if topic and topic.group(1) not in _GENERIC_TOPICS:
+        return False
+    remaining = _CONTEXT_REFERENCE.sub(" ", normalized)
+    remaining = _FOLLOWUP_FILLER_PHRASES.sub(" ", remaining)
+    words = [word for word in re.findall(r"\w+", remaining) if word not in _FOLLOWUP_FILLER]
+    return len(words) <= 3
+
+
 class RetrievalExperiment(BaseModel):
     idf_weighting: bool = False
     semantic_expansion: bool = False
@@ -748,6 +776,11 @@ def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=Fal
     mode = req.mode if use_request_mode else mode_override
     if mode not in (None, "vector", "bm25", "hybrid", "graph", "hybrid_graph"):
         raise HTTPException(400, "mode phải là vector, bm25, hybrid, graph hoặc hybrid_graph")
+    if _is_contextless_followup(q):
+        return {
+            "answer": "Mình chưa thấy câu hỏi trước nên chưa biết bạn đang nhắc đến phần nào. Bạn hãy nêu rõ tên khái niệm hoặc nội dung cần hỏi, ví dụ: «Hàm sigmoid là gì?».",
+            "found": False, "cited": False, "sources": [],
+        }
     try:
         if state["service"] is None:
             _init_service()

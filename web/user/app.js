@@ -376,7 +376,7 @@ async function submitQuestion(question = $("#question-input").value.trim()) {
     } else if (error instanceof ApiError && error.status === 429) {
       waitBeforeRetry(error.retryAfter || 60, question, "Bạn đã gửi nhiều câu hỏi trong thời gian ngắn.");
     } else if (error instanceof ApiError && error.status === 503) {
-      waitBeforeRetry(error.retryAfter || 10, question, "Hệ thống đang bận xử lý học liệu. Câu hỏi của bạn vẫn được giữ lại.");
+      waitBeforeRetry(error.retryAfter || 10, question, error.message || "Hệ thống đang xử lý nhiều câu hỏi cùng lúc, bạn thử lại sau vài giây.");
     } else if (error instanceof ApiError && error.status >= 500) {
       setStatus("Hiện chưa thể trả lời câu hỏi. Vui lòng thử lại sau.", "error");
     } else if (error instanceof ApiError) {

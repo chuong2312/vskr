@@ -40,7 +40,7 @@ def enter_ask_slot() -> None:
     if not _ask_slots.acquire(blocking=False):
         raise HTTPException(
             503,
-            "Hệ thống đang cập nhật học liệu, thử lại sau ít phút",
+            "Hệ thống đang xử lý nhiều câu hỏi cùng lúc, bạn thử lại sau vài giây.",
             headers={"Retry-After": "10"},
         )
 

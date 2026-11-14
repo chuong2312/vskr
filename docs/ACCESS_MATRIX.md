@@ -11,6 +11,7 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 | `GET` | `/` | Public | Chỉ trả app người dùng; không chứa HTML/JS của quản trị. |
 | `GET` | `/user/assets/*` | Public | Chỉ bundle người dùng; không chứa endpoint quản trị. |
 | `GET` | `/admin/login` | Public | Chỉ trang đăng nhập; không tải bundle quản trị trước xác thực. |
+| `GET` | `/admin/login/assets/*` | Public | Chỉ CSS/JS tối thiểu của form đăng nhập; không chứa logic quản trị. |
 | `GET` | `/admin`, `/admin/` | Admin session | HTML quản trị; không được phục vụ nếu chưa xác thực. |
 | `GET` | `/admin/assets/*` | Admin session | JS/CSS/assets quản trị; bảo vệ tại route, không mount static công khai. |
 
@@ -23,6 +24,7 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 | `GET` | `/api/videos/{video_id}/file` | Public | Chỉ trả file của video đã sẵn sàng; xác minh đường dẫn nằm trong thư mục video. Không cho truy cập upload còn xử lý hoặc file tùy ý. |
 | `GET` | `/api/documents/{document_id}/sections/{section}` | Public | Chỉ nội dung mục thuộc tài liệu đã sẵn sàng; không trả đường dẫn lưu trữ, metadata nội bộ hay lỗi đọc file thô. |
 | `POST` | `/api/ask` | Public | Không nhận `mode` từ người dùng; dùng mode mặc định phía server. Câu trả lời chỉ gồm nội dung, trạng thái tìm thấy và nguồn hiển thị cần thiết. Bỏ điểm retrieval, chunk ID, matched concepts và timing debug. Giới hạn độ dài, rate limit và số request đang chờ. |
+| `POST` | `/api/admin/ask` *(mới)* | Admin session + CSRF | Cho phép chọn retrieval mode và trả timing/diagnostic cho màn thử hỏi. Không trả path hoặc exception thô. |
 | `GET` | `/api/status` | Public | Chỉ `{"ready": bool}`. Không lộ `error`, `phase`, `gpu_busy` hay chi tiết kết nối. |
 | `GET` | `/api/auth/me` | Public | Không có phiên: `{"admin": false}`; có phiên hợp lệ: `{"admin": true, "csrf_token": ...}`. Không trả session token. |
 | `POST` | `/api/auth/login` | Public | Throttle theo IP và username. Thông báo lỗi chung; không trả hash hoặc chi tiết xác thực. Cookie session chỉ qua `Set-Cookie`, không trả token trong JSON. |
@@ -56,3 +58,5 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
   Bảng trên mô tả quyền và response mục tiêu sau khi tách app.
 - Các route mới `/api/catalog`, `/api/admin/status` và `/api/audit` được thêm để
   giữ response public tối thiểu trong khi vẫn đáp ứng dashboard quản trị.
+- `/api/admin/ask` là route thử hỏi của quản trị; nó không mở rộng quyền của
+  endpoint public `/api/ask`.

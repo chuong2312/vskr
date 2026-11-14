@@ -33,7 +33,24 @@ def main():
     p = sub.add_parser("serve", help="chạy trang demo")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
+    p = sub.add_parser("admin", help="tiện ích quản trị an toàn")
+    admin_sub = p.add_subparsers(dest="admin_cmd", required=True)
+    admin_sub.add_parser("hash-password", help="tạo hash argon2id, không ghi mật khẩu vào argv")
     args = ap.parse_args()
+    if args.cmd == "admin":
+        from getpass import getpass
+        from .auth import hash_password
+
+        password = getpass("Mật khẩu admin: ")
+        confirmation = getpass("Nhập lại mật khẩu: ")
+        if password != confirmation:
+            ap.error("mật khẩu nhập lại không khớp")
+        try:
+            print(hash_password(password))
+        except (RuntimeError, ValueError) as exc:
+            ap.error(str(exc))
+        return
+
     cfg = load_config()
 
     if args.cmd == "doctor":
@@ -99,7 +116,11 @@ def main():
         print(f"\nthời gian: tìm {res['timing']['retrieve_s']}s, LLM {res['timing']['llm_s']}s, chế độ {res['mode']}")
     elif args.cmd == "serve":
         import uvicorn
+        from .auth import admin_is_configured, warn_if_unconfigured
 
+        warn_if_unconfigured(host=args.host)
+        if args.host == "0.0.0.0" and not admin_is_configured():
+            print("Cảnh báo: server bind 0.0.0.0 nhưng xác thực quản trị chưa được cấu hình.")
         uvicorn.run("vskr.api:app", host=args.host, port=args.port)
 
 

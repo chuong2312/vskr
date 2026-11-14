@@ -1,11 +1,14 @@
 import time
-from contextlib import nullcontext
 
 from . import index as index_mod
 from .embedder import Embedder
 from .qa import answer_question
 from .retriever import Retriever
 from .util import fmt_time, source_link
+
+
+class ModelBusyError(RuntimeError):
+    """The shared GPU slot stayed busy past the interactive wait limit."""
 
 
 class Service:
@@ -49,12 +52,17 @@ class Service:
             for m in self.meta.values()
         ]
 
-    def ask(self, question, mode=None, llm_lock=None):
+    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10):
         t0 = time.time()
         hits = self.retriever.search(question, mode=mode)
         t1 = time.time()
-        with llm_lock if llm_lock is not None else nullcontext():
+        if llm_lock is not None and not llm_lock.acquire(timeout=lock_timeout):
+            raise ModelBusyError("Shared GPU slot did not become available before the request deadline.")
+        try:
             res = answer_question(question, hits, self.cfg["llm"])
+        finally:
+            if llm_lock is not None:
+                llm_lock.release()
         t2 = time.time()
         sources = []
         for n in res["source_ns"]:

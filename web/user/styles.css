@@ -1,0 +1,4 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; min-height: 100vh; background: #f4f7f7; color: #152527; }
+main { max-width: 48rem; margin: 0 auto; padding: 2rem 1rem; }
+@media (prefers-color-scheme: dark) { body { background: #10191a; color: #ecf5f4; } }

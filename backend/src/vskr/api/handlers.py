@@ -1,28 +1,32 @@
 import mimetypes
 import json
+import logging
 import os
+import re
 import shutil
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .config import ROOT, data_dir, index_dir, load_config, video_dir, videos_dir
-from .index import load_meta
-from .ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
-from .util import fmt_time, read_json, write_json
+from ..config import data_dir, index_dir, load_config, video_dir, videos_dir
+from ..index import load_meta
+from ..ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
+from ..util import fmt_time, read_json, write_json
+from .. import audit
+from .ssrf import validate_ingest_url
 
 
 class AskRequest(BaseModel):
-    question: str
+    question: str = Field(max_length=500)
     mode: Optional[str] = None
 
 
@@ -92,11 +96,14 @@ def _validate_eval_question(raw):
 
 
 state = {"service": None, "error": None}
+GPU_LOCK_TIMEOUT_S = 10
 _lock = threading.Lock()
 _service_use_lock = threading.RLock()
 _gpu_model_lock = threading.Lock()
 _jobs_lock = threading.Lock()
 _index_build_lock = threading.RLock()
+_ollama_status_lock = threading.Lock()
+_ollama_status_cache = {"checked_at": 0.0, "connected": False}
 _jobs = {}
 _job_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vskr-pipeline")
 
@@ -106,7 +113,7 @@ def _init_service():
     không cần khởi động lại server (quan trọng khi `serve` và `index` chạy ở hai container khác nhau)."""
     with _lock:
         try:
-            from .service import Service
+            from ..service import Service
 
             replacement = Service(load_config())
             with _service_use_lock:
@@ -116,6 +123,7 @@ def _init_service():
                 if previous is not None:
                     previous.embedder.close()
         except Exception as e:  # chưa có chỉ mục, thiếu thư viện...
+            logging.exception("Could not initialize VSKR service")
             previous = state["service"]
             with _service_use_lock:
                 state["service"] = None
@@ -124,29 +132,6 @@ def _init_service():
             state["error"] = f"{type(e).__name__}: {e}"
 
 
-@asynccontextmanager
-async def lifespan(app):
-    _init_service()
-    yield
-
-
-app = FastAPI(title="VSKR", lifespan=lifespan)
-
-
-def _svc():
-    if state["service"] is None:
-        _init_service()  # thử lại: có thể người dùng vừa chạy xong `index`
-    if state["service"] is None:
-        raise HTTPException(503, state["error"] or "Dịch vụ chưa sẵn sàng")
-    return state["service"]
-
-
-@app.get("/")
-def home():
-    return FileResponse(ROOT / "web" / "index.html")
-
-
-@app.get("/api/videos")
 def videos():
     cfg = load_config()
     metadata = state["service"].meta if state["service"] is not None else load_meta(cfg)
@@ -155,7 +140,7 @@ def videos():
             "video_id": meta["video_id"],
             "title": meta.get("title"),
             "duration": meta.get("duration"),
-            "url": meta.get("url"),
+            "url": _safe_source_url(meta.get("url")),
             "source_type": meta.get("source_type", "url"),
             "status": _video_status(meta),
             "job_id": _video_status(meta).get("job_id"),
@@ -169,13 +154,29 @@ def videos():
     ]
 
 
+def _safe_source_url(raw_url):
+    if not raw_url:
+        return None
+    try:
+        parsed = urlsplit(raw_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            return None
+        netloc = parsed.hostname
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+    except ValueError:
+        return None
+
+
 def _video_status(meta):
     vid = meta["video_id"]
     with _jobs_lock:
         jobs = list(_jobs.values())
     for job in reversed(jobs):
         if job.get("video_id") == vid and job.get("status") in ("queued", "running", "error"):
-            return {"state": job["status"], "label": job.get("message") or job["status"], "job_id": job["job_id"]}
+            label = "Tác vụ thất bại. Xem nhật ký máy chủ." if job["status"] == "error" else job.get("message") or job["status"]
+            return {"state": job["status"], "label": label, "job_id": job["job_id"]}
     cfg = load_config()
     transcript_exists = (video_dir(cfg, vid) / "transcript.json").is_file()
     indexed = bool(state["service"] and any(c.get("video_id") == vid for c in state["service"].index.chunks))
@@ -186,7 +187,6 @@ def _video_status(meta):
     return {"state": "processing", "label": "Chưa lập chỉ mục"}
 
 
-@app.get("/api/library")
 def library():
     cfg = load_config()
     video_items = []
@@ -194,7 +194,7 @@ def library():
         video_items.append({"id": item["video_id"], "kind": "video", "title": item.get("title") or item["video_id"],
                             "status": item["status"], "source_type": item["source_type"], "duration": item.get("duration"),
                             "file_url": item.get("file_url"), "url": item.get("url"), "job_id": item.get("job_id")})
-    from .documents import list_documents
+    from ..documents import list_documents
     doc_items = []
     for item in list_documents(cfg):
         section_file = data_dir(cfg) / "documents" / item["document_id"] / "sections.json"
@@ -202,7 +202,8 @@ def library():
         with _jobs_lock:
             doc_job = next((job for job in reversed(list(_jobs.values())) if job.get("document_id") == item["document_id"] and job.get("status") in ("queued", "running", "error")), None)
         indexed = bool(state["service"] and any(c.get("document_id") == item["document_id"] for c in state["service"].index.chunks))
-        status_info = ({"state": doc_job["status"], "label": doc_job.get("message"), "job_id": doc_job["job_id"]}
+        label = "Tác vụ thất bại. Xem nhật ký máy chủ." if doc_job and doc_job["status"] == "error" else (doc_job.get("message") if doc_job else None)
+        status_info = ({"state": doc_job["status"], "label": label, "job_id": doc_job["job_id"]}
                        if doc_job else {"state": "ready" if indexed else "processing", "label": "Đã chia mục" if indexed else "Đang lập chỉ mục"})
         doc_items.append({"id": item["document_id"], "kind": "document", "title": item.get("title") or item.get("filename"),
                           "filename": item.get("filename"), "sections": count,
@@ -244,7 +245,6 @@ def _forget_jobs(kind, item_id):
                 Path(source_path).unlink(missing_ok=True)
 
 
-@app.delete("/api/videos/{video_id}")
 def delete_video(video_id: str):
     cfg = load_config()
     root = videos_dir(cfg).resolve()
@@ -264,15 +264,15 @@ def delete_video(video_id: str):
         try:
             _rebuild_or_clear()
         except Exception as exc:
+            logging.exception("Failed to remove video %s", video_id)
             target.parent.mkdir(parents=True, exist_ok=True)
             os.replace(tombstone, target)
-            raise HTTPException(500, f"Chưa xóa được video; dữ liệu gốc đã được giữ lại. Lỗi lập chỉ mục: {exc}") from exc
+            raise HTTPException(500, "Chưa xóa được video; dữ liệu gốc đã được giữ lại. Hãy kiểm tra nhật ký máy chủ.") from exc
         shutil.rmtree(tombstone, ignore_errors=True)
         _forget_jobs("video", video_id)
     return {"deleted": video_id, "already_absent": False, "ready": state["service"] is not None}
 
 
-@app.delete("/api/documents/{document_id}")
 def delete_document(document_id: str):
     cfg = load_config()
     root = (data_dir(cfg) / "documents").resolve()
@@ -292,15 +292,15 @@ def delete_document(document_id: str):
         try:
             _rebuild_or_clear()
         except Exception as exc:
+            logging.exception("Failed to remove document %s", document_id)
             target.parent.mkdir(parents=True, exist_ok=True)
             os.replace(tombstone, target)
-            raise HTTPException(500, f"Chưa xóa được tài liệu; dữ liệu gốc đã được giữ lại. Lỗi lập chỉ mục: {exc}") from exc
+            raise HTTPException(500, "Chưa xóa được tài liệu; dữ liệu gốc đã được giữ lại. Hãy kiểm tra nhật ký máy chủ.") from exc
         shutil.rmtree(tombstone, ignore_errors=True)
         _forget_jobs("document", document_id)
     return {"deleted": document_id, "already_absent": False, "ready": state["service"] is not None}
 
 
-@app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -323,7 +323,6 @@ def delete_job(job_id: str):
     return {"deleted": job_id}
 
 
-@app.get("/api/documents/{document_id}/sections/{section}")
 def document_section(document_id: str, section: int):
     cfg = load_config()
     root = (data_dir(cfg) / "documents").resolve()
@@ -341,7 +340,6 @@ def document_section(document_id: str, section: int):
     return {"document_id": document_id, "title": meta.get("title"), "section": section, "text": match["text"]}
 
 
-@app.get("/api/videos/{video_id}/file")
 def uploaded_video_file(video_id: str):
     cfg = load_config()
     video_root = videos_dir(cfg).resolve()
@@ -361,12 +359,122 @@ def uploaded_video_file(video_id: str):
     return FileResponse(source_path, media_type=media_type)
 
 
-@app.get("/api/status")
 def status():
     with _jobs_lock:
         running = next((job for job in _jobs.values() if job.get("status") == "running"), None)
     return {"ready": state["service"] is not None, "error": state["error"],
             "gpu_busy": _gpu_model_lock.locked(), "phase": running.get("phase") if running else None}
+
+
+def _safe_diagnostic(value):
+    text = str(value or "").splitlines()[0].strip()
+    text = re.sub(r"(?i)\b(password|token|secret|api[_ -]?key)\s*[:=]\s*\S+", r"\1=[đã ẩn]", text)
+    text = re.sub(r"(?i)\b(bearer|authorization)\s+\S+", r"\1 [đã ẩn]", text)
+    text = re.sub(r"https?://[^\s/@:]+:[^\s/@]+@", "https://[credential]@", text)
+    text = re.sub(r"https?://[^\s/?#]+\?[^\s#]+", lambda match: match.group(0).split("?", 1)[0] + "?[tham số ẩn]", text)
+    text = re.sub(r"(?<![\w])(?:[A-Za-z]:)?[/\\](?:[^\s,;]+)", "[đường dẫn ẩn]", text)
+    return text[:300]
+
+
+def admin_status():
+    full = status()
+    service = state["service"]
+    if full["error"]:
+        error_type, _, message = full["error"].partition(":")
+        full["error"] = {"type": error_type[:80], "detail": _safe_diagnostic(message)}
+    videos_count = len(service.meta) if service else len(load_meta(load_config()))
+    documents_count = len(service.document_meta) if service else 0
+    index_info = {}
+    if service:
+        info = service.index.info or {}
+        index_info = {
+            key: info[key]
+            for key in ("chunk_count", "created_at", "version")
+            if isinstance(info.get(key), (str, int, float))
+        }
+        index_info.setdefault("chunk_count", len(service.index.chunks))
+        documents_count = len({chunk.get("document_id") for chunk in service.index.chunks if chunk.get("document_id")})
+        videos_count = len({chunk.get("video_id") for chunk in service.index.chunks if chunk.get("video_id")})
+    now = time.monotonic()
+    with _ollama_status_lock:
+        if now - _ollama_status_cache["checked_at"] >= 5:
+            connected = False
+            try:
+                import httpx
+
+                base_url = load_config().get("llm", {}).get("base_url", "http://localhost:11434").rstrip("/")
+                connected = httpx.get(base_url + "/api/tags", timeout=1.0).is_success
+            except Exception:
+                pass
+            _ollama_status_cache.update({"checked_at": now, "connected": connected})
+        ollama_connected = _ollama_status_cache["connected"]
+    full.update({
+        "video_count": videos_count,
+        "document_count": documents_count,
+        "index": index_info,
+        "ollama_connected": ollama_connected,
+    })
+    return full
+
+
+def _indexed_video(video_id: str) -> bool:
+    service = state["service"]
+    return bool(service and any(chunk.get("video_id") == video_id for chunk in service.index.chunks))
+
+
+def _indexed_document(document_id: str) -> bool:
+    service = state["service"]
+    return bool(service and any(chunk.get("document_id") == document_id for chunk in service.index.chunks))
+
+
+def public_videos():
+    if state["service"] is None:
+        _init_service()
+    service = state["service"]
+    if service is None:
+        return []
+    indexed_video_ids = {chunk.get("video_id") for chunk in service.index.chunks if chunk.get("video_id")}
+    result = []
+    for meta in service.meta.values():
+        video_id = meta.get("video_id")
+        if not video_id or video_id not in indexed_video_ids:
+            continue
+        is_upload = meta.get("source_type") == "upload" and bool(meta.get("has_video_file"))
+        host = (urlsplit(meta.get("url") or "").hostname or "").lower()
+        playback_url = f"/api/videos/{video_id}/file" if is_upload else None
+        if not playback_url and (host == "youtu.be" or host.endswith(("youtube.com", "youtube-nocookie.com"))):
+            playback_url = f"https://www.youtube.com/watch?v={video_id}"
+        result.append({
+            "video_id": video_id,
+            "title": meta.get("title") or video_id,
+            "duration": meta.get("duration"),
+            "playback_url": playback_url,
+        })
+    return result
+
+
+def public_catalog():
+    videos = public_videos()
+    cfg = load_config()
+    from ..documents import list_documents
+
+    documents = []
+    service = state["service"]
+    indexed_document_ids = {
+        chunk.get("document_id") for chunk in service.index.chunks if chunk.get("document_id")
+    } if service else set()
+    for item in list_documents(cfg):
+        document_id = item.get("document_id")
+        if not document_id or document_id not in indexed_document_ids:
+            continue
+        section_file = data_dir(cfg) / "documents" / document_id / "sections.json"
+        count = len(read_json(section_file).get("chunks", [])) if section_file.is_file() else 0
+        documents.append({
+            "document_id": document_id,
+            "title": item.get("title") or item.get("filename") or document_id,
+            "sections": count,
+        })
+    return {"videos": videos, "documents": documents}
 
 
 def _update_job(job_id, **changes):
@@ -380,7 +488,7 @@ def _process_ingest_job(job_id, source):
     try:
         if source["kind"] == "document":
             _update_job(job_id, status="running", phase="document", message="Đang đọc và chia mục tài liệu…")
-            from .documents import ingest_document
+            from ..documents import ingest_document
 
             meta = ingest_document(source["path"], cfg, document_id=source["document_id"])
             _update_job(job_id, document_id=meta["document_id"], title=meta["title"])
@@ -392,12 +500,12 @@ def _process_ingest_job(job_id, source):
                 meta = ingest_file(source["path"], cfg, source["video_id"], title=source["title"])
             video_id = meta["video_id"]
             _update_job(job_id, phase="scenes", message="Đang phát hiện phân cảnh trong video…")
-            from .frames import detect_scenes_only
+            from ..frames import detect_scenes_only
 
             detect_scenes_only(cfg, video_id)
             _update_job(job_id, video_id=video_id, title=meta.get("title"), phase="asr", message="Đang nhận dạng lời nói…")
 
-            from . import asr
+            from .. import asr
 
             def report_asr_progress(_video_id, part, total, start, end):
                 _update_job(
@@ -419,16 +527,26 @@ def _process_ingest_job(job_id, source):
         if state["service"] is None:
             raise RuntimeError(state["error"] or "Không nạp được chỉ mục mới.")
         _update_job(job_id, status="done", phase="done", message="Nội dung đã sẵn sàng để hỏi đáp.")
+        audit.write_event("ingest.complete", target_id=job_id, kind=source["kind"], result="success")
         if source["kind"] == "document":
             Path(source["path"]).unlink(missing_ok=True)
     except Exception as exc:
-        _update_job(job_id, status="error", phase="error", message=str(exc))
+        logging.exception("Ingest pipeline job %s failed", job_id)
+        _update_job(
+            job_id,
+            status="error",
+            phase="error",
+            message="Tác vụ thất bại. Xem nhật ký máy chủ.",
+            _error=type(exc).__name__,
+            _error_detail=_safe_diagnostic(exc),
+        )
+        audit.write_event("ingest.complete", target_id=job_id, kind=source.get("kind"), result="error")
 
 
 def _rebuild_index(cfg=None, job_id=None):
     cfg = cfg or load_config()
-    from . import index as index_mod
-    from .embedder import Embedder
+    from .. import index as index_mod
+    from ..embedder import Embedder
 
     idir = index_dir(cfg)
     idir.parent.mkdir(parents=True, exist_ok=True)
@@ -471,7 +589,6 @@ def _queue_job(source, title=None):
     return job_id
 
 
-@app.post("/api/ingest", status_code=202)
 async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFile] = File(None)):
     """Queue one URL or local video upload; pipeline jobs are serialized to protect GPU VRAM."""
     clean_url = (url or "").strip()
@@ -483,9 +600,7 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
     max_bytes = int(ingest_cfg.get("max_upload_bytes", 1_073_741_824))
     source = None
     if clean_url:
-        parsed = urlsplit(clean_url)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            raise HTTPException(400, "URL video phải bắt đầu bằng http:// hoặc https://.")
+        validate_ingest_url(clean_url)
         source = {"kind": "url", "url": clean_url}
     else:
         filename = Path(file.filename or "video").name
@@ -518,9 +633,10 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
             vdir.rmdir()
             raise HTTPException(400, str(exc)) from exc
         except Exception as exc:
+            logging.exception("Could not inspect uploaded video")
             destination.unlink(missing_ok=True)
             vdir.rmdir()
-            raise HTTPException(400, f"Không đọc được video: {exc}") from exc
+            raise HTTPException(400, "Không đọc được video. Hãy kiểm tra định dạng và nhật ký máy chủ.") from exc
         finally:
             await file.close()
         source = {
@@ -534,7 +650,6 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
     return {"job_id": job_id, "status": "queued"}
 
 
-@app.post("/api/documents", status_code=202)
 async def upload_document(file: UploadFile = File(...)):
     filename = Path(file.filename or "document.txt").name
     suffix = Path(filename).suffix.lower()
@@ -558,8 +673,9 @@ async def upload_document(file: UploadFile = File(...)):
         path.unlink(missing_ok=True)
         raise
     except Exception as exc:
+        logging.exception("Could not save uploaded document")
         path.unlink(missing_ok=True)
-        raise HTTPException(400, f"Không lưu được tài liệu: {exc}") from exc
+        raise HTTPException(400, "Không lưu được tài liệu. Hãy kiểm tra dung lượng và nhật ký máy chủ.") from exc
     finally:
         await file.close()
     source = {"kind": "document", "path": str(path), "document_id": document_id, "title": Path(filename).stem}
@@ -567,16 +683,19 @@ async def upload_document(file: UploadFile = File(...)):
     return {"job_id": job_id, "status": "queued"}
 
 
-@app.get("/api/jobs/{job_id}")
 def get_job(job_id: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
         if job is None:
             raise HTTPException(404, "Không tìm thấy job này trong phiên server hiện tại.")
-        return {key: value for key, value in job.items() if not key.startswith("_")}
+        result = {key: value for key, value in job.items() if not key.startswith("_")}
+        if result.get("status") == "error":
+            result["message"] = "Tác vụ thất bại. Xem nhật ký máy chủ."
+            result["error_type"] = job.get("_error", "pipeline")
+            result["error_detail"] = job.get("_error_detail", "")
+        return result
 
 
-@app.post("/api/jobs/{job_id}/retry", status_code=202)
 def retry_job(job_id: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -591,43 +710,60 @@ def retry_job(job_id: str):
     return {"job_id": new_job_id, "status": "queued"}
 
 
-@app.post("/api/reload")
 def reload_index():
     """Nạp lại chỉ mục sau khi chạy lại `index` (đổi chunk/embedding) mà không cần khởi động lại server."""
     _init_service()
-    return status()
+    return admin_status()
 
 
-@app.post("/api/ask")
-def ask(req: AskRequest):
+def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False):
     q = req.question.strip()
     if not q:
         raise HTTPException(400, "Câu hỏi trống")
-    if req.mode not in (None, "vector", "bm25", "hybrid", "graph", "hybrid_graph"):
+    mode = req.mode if use_request_mode else mode_override
+    if mode not in (None, "vector", "bm25", "hybrid", "graph", "hybrid_graph"):
         raise HTTPException(400, "mode phải là vector, bm25, hybrid, graph hoặc hybrid_graph")
     try:
         if state["service"] is None:
             _init_service()
         if state["service"] is None:
-            raise HTTPException(503, state["error"] or "Dịch vụ chưa sẵn sàng")
+            logging.error("Question request rejected: VSKR service is not ready: %s", state["error"])
+            raise HTTPException(
+                503,
+                "Hệ thống đang cập nhật học liệu, thử lại sau ít phút",
+                headers={"Retry-After": "10"},
+            )
         with _service_use_lock:
-            return state["service"].ask(q, mode=req.mode, llm_lock=_gpu_model_lock)
+            return state["service"].ask(q, mode=mode, llm_lock=_gpu_model_lock, lock_timeout=GPU_LOCK_TIMEOUT_S)
+    except HTTPException:
+        raise
     except RuntimeError as e:
-        raise HTTPException(502, str(e))
+        from ..service import ModelBusyError
+
+        if isinstance(e, ModelBusyError):
+            raise HTTPException(
+                503,
+                "Hệ thống đang cập nhật học liệu, thử lại sau ít phút",
+                headers={"Retry-After": "10"},
+            ) from e
+        logging.exception("Question answering failed")
+        detail = _safe_diagnostic(e) if admin else "Hiện chưa thể trả lời câu hỏi. Vui lòng thử lại sau."
+        raise HTTPException(502, detail) from e
+    except Exception as e:
+        logging.exception("Question answering failed")
+        detail = _safe_diagnostic(e) if admin else "Hiện chưa thể trả lời câu hỏi. Vui lòng thử lại sau."
+        raise HTTPException(502, detail) from e
 
 
-@app.get("/api/eval/questions")
 def get_eval_questions():
     return _read_questions()
 
 
-@app.get("/api/eval/results")
 def get_eval_results():
     path = _eval_dir() / "results.json"
     return read_json(path) if path.is_file() else None
 
 
-@app.post("/api/eval/questions")
 def save_eval_questions(payload: dict):
     raw_items = payload.get("questions") if isinstance(payload.get("questions"), list) else [payload]
     if not raw_items:
@@ -648,7 +784,6 @@ def save_eval_questions(payload: dict):
     return list(by_id.values())
 
 
-@app.post("/api/eval/questions/import")
 async def import_eval_questions(file: UploadFile = File(...)):
     content = await file.read(5 * 1024 * 1024 + 1)
     await file.close()
@@ -661,7 +796,6 @@ async def import_eval_questions(file: UploadFile = File(...)):
     return save_eval_questions({"questions": raw_items})
 
 
-@app.delete("/api/eval/questions/{question_id}")
 def delete_eval_question(question_id: str):
     items = _read_questions()
     remaining = [item for item in items if item["id"] != question_id]
@@ -676,7 +810,6 @@ def delete_eval_question(question_id: str):
     return {"deleted": question_id}
 
 
-@app.post("/api/eval/run")
 def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment()):
     questions = _read_questions()
     if not questions:
@@ -684,7 +817,7 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
     if state["service"] is None:
         _init_service()
     if state["service"] is None:
-        raise HTTPException(503, state["error"] or "Dịch vụ chưa sẵn sàng")
+        raise HTTPException(503, "Dịch vụ chưa sẵn sàng. Hãy kiểm tra nhật ký máy chủ.")
     modes = ("vector", "bm25", "hybrid", "graph", "hybrid_graph")
     hits = {mode: {} for mode in modes}
     method_labels = {
@@ -729,7 +862,7 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
                     )
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from exc
-    from .evaluation import score_results
+    from ..evaluation import score_results
 
     scored = score_results(questions, hits, k=5)
     result = {
@@ -746,7 +879,6 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
     return result
 
 
-@app.get("/api/graph")
 def inspect_graph(query: str, adjacent: bool = False, idf_weighting: bool = False,
                   semantic_expansion: bool = False, ppr: bool = False,
                   damping: float = 0.5, seed_weight: float = 0.05):
@@ -755,7 +887,7 @@ def inspect_graph(query: str, adjacent: bool = False, idf_weighting: bool = Fals
     if state["service"] is None:
         _init_service()
     if state["service"] is None:
-        raise HTTPException(503, state["error"] or "Dịch vụ chưa sẵn sàng")
+        raise HTTPException(503, "Dịch vụ chưa sẵn sàng. Hãy kiểm tra nhật ký máy chủ.")
     with _service_use_lock:
         service = state["service"]
         graph = service.index.graph

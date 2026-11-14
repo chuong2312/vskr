@@ -1,0 +1,8 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #eef3f3; color: #172728; }
+main { width: min(100% - 2rem, 24rem); padding: 2rem; border-radius: 1rem; background: #fff; box-shadow: 0 1rem 3rem #15252722; }
+form { display: grid; gap: .7rem; }
+input, button { font: inherit; padding: .7rem .8rem; border-radius: .5rem; }
+button { margin-top: .6rem; border: 0; background: #176b72; color: #fff; cursor: pointer; }
+#error { color: #a3261f; }
+@media (prefers-color-scheme: dark) { body { background: #10191a; color: #ecf5f4; } main { background: #182526; } }

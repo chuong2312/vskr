@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Đăng nhập quản trị — VSKR</title>
+  <link rel="stylesheet" href="/admin/login/assets/login.css">
+</head>
+<body>
+  <main>
+    <h1>Đăng nhập quản trị</h1>
+    <p id="notice" role="status" aria-live="polite"></p>
+    <form id="login-form">
+      <label for="username">Tên đăng nhập</label>
+      <input id="username" name="username" autocomplete="username" required maxlength="256">
+      <label for="password">Mật khẩu</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+      <button type="submit">Đăng nhập</button>
+    </form>
+    <p id="error" role="alert" aria-live="assertive"></p>
+  </main>
+  <script src="/admin/login/assets/login.js" defer></script>
+</body>
+</html>

@@ -279,9 +279,11 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
                 score *= 1.0 + min(1.0, mean_match_idf / mean_query_idf) if mean_query_idf else 1.0
             ranked.append((idx, chunk, score, int(depth == 1), matched))
     if ppr:
-        ranked.sort(key=lambda row: (-ppr_scores.get(f"source:{row[1]['chunk_id']}", 0.0), -row[2], -row[3], row[1].get("start") or 0, row[0]))
+        ranked.sort(key=lambda row: (-ppr_scores.get(f"source:{row[1]['chunk_id']}", 0.0), -row[2], -row[3], row[0]))
     else:
-        ranked.sort(key=lambda row: (-row[2], -row[3], row[1].get("start") or 0, row[0]))
+        # Source timestamps are not comparable across videos and document sections;
+        # preserve index order when graph scores tie.
+        ranked.sort(key=lambda row: (-row[2], -row[3], row[0]))
     return [
         {"idx": idx, "score": round(ppr_scores.get(f"source:{chunk['chunk_id']}", score) if ppr else score, 6), "chunk": chunk,
          "matched_concepts": sorted(concepts)}

@@ -1,438 +1,36 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VSKR – Hỏi đáp video bài giảng</title>
-<style>
-  :root {
-    --canvas: #f3f6fa;
-    --surface: #ffffff;
-    --ink: #17253b;
-    --muted: #65748a;
-    --line: #d9e2ed;
-    --accent: #176b72;
-    --accent-ink: #ffffff;
-    --track: #17253b;
-    --marker: #f5b84b;
-    --warn-bg: #fff4dc;
-    --warn-ink: #6b4a00;
-    --err: #a3261f;
-    --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --canvas: #0f161d;
-      --surface: #18222c;
-      --ink: #e7edf2;
-      --muted: #9aa7b4;
-      --line: #2b3946;
-      --accent: #3fb7b0;
-      --accent-ink: #06201f;
-      --track: #0a1016;
-      --warn-bg: #3a2f12;
-      --warn-ink: #f3d68a;
-      --err: #ff8a80;
+const nativeFetch = window.fetch.bind(window);
+let adminCsrf = "";
+let authReady = nativeFetch("/api/auth/me", { credentials: "same-origin" })
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error("auth")))
+  .then((data) => {
+    if (!data.admin || !data.csrf_token) {
+      location.replace("/admin/login?expired=1");
+      throw new Error("Admin session expired");
     }
+    adminCsrf = data.csrf_token;
+    return true;
+  })
+  .catch((error) => {
+    if (!location.pathname.endsWith("/admin/login")) location.replace("/admin/login?expired=1");
+    throw error;
+  });
+
+window.fetch = (input, init = {}) => {
+  const url = new URL(typeof input === "string" ? input : input.url, location.href);
+  if (!url.pathname.startsWith("/api/") || url.pathname === "/api/auth/me" || url.pathname === "/api/auth/login") {
+    return nativeFetch(input, init);
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body {
-    background: var(--canvas);
-    color: var(--ink);
-    font: 16px/1.5 var(--ui);
-  }
-  header { padding: 22px 28px 18px; max-width: 1440px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
-  .brand-mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; color: #fff; background: linear-gradient(145deg, #176b72, #254b7a); font-size: 1.35rem; font-weight: 800; box-shadow: 0 6px 16px #176b7233; }
-  .brand-copy { min-width: 0; }
-  .eyebrow { margin: 0; color: var(--accent); font-size: .7rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-  header h1 { margin: 0; font-size: 1.35rem; font-weight: 750; letter-spacing: 0.01em; }
-  header p:not(.eyebrow) { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
-  main {
-    display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr);
-    gap: 20px;
-    max-width: 1440px;
-    margin: 0 auto;
-    padding: 22px 28px 52px;
-    align-items: start;
-  }
-  @media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 16px 14px 40px; } header { padding: 17px 14px; } }
+  return authReady.then(() => {
+    const method = String(init.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+    const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+    if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-CSRF-Token", adminCsrf);
+    return nativeFetch(input, { ...init, headers, credentials: "same-origin" }).then((response) => {
+      if (response.status === 401) location.replace("/admin/login?expired=1");
+      return response;
+    });
+  });
+};
 
-  .stage { position: sticky; top: 16px; }
-  @media (max-width: 960px) { .stage { position: static; } }
-  .player-wrap { background: #07101d; aspect-ratio: 16 / 9; border-radius: 13px; overflow: hidden; box-shadow: 0 16px 34px #17253b22; }
-  .player-wrap iframe, .player-wrap > div, .player-wrap video { width: 100%; height: 100%; }
-  .player-wrap video { display: block; object-fit: contain; background: #000; }
-  .player-msg { color: #fff; padding: 24px; font-size: 0.95rem; }
-
-  .timeline-box { margin-top: 14px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-  .timeline-title { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
-  .timeline { position: relative; height: 44px; background: var(--track); border-radius: 4px; }
-  .timeline .mk {
-    position: absolute; top: 3px; bottom: 3px; min-width: 7px; min-height: 0;
-    background: var(--marker); border: 0; border-radius: 2px; padding: 0; cursor: pointer;
-  }
-  .timeline .mk:hover, .timeline .mk:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; filter: brightness(1.1); }
-  .timeline .empty { position: absolute; inset: 0; display: grid; place-items: center; color: #8d9aa7; font-size: 0.8rem; }
-
-  .tabs { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
-  .tab {
-    font: inherit; font-size: 0.88rem; padding: 5px 12px; border-radius: 8px;
-    border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
-    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; box-shadow: 0 5px 22px #17253b09; }
-  form { display: grid; gap: 10px; }
-  textarea {
-    width: 100%; min-height: 64px; resize: vertical; font: inherit; color: var(--ink);
-    background: var(--canvas); border: 1px solid var(--line); border-radius: 4px; padding: 10px;
-  }
-  textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  select { font: inherit; padding: 7px 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
-  .primary {
-    font: inherit; font-weight: 600; padding: 8px 18px; border-radius: 4px; border: 0;
-    background: var(--accent); color: var(--accent-ink); cursor: pointer;
-  }
-  .primary:disabled { opacity: 0.55; cursor: progress; }
-  .hint { color: var(--muted); font-size: 0.85rem; }
-  .ingest-panel { margin-bottom: 14px; }
-  .ingest-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .ingest-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 0.85rem; }
-  .field {
-    width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px;
-    background: var(--canvas); color: var(--ink); font: inherit;
-  }
-  .field:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  input[type="file"].field { padding: 5px; }
-  input[type="file"]::file-selector-button {
-    margin-right: 8px; padding: 5px 9px; border: 0; border-radius: 3px;
-    background: var(--line); color: var(--ink); font: inherit; cursor: pointer;
-  }
-  #ingest-status { min-height: 1.3em; }
-  #ingest-status.error { color: var(--err); }
-  @media (max-width: 600px) { .ingest-fields { grid-template-columns: 1fr; } }
-
-  #result { margin-top: 16px; display: none; }
-  .answer {
-    font-family: var(--ui);
-    font-size: 1rem;
-    line-height: 1.7;
-    letter-spacing: normal;
-    word-spacing: normal;
-    white-space: pre-line;
-    overflow-wrap: break-word;
-  }
-  .answer.nf { color: var(--muted); font-style: italic; }
-  .err { color: var(--err); }
-  button.cite {
-    font: inherit; font-size: 0.78rem; font-weight: 600; min-width: 1.5em; padding: 0 5px; margin: 0 1px;
-    border-radius: 3px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer;
-    vertical-align: 0.15em;
-  }
-  button.cite:hover { background: var(--accent); color: var(--accent-ink); }
-  .timing { margin-top: 8px; font-size: 0.8rem; color: var(--muted); }
-  .warn { margin-top: 10px; padding: 8px 10px; border-radius: 4px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.88rem; }
-
-  .sources { margin-top: 16px; display: grid; gap: 10px; }
-  .src { border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; }
-  .src.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
-  .src-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
-  .src-head strong { font-weight: 600; }
-  .src-head .t { font-variant-numeric: tabular-nums; color: var(--muted); }
-  .src-actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
-  .play {
-    font: inherit; font-size: 0.85rem; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--accent);
-    background: var(--accent); color: var(--accent-ink); cursor: pointer;
-  }
-  .src a { font-size: 0.85rem; color: var(--accent); }
-  .src p { margin: 6px 0 0; font-size: 0.9rem; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .src p.open { display: block; }
-  .src .more { font: inherit; font-size: 0.8rem; color: var(--accent); background: none; border: 0; padding: 0; margin-top: 2px; cursor: pointer; }
-  .tag { font-size: 0.78rem; padding: 1px 6px; border-radius: 3px; background: var(--warn-bg); color: var(--warn-ink); }
-  button, select, input { min-height: 44px; }
-  button:disabled { cursor: wait; }
-  .primary, .play, .tab { min-height: 44px; }
-  .app-nav { display: flex; flex-wrap: wrap; gap: 7px; max-width: 1440px; margin: 0 auto; padding: 0 28px 10px; border-bottom: 1px solid var(--line); }
-  .app-nav button { min-width: 116px; padding: 8px 15px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-weight: 650; cursor: pointer; transition: background .16s ease, color .16s ease; }
-  .app-nav button:hover { background: #e8eff5; color: var(--ink); }
-  .app-nav button[aria-current="page"] { color: #fff; background: var(--ink); border-color: var(--ink); box-shadow: 0 5px 14px #17253b22; }
-  .library-main { display: block; max-width: 1440px; }
-  .library-main[hidden], main[hidden] { display: none; }
-  .library-grid { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 18px; }
-  .library-forms { display: grid; gap: 14px; align-content: start; }
-  .library-list { display: grid; gap: 10px; }
-  .library-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 5px; }
-  .library-item .item-title { min-width: 180px; flex: 1; font-weight: 600; }
-  .state { padding: 3px 8px; border-radius: 999px; background: var(--canvas); color: var(--muted); font-size: .84rem; }
-  .state.ready { color: #14532d; background: #dcfce7; }
-  .state.error { color: #7f1d1d; background: #fee2e2; }
-  .small-action { min-height: 44px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
-  .small-action.danger { color: var(--err); border-color: var(--err); }
-  .doc-viewer { width: min(760px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); padding: 20px; }
-  .doc-viewer::backdrop { background: #0009; }
-  .doc-viewer pre { white-space: pre-wrap; font: inherit; }
-  .why { margin-top: 10px; color: var(--muted); font-size: .9rem; }
-  .screen-title { margin: 0 0 14px; font-size: 1.2rem; }
-  .qa-title { margin: 0 0 2px; font-size: 1.15rem; }
-  .qa-intro { margin: 0 0 16px; }
-  .welcome-guide { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: var(--canvas); }
-  .welcome-guide strong { display: block; margin-bottom: 4px; }
-  .welcome-guide ol { margin: 4px 0 0; padding-left: 22px; color: var(--muted); }
-  .mode-help { margin: 0; }
-  .query-settings, .format-help, .experiment-options, .graph-experiments { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
-  .query-settings summary, .format-help summary, .experiment-options summary, .graph-experiments summary { cursor: pointer; color: var(--accent); font-weight: 650; }
-  .query-settings-body { display: grid; gap: 8px; padding-top: 10px; }
-  .format-help { background: var(--canvas); }
-  .format-help p { margin: 8px 0 0; }
-  .eval-intro { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: var(--canvas); }
-  .eval-intro p { margin: 6px 0 0; color: var(--muted); }
-  .library-intro { margin: -8px 0 16px; }
-  .experiment-options .graph-settings, .graph-experiments .graph-settings { margin-top: 10px; }
-  .experiment-options > .hint, .graph-experiments > .hint { margin-bottom: 0; }
-  #q { min-height: 112px; background: #fbfcfe; border-radius: 9px; }
-  .eval-layout { display: grid; grid-template-columns: minmax(280px, .72fr) minmax(0, 1.28fr); gap: 16px; align-items: start; }
-  .stack { display: grid; gap: 14px; }
-  .eval-form { display: grid; gap: 10px; }
-  .eval-form textarea { min-height: 84px; }
-  .metric-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  .metric-table th, .metric-table td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right; }
-  .metric-table th:first-child, .metric-table td:first-child { text-align: left; }
-  .metric-table th { color: var(--muted); font-size: .84rem; }
-  .question-list { display: grid; gap: 8px; }
-  .question-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 5px; padding: 10px; }
-  .question-row p { margin: 0; }
-  .rule-box { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 5px; }
-  .graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 14px; }
-  .graph-canvas { min-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); }
-  .graph-canvas svg { display: block; width: 100%; min-width: 600px; min-height: 420px; }
-  .graph-help { margin: 8px 0 0; color: var(--muted); font-size: .9rem; }
-  .graph-group { border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
-  .graph-group summary { cursor: pointer; font-weight: 650; }
-  .graph-group .src { margin-top: 8px; }
-  .graph-settings { display: grid; gap: 12px; align-content: start; }
-  .graph-settings fieldset { border: 1px solid var(--line); border-radius: 5px; padding: 10px; }
-  .graph-settings label { display: flex; align-items: center; gap: 8px; }
-  .graph-settings input[type="checkbox"] { min-height: 20px; width: 20px; }
-  .node-legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: .88rem; }
-  .legend-dot { display: inline-block; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); vertical-align: -2px; }
-  .legend-square { display: inline-block; width: 13px; height: 13px; border-radius: 2px; background: #e7a33e; vertical-align: -2px; }
-  @media (max-width: 900px) { .eval-layout, .graph-layout { grid-template-columns: 1fr; } }
-  @media (max-width: 760px) { .library-grid { grid-template-columns: 1fr; } .app-nav { padding: 0 14px 8px; } }
-</style>
-</head>
-<body>
-<header>
-  <div class="brand-mark" aria-hidden="true">V</div>
-  <div class="brand-copy">
-  <p class="eyebrow">Video Semantic Knowledge Retrieval</p>
-    <h1>VSKR · Trợ lý bài giảng</h1>
-    <p>Thêm bài giảng → hỏi nội dung → mở nguồn để đối chiếu.</p>
-  </div>
-</header>
-
-<nav class="app-nav" aria-label="Điều hướng chính">
-  <button type="button" data-page="qa" aria-current="page">Hỏi đáp</button>
-  <button type="button" data-page="library" aria-current="false">Học liệu</button>
-  <button type="button" data-page="evaluation" aria-current="false">Đánh giá tìm nguồn</button>
-  <button type="button" data-page="graph" aria-current="false">Sơ đồ liên kết</button>
-</nav>
-
-<main id="qa-screen">
-  <section class="stage" aria-label="Video">
-    <div class="player-wrap"><div id="player"><div class="player-msg">Đang tải danh sách video…</div></div></div>
-    <div class="timeline-box">
-      <div class="timeline-title"><span id="tl-title">Vị trí các nguồn trong video</span><span id="tl-dur"></span></div>
-      <div class="timeline" id="timeline"><div class="empty">Chưa có câu hỏi</div></div>
-    </div>
-    <div class="tabs" id="tabs"></div>
-  </section>
-
-  <section aria-label="Hỏi đáp">
-    <div class="panel">
-      <h2 class="qa-title">Hỏi nội dung trong học liệu</h2>
-    <p class="hint qa-intro">Đặt câu hỏi bằng lời thường. VSKR tìm trong transcript video và tài liệu đã sẵn sàng, rồi trả lời kèm nguồn để bạn kiểm tra.</p>
-      <div class="welcome-guide" id="welcome-guide">
-        <strong>Bắt đầu trong 3 bước</strong>
-        <ol><li>Vào <b>Học liệu</b> để thêm video hoặc tài liệu.</li><li>Chờ trạng thái là <b>Sẵn sàng để hỏi</b>.</li><li>Quay lại đây, nhập câu hỏi và bấm <b>Hỏi bài</b>.</li></ol>
-      </div>
-      <form id="form">
-        <label for="q" class="hint">Câu hỏi</label>
-        <textarea id="q" required placeholder="Ví dụ: Bài giảng giải thích khái niệm này như thế nào?"></textarea>
-        <div class="row"><button class="primary" id="go" type="submit">Hỏi bài</button></div>
-        <details class="query-settings">
-          <summary>Đổi cách tìm (mặc định: kết hợp)</summary>
-          <div class="query-settings-body">
-          <label class="hint" for="mode">Chọn cách truy xuất</label>
-          <select id="mode">
-            <option value="hybrid_graph" selected>Mặc định: nghĩa + từ khóa + sơ đồ liên kết</option>
-            <option value="hybrid">Nghĩa + từ khóa</option>
-            <option value="vector">Chỉ tìm theo nghĩa</option>
-            <option value="bm25">Chỉ tìm từ khóa</option>
-            <option value="graph">Chỉ tìm qua sơ đồ liên kết</option>
-          </select>
-          <p class="hint mode-help">Các cách tìm riêng chủ yếu để so sánh. Nếu chưa biết chọn gì, cứ để Mặc định.</p>
-          </div>
-        </details>
-      </form>
-      <div id="result"></div>
-    </div>
-  </section>
-</main>
-
-<main class="library-main" id="library-screen" hidden>
-  <h2 class="screen-title">Học liệu</h2>
-  <p class="hint library-intro">Thêm video hoặc tài liệu tại đây. Khi trạng thái chuyển thành <b>Sẵn sàng để hỏi</b>, nội dung đã được chuẩn bị để tìm kiếm.</p>
-  <div class="library-grid">
-    <div class="library-forms">
-      <div class="panel">
-        <form id="library-video-form">
-          <strong>1. Thêm video bài giảng</strong>
-          <label for="library-video-url" class="hint">Dán đường dẫn video</label>
-          <input class="field" id="library-video-url" type="url" placeholder="https://…" autocomplete="url">
-          <label for="library-video-file" class="hint">Hoặc chọn một file video trên máy</label>
-          <input class="field" id="library-video-file" type="file" accept="video/*">
-          <p class="hint">VSKR phát hiện phân cảnh, tự chia âm thanh thành các phần 15 phút để nhận dạng và giữ mốc thời gian gốc. Video tối đa 2 giờ và 1 GB. Dùng link hoặc file, không điền cả hai. Hỗ trợ MP4, MOV, MKV, WebM, AVI.</p>
-          <button class="primary" type="submit">Thêm và xử lý video</button>
-          <span class="hint" id="library-video-status" role="status" aria-live="polite"></span>
-        </form>
-      </div>
-      <div class="panel">
-        <form id="library-doc-form">
-          <strong>2. Thêm tài liệu bài giảng</strong>
-          <label for="document-file" class="hint">Chọn tài liệu TXT, Markdown, PDF hoặc DOCX</label>
-          <input class="field" id="document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx" required>
-          <p class="hint">VSKR trích văn bản, chia thành các mục và kết hợp chúng với video khi tìm. Hình, bảng và công thức trong PDF có thể chưa được đọc đầy đủ.</p>
-          <button class="primary" type="submit">Thêm và xử lý tài liệu</button>
-          <span class="hint" id="library-doc-status" role="status" aria-live="polite"></span>
-        </form>
-      </div>
-    </div>
-    <section class="panel" aria-labelledby="library-heading">
-      <div class="row" style="justify-content:space-between"><h2 id="library-heading">Nội dung đã thêm</h2><button class="small-action" id="refresh-library" type="button">Làm mới</button></div>
-      <p class="hint">Chỉ nội dung có trạng thái <b>Sẵn sàng để hỏi</b> mới được dùng cho câu hỏi mới. Nếu tác vụ lỗi, bấm Thử lại.</p>
-      <div class="library-list" id="library-list" aria-live="polite"><p class="hint">Đang tải thư viện…</p></div>
-      <div class="timing" id="pipeline-status" role="status" aria-live="polite"></div>
-    </section>
-  </div>
-</main>
-
-<main class="library-main" id="evaluation-screen" hidden>
-  <h2 class="screen-title">Kiểm tra hệ thống có tìm đúng nguồn không</h2>
-  <div class="eval-intro">
-    <strong>Công cụ này đo khả năng tìm nguồn, không chấm câu trả lời do AI viết.</strong>
-    <p>Bạn cần nhập câu hỏi và tự xác nhận video/đoạn hoặc mục tài liệu đúng. Nên có 20–30 câu; nếu mới có một vài câu, điểm số chỉ là chạy thử.</p>
-    <p>Nếu vừa hỏi ở màn Hỏi đáp, dùng nút <b>Dùng câu hỏi này để kiểm tra tìm nguồn</b> rồi xác nhận nguồn đúng trước khi lưu.</p>
-  </div>
-  <div class="eval-layout">
-    <div class="stack">
-      <section class="panel">
-        <form class="eval-form" id="eval-question-form">
-          <strong>Thêm một câu hỏi chuẩn</strong>
-          <p class="hint">Câu hỏi chuẩn là câu hỏi kèm nguồn đúng mà bạn đã đối chiếu với học liệu.</p>
-          <label for="eval-question" class="hint">Câu hỏi cần kiểm tra</label>
-          <textarea id="eval-question" required></textarea>
-          <label for="eval-type" class="hint">Câu này cần tìm loại đáp án nào?</label>
-          <select id="eval-type"><option value="fact">Một nguồn là đủ</option><option value="multihop">Cần kết hợp nhiều nguồn</option></select>
-          <label for="eval-relevant" class="hint">Nguồn đúng bạn đã xác nhận (nhập theo mẫu)</label>
-          <textarea id="eval-relevant" required placeholder='[{"video_id":"ID_VIDEO","start":12,"end":28}]'></textarea>
-          <details class="format-help"><summary>Xem mẫu nhập nguồn</summary>
-            <p class="hint">Video: <code>{"video_id":"ID_VIDEO","start":12,"end":28}</code></p>
-            <p class="hint">Tài liệu: <code>{"document_id":"ID_TAI_LIEU","section":1}</code></p>
-            <p class="hint">Câu cần nhiều nguồn: đặt nhiều object trong cùng mảng JSON. Mốc video được so theo khoảng thời gian chồng lấp.</p>
-          </details>
-          <button class="primary" type="submit">Lưu câu hỏi chuẩn</button>
-          <span id="eval-form-status" class="hint" role="status" aria-live="polite"></span>
-        </form>
-      </section>
-      <section class="panel">
-        <strong>Đã có sẵn bộ câu hỏi?</strong>
-        <label for="eval-import" class="hint">Chọn tệp JSONL để nhập nhiều câu cùng lúc</label>
-        <input id="eval-import" class="field" type="file" accept=".jsonl,.txt,application/json">
-        <p class="hint">Mỗi dòng trong tệp là một câu hỏi chuẩn. Đây là cách tiện hơn khi có nhiều câu.</p>
-        <button class="small-action" id="eval-import-button" type="button">Nhập bộ câu hỏi</button>
-      </section>
-    </div>
-    <div class="stack">
-      <section class="panel">
-        <div class="row" style="justify-content:space-between"><strong>Câu hỏi đã lưu: <span id="eval-question-count">0</span></strong><button class="primary" id="eval-run" type="button" disabled>Chạy kiểm tra</button></div>
-        <p class="hint">Bạn có thể chạy thử với ít câu, nhưng hãy dùng 20–30 câu để so sánh đáng tin hơn.</p>
-        <p class="hint" id="eval-empty-hint">Thêm ít nhất một câu hỏi và xác nhận nguồn đúng trước khi chạy đánh giá.</p>
-        <div class="question-list" id="eval-question-list"><p class="hint">Chưa có câu hỏi đánh giá. Hãy tự thêm hoặc nhập JSONL.</p></div>
-        <p class="hint" id="eval-run-status" role="status" aria-live="polite"></p>
-      </section>
-      <section class="panel">
-        <strong>Kết quả tìm nguồn</strong>
-        <div style="overflow:auto;margin-top:8px">
-          <table class="metric-table"><thead><tr><th>Cách tìm</th><th>Dữ kiện · nguồn đúng trong 5 kết quả</th><th>Dữ kiện · thứ hạng nguồn đúng</th><th>Nhiều bước · nguồn đúng trong 5 kết quả</th><th>Nhiều bước · thứ hạng nguồn đúng</th></tr></thead><tbody id="eval-results"><tr><td>Chưa có dữ liệu</td><td>—</td><td>—</td><td>—</td><td>—</td></tr></tbody></table>
-        </div>
-        <p class="hint">Cột “nguồn đúng trong 5 kết quả” cho biết hệ thống có tìm thấy nguồn bạn xác nhận trong 5 kết quả đầu hay không. “Thứ hạng nguồn đúng” càng cao khi nguồn ấy xuất hiện càng gần đầu. Dấu — nghĩa là bộ câu hỏi chưa có câu thuộc loại đó.</p>
-        <p class="hint" id="eval-results-meta">Chưa có kết quả đánh giá.</p>
-      </section>
-      <section class="panel">
-        <details class="experiment-options">
-        <summary>Thử nghiệm thêm cách tìm (không bắt buộc)</summary>
-        <p class="hint">Các cách tìm cơ bản luôn được so sánh. Chọn bên dưới nếu muốn đo riêng từng thử nghiệm; bật nhiều mục sẽ có thêm kết quả kết hợp.</p>
-        <div class="graph-settings">
-          <label><input id="eval-exp-idf" type="checkbox"> Ưu tiên khái niệm ít gặp (IDF)</label>
-          <label><input id="eval-exp-semantic" type="checkbox"> Mở rộng từ các đoạn gần nghĩa (E5)</label>
-          <label><input id="eval-exp-ppr" type="checkbox"> Lan điểm qua các liên kết (PPR)</label>
-          <label for="eval-exp-damping">Mức điểm tiếp tục lan sang liên kết kế bên</label><input class="field" id="eval-exp-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
-          <label for="eval-exp-seed">Điểm ban đầu dành cho nguồn khớp thẳng</label><input class="field" id="eval-exp-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
-        </div>
-        <p class="hint">Thiết lập này cũng dùng cho lần tìm ở trang Sơ đồ liên kết.</p>
-        </details>
-      </section>
-      <div class="rule-box"><strong>Hiểu kết quả</strong><p>Nếu chỉ có một câu hỏi mà hiện 100%, điều đó mới chứng minh luồng đánh giá chạy được; chưa đủ để kết luận cách tìm tốt hơn.</p></div>
-    </div>
-  </div>
-</main>
-
-<main class="library-main" id="graph-screen" hidden>
-  <h2 class="screen-title">Sơ đồ liên kết cho câu hỏi</h2>
-  <section class="panel">
-    <form id="graph-form" class="row">
-      <label for="graph-query" class="hint">Nhập câu hỏi muốn xem các nguồn liên quan</label>
-      <input class="field" style="flex:1" id="graph-query" type="search" required>
-      <button class="primary" type="submit">Xem sơ đồ</button>
-    </form>
-    <p id="graph-status" class="hint" role="status" aria-live="polite">Sơ đồ chỉ hiện các nội dung liên quan đến câu hỏi, không phải toàn bộ thư viện. Mặc định hiện tối đa 8 khái niệm để dễ đọc.</p>
-    <div class="node-legend"><span><i class="legend-dot"></i> Khái niệm</span><span><i class="legend-square"></i> Video/phân cảnh hoặc tài liệu</span><span>Đường xám: khái niệm xuất hiện trong nguồn.</span><span>Nhãn đường nối: loại quan hệ cụ thể.</span><span>Đường cam đứt: đoạn kế tiếp hoặc khái niệm cùng xuất hiện.</span></div>
-    <p class="graph-help">Đọc sơ đồ từ trái sang phải: khái niệm → nguồn bài giảng. Mở nhóm nguồn bên dưới để xem từng đoạn hoặc mục tài liệu.</p>
-    <div class="graph-layout" style="margin-top:12px">
-      <div class="graph-canvas" id="graph-canvas"><div class="empty">Chưa có đường đi để hiển thị</div></div>
-      <aside class="graph-settings">
-        <fieldset><legend>Tùy chọn hiển thị</legend>
-          <label><input id="graph-adjacent" type="checkbox"> Thêm đoạn video liền trước / sau để xem bối cảnh</label>
-          <label><input id="graph-all-concepts" type="checkbox"> Hiện tất cả khái niệm</label>
-          <label><input id="graph-cooccurs" type="checkbox"> Hiện cạnh “cùng xuất hiện”</label>
-        </fieldset>
-        <details class="graph-experiments">
-          <summary>Thử thay đổi thứ tự nguồn (tùy chọn)</summary>
-          <p class="hint">Mặc định cứ để tắt. Các thử nghiệm này đổi cách xếp nguồn; bạn có thể đo kết quả ở trang Đánh giá tìm nguồn.</p>
-          <fieldset><legend>Cách xếp nguồn</legend>
-            <label><input id="graph-idf" type="checkbox"> Ưu tiên khái niệm ít gặp (IDF)</label>
-            <label><input id="graph-semantic" type="checkbox"> Mở rộng từ đoạn gần nghĩa (E5)</label>
-            <label><input id="graph-ppr" type="checkbox"> Lan điểm qua các liên kết (PPR)</label>
-            <label for="graph-damping">Mức điểm tiếp tục lan sang liên kết kế bên</label><input class="field" id="graph-damping" type="number" min="0" max="0.99" step="0.05" value="0.5" disabled>
-            <label for="graph-seed">Điểm dành cho nguồn khớp thẳng</label><input class="field" id="graph-seed" type="number" min="0" max="1" step="0.01" value="0.05" disabled>
-          </fieldset>
-        </details>
-      </aside>
-    </div>
-    <div id="graph-path-list" class="sources"></div>
-  </section>
-</main>
-
-<dialog class="doc-viewer" id="doc-viewer">
-  <form method="dialog"><div class="row" style="justify-content:space-between"><h2 id="doc-viewer-title">Mục tài liệu</h2><button class="small-action" aria-label="Đóng">Đóng</button></div></form>
-  <pre id="doc-viewer-text"></pre>
-</dialog>
-
-<script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60; const p = (n) => String(n).padStart(2, "0"); return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`; };
@@ -500,9 +98,12 @@ function setupPlayer() {
 
 async function init() {
   try {
-    const r = await fetch("/api/videos");
+    const r = await fetch("/api/library");
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
-    videos = await r.json();
+    videos = (await r.json()).filter((item) => item.kind === "video" && item.status?.state === "ready").map((item) => ({
+      video_id: item.id, title: item.title, duration: item.duration,
+      source_type: item.source_type, file_url: item.file_url, url: item.url,
+    }));
   } catch (e) {
     $("#player").innerHTML = `<div class="player-msg">Chưa tải được danh sách video: ${esc(e.message)}<br>Hãy kiểm tra máy chủ đang chạy rồi tải lại trang.</div>`;
     return;
@@ -665,9 +266,12 @@ $("#result").addEventListener("click", (e) => {
 });
 
 async function refreshVideos(selectVideoId = null) {
-  const r = await fetch("/api/videos");
+  const r = await fetch("/api/library");
   if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
-  videos = await r.json();
+  videos = (await r.json()).filter((item) => item.kind === "video" && item.status?.state === "ready").map((item) => ({
+    video_id: item.id, title: item.title, duration: item.duration,
+    source_type: item.source_type, file_url: item.file_url, url: item.url,
+  }));
   if (!videos.length) {
     current = null;
     $("#player").innerHTML = `<div class="player-msg">Chưa có video trong thư viện.</div>`;
@@ -833,12 +437,12 @@ $("#form").addEventListener("submit", async (e) => {
   box.innerHTML = `<p class="hint">Đang tìm trong video và soạn câu trả lời…</p>`;
   const busyWatch = setInterval(async () => {
     try {
-      const status = await (await fetch("/api/status")).json();
+      const status = await (await fetch("/api/admin/status")).json();
       if (status.gpu_busy) box.innerHTML = `<p class="hint">${status.phase === "asr" ? "Nhận dạng lời nói (ASR) đang dùng bộ xử lý đồ họa (GPU); câu hỏi đang chờ tới lượt tạo câu trả lời. Bước tìm nguồn vẫn chạy bình thường." : "Mô hình ngôn ngữ (LLM) đang bận; đang chờ để tạo câu trả lời…"}</p>`;
     } catch { /* Giữ trạng thái chờ hiện tại nếu tạm thời không đọc được trạng thái. */ }
   }, 900);
   try {
-    const r = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, mode: $("#mode").value || null }) });
+    const r = await fetch("/api/admin/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, mode: $("#mode").value || null }) });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || r.statusText);
     renderResult(d);
@@ -1231,6 +835,3 @@ $("#graph-path-list").addEventListener("click", (e) => {
 });
 
 init();
-</script>
-</body>
-</html>

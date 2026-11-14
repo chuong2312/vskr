@@ -46,44 +46,53 @@
     </aside>
 
     <section class="study-panel" aria-label="Hỏi đáp bài giảng">
-      <div id="welcome" class="welcome-card">
-        <span class="welcome-icon" aria-hidden="true">✦</span>
-        <p class="eyebrow">HỌC CÙNG VSKR</p>
-        <h1>Hỏi điều bạn muốn hiểu</h1>
-        <p>Đặt câu hỏi về bài giảng. Mỗi câu trả lời đi kèm đoạn video hoặc mục tài liệu để bạn tự đối chiếu.</p>
+      <div class="watch-column">
+        <div id="welcome" class="welcome-card">
+          <span class="welcome-icon" aria-hidden="true">✦</span>
+          <p class="eyebrow">HỌC CÙNG VSKR</p>
+          <h1>Hỏi điều bạn muốn hiểu</h1>
+          <p>Đặt câu hỏi về bài giảng. Mỗi câu trả lời đi kèm đoạn video hoặc mục tài liệu để bạn tự đối chiếu.</p>
+        </div>
+
+        <section id="lecture-card" class="lecture-card" aria-label="Video bài giảng" hidden>
+          <div class="lecture-title-row">
+            <div><p class="eyebrow">ĐANG XEM</p><h2 id="lecture-title"></h2></div>
+            <span id="lecture-duration" class="duration-label"></span>
+          </div>
+          <div id="player" class="player" aria-label="Trình phát video"></div>
+          <div class="timeline-wrap">
+            <div class="timeline-heading"><h3>Vị trí nguồn trong video</h3><span id="timeline-range" class="muted"></span></div>
+            <div id="timeline" class="timeline" aria-label="Mốc thời gian của nguồn trả lời"></div>
+            <p id="timeline-empty" class="timeline-empty">Mốc nguồn sẽ hiện ở đây sau khi bạn đặt câu hỏi.</p>
+          </div>
+        </section>
       </div>
 
-      <section id="lecture-card" class="lecture-card" aria-label="Video bài giảng" hidden>
-        <div class="lecture-title-row">
-          <div><p class="eyebrow">ĐANG XEM</p><h2 id="lecture-title"></h2></div>
-          <span id="lecture-duration" class="duration-label"></span>
-        </div>
-        <div id="player" class="player" aria-label="Trình phát video"></div>
-        <div class="timeline-wrap">
-          <div class="timeline-heading"><h3>Vị trí nguồn trong video</h3><span id="timeline-range" class="muted"></span></div>
-          <div id="timeline" class="timeline" aria-label="Mốc thời gian của nguồn trả lời"></div>
-          <p id="timeline-empty" class="timeline-empty">Mốc nguồn sẽ hiện ở đây sau khi bạn đặt câu hỏi.</p>
-        </div>
-      </section>
+      <div class="ask-column">
+        <section id="conversation" class="conversation" aria-live="polite" aria-relevant="additions text">
+          <div id="ask-empty" class="ask-empty">
+            <h2>Hỏi điều bạn muốn hiểu</h2>
+            <p>Câu trả lời sẽ hiện ở đây, kèm nguồn để bạn bấm xem ngay trên video bên cạnh.</p>
+            <p class="muted">Nêu rõ tên khái niệm sẽ cho kết quả tốt hơn, ví dụ «X là gì?» hoặc «X và Y khác nhau ở điểm nào?»</p>
+          </div>
+          <div id="result" class="result" hidden></div>
+          <div id="request-status" class="request-status" role="status" hidden></div>
+          <div id="retry-panel" class="retry-panel" hidden>
+            <span id="retry-countdown"></span>
+            <button id="retry-button" class="small-button" type="button" disabled>Thử lại</button>
+          </div>
+        </section>
 
-      <section id="conversation" class="conversation" aria-live="polite" aria-relevant="additions text">
-        <div id="result" class="result" hidden></div>
-        <div id="request-status" class="request-status" role="status" hidden></div>
-        <div id="retry-panel" class="retry-panel" hidden>
-          <span id="retry-countdown"></span>
-          <button id="retry-button" class="small-button" type="button" disabled>Thử lại</button>
-        </div>
-      </section>
-
-      <form id="question-form" class="question-composer">
-        <label class="sr-only" for="question-input">Câu hỏi về bài giảng</label>
-        <textarea id="question-input" rows="1" maxlength="500" placeholder="Hỏi về bất kỳ bài giảng hoặc tài liệu nào trong thư viện…" required></textarea>
-        <div class="composer-footer">
-          <span id="question-hint" class="muted" aria-live="polite">Tối đa 500 ký tự</span>
-          <button id="ask-button" class="primary-button" type="submit"><span aria-hidden="true">↗</span> Gửi câu hỏi</button>
-        </div>
-      </form>
-      <p class="privacy-note">Câu hỏi được tìm trên toàn bộ bài giảng và tài liệu trong thư viện, không chỉ video đang mở.</p>
+        <form id="question-form" class="question-composer">
+          <label class="sr-only" for="question-input">Câu hỏi về bài giảng</label>
+          <textarea id="question-input" rows="1" maxlength="500" placeholder="Hỏi về bất kỳ bài giảng hoặc tài liệu nào trong thư viện…" required></textarea>
+          <div class="composer-footer">
+            <span id="question-hint" class="muted" aria-live="polite">Tối đa 500 ký tự</span>
+            <button id="ask-button" class="primary-button" type="submit"><span aria-hidden="true">↗</span> Gửi câu hỏi</button>
+          </div>
+        </form>
+        <p class="privacy-note">Câu hỏi được tìm trên toàn bộ bài giảng và tài liệu trong thư viện, không chỉ video đang mở.</p>
+      </div>
     </section>
   </main>
 

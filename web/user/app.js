@@ -5,7 +5,7 @@ const state = {
   videos: [], documents: [], currentVideo: null, sources: [], player: null,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryQuestion: "", retryInterval: null,
   installPrompt: null, asking: false,
-  sourceNoticeTimeout: null,
+  sourceNoticeTimeout: null, activeSourceNumber: null,
 };
 
 function formatTime(value) {
@@ -220,6 +220,16 @@ function selectVideo(video) {
   renderTimeline();
 }
 
+function setActiveSource(sourceNumber) {
+  state.activeSourceNumber = sourceNumber == null ? null : String(sourceNumber);
+  for (const item of document.querySelectorAll(".source-card, .timeline-mark")) {
+    const active = item.dataset.sourceNumber === state.activeSourceNumber;
+    item.classList.toggle("is-active", active);
+    if (active) item.setAttribute("aria-current", "true");
+    else item.removeAttribute("aria-current");
+  }
+}
+
 function renderTimeline() {
   const timeline = $("#timeline");
   timeline.replaceChildren();
@@ -233,8 +243,13 @@ function renderTimeline() {
     mark.style.left = `${Math.max(0, Math.min(100, Number(source.start) / duration * 100))}%`;
     const width = Number(source.end) > Number(source.start) ? Number(source.end) - Number(source.start) : 1;
     mark.style.width = `${Math.max(.8, Math.min(30, width / duration * 100))}%`;
+    mark.dataset.sourceNumber = String(source.n);
     mark.title = `Nguồn ${source.n} · ${source.label || formatTime(source.start)}`;
     mark.setAttribute("aria-label", `Tua đến nguồn ${source.n}, ${source.label || formatTime(source.start)}`);
+    if (String(source.n) === state.activeSourceNumber) {
+      mark.classList.add("is-active");
+      mark.setAttribute("aria-current", "true");
+    }
     mark.addEventListener("click", () => openSource(source));
     timeline.append(mark);
   }
@@ -256,6 +271,7 @@ function jumpCurrentVideo(start) {
 }
 
 async function openSource(source) {
+  setActiveSource(source.n);
   if (source.source_type === "document") {
     try {
       const data = await request(source.link);
@@ -313,6 +329,8 @@ function appendCitedAnswer(container, answer, sources) {
 
 function renderResult(result) {
   state.sources = Array.isArray(result.sources) ? result.sources : [];
+  state.activeSourceNumber = null;
+  $("#ask-empty").hidden = true;
   const root = $("#result");
   root.replaceChildren();
   root.hidden = false;
@@ -326,6 +344,7 @@ function renderResult(result) {
     const cards = make("div", "source-list");
     for (const source of state.sources) {
       const card = make("article", "source-card");
+      card.dataset.sourceNumber = String(source.n);
       const heading = make("div", "source-heading");
       heading.append(make("span", "source-number", `Nguồn ${source.n}`));
       heading.append(make("span", "source-title", source.title || (source.source_type === "document" ? "Tài liệu" : "Bài giảng")));
@@ -350,7 +369,11 @@ function renderResult(result) {
     root.append(cards);
   }
   renderTimeline();
-  root.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (window.matchMedia("(min-width: 1100px)").matches) {
+    $("#conversation").scrollTo({ top: 0, behavior: "smooth" });
+  } else {
+    root.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
 async function submitQuestion(question = $("#question-input").value.trim()) {

@@ -122,7 +122,11 @@ class TestAccessControl(unittest.TestCase):
                 for route in routes:
                     for method in route.methods - {"HEAD", "OPTIONS"}:
                         response = _send_route(client, method, route.path)
-                        self.assertEqual(response.status_code, 401, f"{method} {route.path}: {response.text}")
+                        if route.path in {"/admin", "/admin/"}:
+                            self.assertEqual(response.status_code, 303, f"{method} {route.path}: {response.text}")
+                            self.assertEqual(response.headers.get("location"), "/admin/login")
+                        else:
+                            self.assertEqual(response.status_code, 401, f"{method} {route.path}: {response.text}")
 
     def test_authenticated_admin_writes_require_origin_and_csrf_on_every_route(self):
         with mock.patch.dict(os.environ, self.env):
@@ -151,7 +155,9 @@ class TestAccessControl(unittest.TestCase):
         env = {**self.env, "VSKR_ADMIN_USER": "", "VSKR_ADMIN_PASSWORD_HASH": ""}
         with mock.patch.dict(os.environ, env):
             with ASGITestClient(app) as client:
-                self.assertEqual(client.get("/admin").status_code, 404)
+                admin_page = client.get("/admin")
+                self.assertEqual(admin_page.status_code, 303)
+                self.assertEqual(admin_page.headers["location"], "/admin/login")
                 response = client.post("/api/auth/login", json={"username": "x", "password": "y"}, headers={"Origin": "http://localhost"})
                 self.assertEqual(response.status_code, 503)
                 self.assertIn("VSKR_ADMIN_USER", response.json()["detail"])

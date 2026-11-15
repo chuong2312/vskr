@@ -1,10 +1,13 @@
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest import mock
 
 import numpy as np
+from fastapi import HTTPException
 
+from vskr import accounts
 from vskr.accounts import COOKIE_NAME
 from vskr.api import app
 from vskr.api import handlers
@@ -17,6 +20,8 @@ from tests.asgi_client import ASGITestClient
 class TestLearnerAccounts(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
+        with accounts._registration_lock:
+            accounts._registration_attempts.clear()
         self.env = {
             "VSKR__PATHS__DATA_DIR": self.temp.name,
             "VSKR_USER_INVITE_CODE": "class-invite-2026",
@@ -26,13 +31,15 @@ class TestLearnerAccounts(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_invite_registration_creates_session_and_logout_revokes_it(self):
+    def test_self_registration_ignores_legacy_invite_setting_and_logout_revokes_session(self):
         with mock.patch.dict(os.environ, self.env):
             with ASGITestClient(app, authenticated_learner=False) as client:
-                denied = client.get("/api/catalog")
-                self.assertEqual(denied.status_code, 401)
+                catalog = client.get("/api/catalog")
+                self.assertEqual(catalog.status_code, 200)
+                self.assertEqual(catalog.json(), {"videos": [], "documents": []})
+                self.assertEqual(client.get("/api/user/auth/config").json(), {"registration_enabled": True})
                 created = client.post("/api/user/auth/register", json={
-                    "username": "minhanh", "password": "a-long-test-password", "invite_code": "class-invite-2026",
+                    "username": "minhanh", "password": "a-long-test-password",
                 }, headers={"Origin": "http://localhost"})
                 self.assertEqual(created.status_code, 200, created.text)
                 self.assertIn(COOKIE_NAME, client.cookies)
@@ -44,13 +51,33 @@ class TestLearnerAccounts(unittest.TestCase):
                 self.assertEqual(logout.status_code, 200, logout.text)
                 self.assertEqual(client.get("/api/user/auth/me").status_code, 401)
 
-    def test_registration_requires_invite_code_and_unique_username(self):
+    def test_open_registration_creates_account_without_invite(self):
+        env = {key: value for key, value in self.env.items() if key != "VSKR_USER_INVITE_CODE"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                config = client.get("/api/user/auth/config")
+                self.assertEqual(config.json(), {"registration_enabled": True})
+                created = client.post("/api/user/auth/register", json={
+                    "username": "new-learner", "password": "a-long-test-password",
+                }, headers={"Origin": "http://localhost"})
+                self.assertEqual(created.status_code, 200, created.text)
+                self.assertEqual(client.get("/api/user/auth/me").json()["username"], "new-learner")
+
+    def test_registration_attempts_are_limited_per_ip(self):
+        ip = "192.0.2.90"
+        for attempt in range(accounts.REGISTRATION_LIMIT):
+            accounts.check_registration_rate(ip, now=100 + attempt)
+        with self.assertRaises(HTTPException) as raised:
+            accounts.check_registration_rate(ip, now=110)
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertGreater(int(raised.exception.headers["Retry-After"]), 0)
+        accounts.check_registration_rate("192.0.2.91", now=110)
+
+    def test_self_registration_only_requires_a_unique_username(self):
         with mock.patch.dict(os.environ, self.env):
             with ASGITestClient(app, authenticated_learner=False) as client:
-                payload = {"username": "student1", "password": "a-long-test-password", "invite_code": "wrong"}
+                payload = {"username": "student1", "password": "a-long-test-password"}
                 headers = {"Origin": "http://localhost"}
-                self.assertEqual(client.post("/api/user/auth/register", json=payload, headers=headers).status_code, 403)
-                payload["invite_code"] = "class-invite-2026"
                 self.assertEqual(client.post("/api/user/auth/register", json=payload, headers=headers).status_code, 200)
                 duplicate = client.post("/api/user/auth/register", json=payload, headers=headers)
                 self.assertEqual(duplicate.status_code, 409)
@@ -68,7 +95,7 @@ class TestLearnerAccounts(unittest.TestCase):
             with ASGITestClient(app, authenticated_learner=False) as client:
                 headers = {"Origin": "http://localhost"}
                 learner_a = client.post("/api/user/auth/register", json={
-                    "username": "learner-a", "password": "a-long-test-password", "invite_code": "class-invite-2026",
+                    "username": "learner-a", "password": "a-long-test-password",
                 }, headers=headers).json()
                 csrf_a = learner_a["csrf_token"]
                 answer = client.post("/api/ask", json={"question": "Vector là gì?"}, headers={
@@ -85,11 +112,36 @@ class TestLearnerAccounts(unittest.TestCase):
                 }).status_code, 200)
 
                 learner_b = client.post("/api/user/auth/register", json={
-                    "username": "learner-b", "password": "a-long-test-password", "invite_code": "class-invite-2026",
+                    "username": "learner-b", "password": "a-long-test-password",
                 }, headers=headers).json()
                 self.assertNotEqual(learner_a["user"]["user_id"], learner_b["user"]["user_id"])
                 self.assertEqual(client.get("/api/conversations").json(), [])
                 self.assertEqual(client.get(f"/api/conversations/{conversation_id}").status_code, 404)
+
+    def test_answer_is_returned_if_saving_conversation_history_fails(self):
+        result = {
+            "answer": "Gradient là độ dốc của hàm số [1].", "found": True, "cited": True,
+            "sources": [{"n": 1, "source_type": "video", "video_id": "shared-video",
+                         "title": "Giải tích", "start": 5, "end": 10,
+                         "label": "0:05-0:10", "text": "Gradient biểu thị độ dốc.",
+                         "link": "https://www.youtube.com/watch?v=abc&t=5s", "cited": True}],
+        }
+        with mock.patch.dict(os.environ, self.env), \
+                mock.patch.object(handlers, "ask", return_value=result), \
+                mock.patch.object(accounts, "save_exchange", side_effect=sqlite3.OperationalError("disk I/O error")):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                headers = {"Origin": "http://localhost"}
+                signup = client.post("/api/user/auth/register", json={
+                    "username": "history-failure", "password": "a-long-test-password",
+                }, headers=headers)
+                response = client.post("/api/ask", json={"question": "Gradient là gì?"}, headers={
+                    **headers, "X-CSRF-Token": signup.json()["csrf_token"],
+                })
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["answer"], result["answer"])
+        self.assertFalse(response.json()["history_saved"])
+        self.assertIn("lịch sử", response.json()["history_message"].lower())
 
     def test_learner_retrieval_only_receives_shared_and_owned_chunks(self):
         chunks = [
@@ -119,3 +171,8 @@ class TestLearnerAccounts(unittest.TestCase):
         self.assertEqual(set(observed["chunks"]), {"shared:1", "mine:1"})
         self.assertNotIn("theirs:1", observed["chunks"])
         self.assertEqual(result["answer"], "ok")
+
+        observed.clear()
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("shared topic", shared_only=True)
+        self.assertEqual(set(observed["chunks"]), {"shared:1"})

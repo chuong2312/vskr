@@ -25,18 +25,28 @@
       <span id="network-status" class="network-status" role="status" hidden></span>
       <button id="search-toggle" class="quiet-button search-toggle" type="button" aria-label="Tìm học liệu" aria-expanded="false" aria-controls="library-search">⌕</button>
       <button id="install-app" class="quiet-button" type="button" hidden>Cài ứng dụng</button>
-      <span id="user-name" class="quiet-button" aria-label="Tài khoản người học"></span>
-      <button id="user-logout" class="quiet-button" type="button">Đăng xuất</button>
+      <a id="user-login" class="quiet-button" href="/login">Đăng nhập</a>
+      <a id="user-register" class="primary-button account-register" href="/register">Đăng ký</a>
+      <span id="user-name" class="quiet-button" aria-label="Tài khoản người học" hidden></span>
+      <button id="user-logout" class="quiet-button" type="button" hidden>Đăng xuất</button>
       <a id="admin-link" class="quiet-button admin-link" hidden>Quản trị</a>
     </div>
   </header>
 
   <main class="layout">
     <aside class="library-panel" id="library-drawer" aria-label="Danh sách học liệu" aria-hidden="true" inert>
-      <section class="chat-history">
+      <section class="chat-history" id="history-section" hidden>
         <div class="section-heading"><div><p class="eyebrow">CÁ NHÂN</p><h2>Lịch sử trò chuyện</h2></div><span id="conversation-count" class="count-badge">0</span></div>
         <p id="conversation-empty" class="muted">Các cuộc hỏi đáp sẽ được lưu tại đây.</p>
         <div id="conversation-list" class="conversation-list" aria-label="Các cuộc trò chuyện đã lưu"></div>
+      </section>
+      <section class="chat-history guest-account-panel" id="guest-history-cta" hidden>
+        <p class="eyebrow">TÙY CHỌN</p><h2>Lưu lịch sử trò chuyện</h2>
+        <p class="muted">Bạn có thể hỏi bài ngay mà không cần tài khoản. Tạo tài khoản hoặc đăng nhập để lưu và xem lại lịch sử.</p>
+        <div class="account-actions">
+          <a class="small-button" href="/login">Đăng nhập</a>
+          <a class="small-button account-register-link" href="/register">Tạo tài khoản</a>
+        </div>
       </section>
       <section>
         <div class="section-heading">
@@ -45,7 +55,8 @@
         </div>
         <button id="add-video-toggle" class="small-button" type="button" aria-expanded="false" aria-controls="add-video-panel">＋ Thêm video</button>
         <div id="add-video-panel" class="user-add-panel" hidden>
-          <form id="user-video-form"><label for="user-video-url">Dán link video</label><input id="user-video-url" type="url" placeholder="https://…"><label for="user-video-file">Hoặc chọn video</label><input id="user-video-file" type="file" accept="video/*"><button class="primary-button" type="submit">Thêm video để hỏi</button><p id="user-video-status" class="request-status" role="status"></p></form>
+          <div id="guest-add-notice" class="guest-add-notice" hidden><p>Đăng nhập để thêm video hoặc tài liệu riêng của bạn.</p><div class="account-actions"><a class="small-button" href="/login">Đăng nhập</a><a class="small-button account-register-link" href="/register">Tạo tài khoản</a></div></div>
+          <form id="user-video-form"><label for="user-video-url">Dán link YouTube</label><input id="user-video-url" type="url" placeholder="https://youtube.com/…"><label for="user-video-file">Hoặc chọn video từ máy</label><input id="user-video-file" type="file" accept="video/*"><button class="primary-button" type="submit">Thêm video để hỏi</button><p id="user-video-status" class="request-status" role="status"></p></form>
           <form id="user-document-form"><label for="user-document-file">Thêm tài liệu</label><input id="user-document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx"><button class="small-button" type="submit">Thêm tài liệu để hỏi</button><p id="user-document-status" class="request-status" role="status"></p></form>
         </div>
         <p id="library-loading" class="muted">Đang tải học liệu…</p>

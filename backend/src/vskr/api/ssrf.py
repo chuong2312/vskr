@@ -10,7 +10,10 @@ from fastapi import HTTPException
 
 
 def validate_ingest_url(url: str) -> str:
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(url)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "URL video không hợp lệ.") from exc
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
         raise HTTPException(400, "URL video phải bắt đầu bằng http:// hoặc https://.")
     if parsed.username is not None or parsed.password is not None:
@@ -39,3 +42,21 @@ def validate_ingest_url(url: str) -> str:
         if not checked.is_global:
             raise HTTPException(400, "URL video trỏ tới địa chỉ mạng nội bộ hoặc không công khai.")
     return url
+
+
+def validate_learner_ingest_url(url: str) -> str:
+    """Learner links are restricted to YouTube; broader yt-dlp URLs stay admin-only."""
+    try:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "URL video không hợp lệ.") from exc
+    if not (
+        host == "youtu.be"
+        or host == "youtube.com"
+        or host.endswith(".youtube.com")
+        or host == "youtube-nocookie.com"
+        or host.endswith(".youtube-nocookie.com")
+    ):
+        raise HTTPException(400, "Người học hiện chỉ có thể dán link YouTube hoặc tải video lên.")
+    return validate_ingest_url(url)

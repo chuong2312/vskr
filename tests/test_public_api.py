@@ -13,6 +13,40 @@ from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def test_guest_catalog_contains_shared_but_not_account_owned_material(self):
+        service = SimpleNamespace(
+            meta={
+                "shared-video": {"video_id": "shared-video", "title": "Bài chung", "url": "https://youtu.be/shared"},
+                "private-video": {"video_id": "private-video", "title": "Bài riêng", "owner_id": "student-a", "url": "https://youtu.be/private"},
+                "mixed-video": {"video_id": "mixed-video", "title": "Metadata thiếu chủ", "url": "https://youtu.be/mixed"},
+            },
+            index=SimpleNamespace(chunks=[
+                {"video_id": "shared-video"}, {"video_id": "private-video", "owner_id": "student-a"},
+                {"video_id": "mixed-video", "owner_id": "student-a"},
+                {"document_id": "shared-doc"}, {"document_id": "private-doc", "owner_id": "student-a"},
+                {"document_id": "mixed-doc", "owner_id": "student-a"},
+            ]),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            document_root = Path(temp_dir) / "documents"
+            for document_id, owner_id in (("shared-doc", None), ("private-doc", "student-a"), ("mixed-doc", None)):
+                root = document_root / document_id
+                root.mkdir(parents=True)
+                metadata = {"document_id": document_id, "title": document_id}
+                if owner_id:
+                    metadata["owner_id"] = owner_id
+                (root / "meta.json").write_text(json.dumps(metadata), encoding="utf-8")
+                (root / "sections.json").write_text(json.dumps({"chunks": [{"section": 1}]}), encoding="utf-8")
+            with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}), \
+                    mock.patch.dict(handlers.state, {"service": service}):
+                with ASGITestClient(app, authenticated_learner=False) as client:
+                    response = client.get("/api/catalog")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual([item["video_id"] for item in result["videos"]], ["shared-video"])
+        self.assertEqual([item["document_id"] for item in result["documents"]], ["shared-doc"])
+
     def test_video_catalog_includes_only_indexed_ready_metadata(self):
         service = SimpleNamespace(
             meta={
@@ -79,6 +113,20 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertNotIn("score", result["sources"][0])
         self.assertEqual(result["sources"][0]["link"], "https://lectures.example/watch")
         self.assertNotIn("token", response.text)
+
+    def test_guest_can_ask_without_a_session_and_does_not_create_history(self):
+        fake_result = {"answer": "Dựa trên bài giảng [1].", "found": True, "cited": True, "sources": []}
+        with mock.patch("vskr.api.public.handlers.ask", return_value=fake_result) as ask:
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                page = client.get("/")
+                answer = client.post("/api/ask", json={"question": "Hỏi khách"})
+                history = client.get("/api/conversations")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(answer.status_code, 200, answer.text)
+        self.assertNotIn("conversation_id", answer.json())
+        self.assertEqual(history.status_code, 401)
+        self.assertTrue(ask.call_args.kwargs["shared_only"])
 
     def test_source_links_only_allow_safe_hosts_and_strip_query_tokens(self):
         self.assertEqual(

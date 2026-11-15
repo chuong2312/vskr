@@ -1,12 +1,13 @@
 """Authenticated admin UI and management routes."""
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, RedirectResponse
 
 from .. import audit, auth, accounts
 from ..config import ROOT
 from . import handlers
 
+auth_pages = APIRouter()
 router = APIRouter(dependencies=[Depends(auth.require_admin)])
 
 
@@ -37,9 +38,15 @@ def _admin_file(relative_path: str):
     return FileResponse(path)
 
 
-@router.get("/admin")
-@router.get("/admin/")
-def admin_home():
+@auth_pages.get("/admin")
+@auth_pages.get("/admin/")
+def admin_home(request: Request):
+    try:
+        auth.validate_admin_request(request)
+    except HTTPException as exc:
+        if exc.status_code in (401, 404):
+            return RedirectResponse("/admin/login", status_code=303)
+        raise
     return _admin_file("index.html")
 
 
@@ -51,25 +58,6 @@ def admin_asset(asset_path: str):
 @router.get("/api/library")
 def library():
     return handlers.library()
-
-
-@router.post("/api/ingest", status_code=202)
-async def start_ingest(url: str | None = Form(None), file: UploadFile | None = File(None)):
-    result = await handlers.start_ingest(url=url, file=file)
-    audit.write_event("ingest.start", target_id=result.get("job_id"), kind="upload" if file else "url")
-    return result
-
-
-@router.post("/api/documents", status_code=202)
-async def upload_document(file: UploadFile = File(...)):
-    result = await handlers.upload_document(file=file)
-    audit.write_event("document.upload", target_id=result.get("job_id"), kind="document")
-    return result
-
-
-@router.get("/api/jobs/{job_id}")
-def get_job(job_id: str):
-    return handlers.get_job(job_id)
 
 
 @router.get("/api/admin/jobs")
@@ -140,8 +128,12 @@ def save_eval_questions(payload: dict):
 
 
 @router.post("/api/eval/questions/import")
-async def import_eval_questions(file: UploadFile = File(...)):
-    result = await handlers.import_eval_questions(file=file)
+async def import_eval_questions(request: Request):
+    async with request.form(max_files=1, max_fields=0, max_part_size=5 * 1024 * 1024) as form:
+        file = form.get("file")
+        if file is None or not hasattr(file, "read"):
+            raise HTTPException(422, "Cần tải lên một tệp JSONL.")
+        result = await handlers.import_eval_questions(file=file)
     audit.write_event("evaluation.questions.import")
     return result
 

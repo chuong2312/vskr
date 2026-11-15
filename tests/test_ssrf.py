@@ -4,10 +4,24 @@ from unittest import mock
 
 from fastapi import HTTPException
 
-from vskr.api.ssrf import validate_ingest_url
+from vskr.api.ssrf import validate_ingest_url, validate_learner_ingest_url
 
 
 class TestIngestUrlValidation(unittest.TestCase):
+    def test_learner_url_ingest_is_limited_to_youtube_hosts(self):
+        youtube = "https://youtu.be/abc123"
+        with mock.patch("vskr.api.ssrf.validate_ingest_url", return_value=youtube) as validate:
+            self.assertEqual(validate_learner_ingest_url(youtube), youtube)
+            validate.assert_called_once_with(youtube)
+
+        for url in (
+            "https://example.com/video",
+            "https://youtube.com.example.org/video",
+            "file:///etc/passwd",
+        ):
+            with self.subTest(url=url), self.assertRaises(HTTPException):
+                validate_learner_ingest_url(url)
+
     def test_rejects_non_http_scheme_and_embedded_credentials(self):
         for url in ("file:///etc/passwd", "ftp://example.com/video", "http://user:pass@example.com/video"):
             with self.subTest(url=url), self.assertRaises(HTTPException):
@@ -43,3 +57,8 @@ class TestIngestUrlValidation(unittest.TestCase):
         with mock.patch("vskr.api.ssrf.socket.getaddrinfo", side_effect=socket.gaierror("unresolvable")):
             with self.assertRaises(HTTPException):
                 validate_ingest_url("https://missing.example/video")
+
+    def test_malformed_ipv6_authority_returns_http_error(self):
+        with self.assertRaises(HTTPException) as raised:
+            validate_ingest_url("http://[::1/video")
+        self.assertEqual(raised.exception.status_code, 400)

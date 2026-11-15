@@ -53,12 +53,12 @@ class Service:
             for m in self.meta.values()
         ]
 
-    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, owner_id=None):
+    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, owner_id=None, shared_only=False):
         t0 = time.time()
         retriever = self.retriever
-        if owner_id is not None and hasattr(self, "index"):
+        if (owner_id is not None or shared_only) and hasattr(self, "index"):
             allowed = [i for i, chunk in enumerate(self.index.chunks)
-                       if not chunk.get("owner_id") or chunk.get("owner_id") == owner_id]
+                       if not chunk.get("owner_id") or (not shared_only and chunk.get("owner_id") == owner_id)]
             chunks = [self.index.chunks[i] for i in allowed]
             vectors = self.index.vectors[allowed]
             scoped_index = index_mod.Index(

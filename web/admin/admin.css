@@ -95,6 +95,7 @@
   }
   .primary:disabled { opacity: 0.55; cursor: progress; }
   .hint { color: var(--muted); font-size: 0.85rem; }
+  .hint.eval-stale { color: var(--err); font-weight: 650; }
   .ingest-panel { margin-bottom: 14px; }
   .ingest-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .ingest-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 0.85rem; }

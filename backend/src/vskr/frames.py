@@ -4,6 +4,7 @@ Chiến lược: PySceneDetect tìm ranh giới cảnh + lấy mẫu định k�
 gộp hai nguồn thời điểm, rồi lọc frame trùng bằng dHash. Phần logic thuần nằm ở các hàm đầu file (có test)."""
 import subprocess
 import time
+import logging
 
 from .config import video_dir
 from .ingest import resolve_source
@@ -68,7 +69,7 @@ def dhash(path):
 
 
 # ---------- phần chạy thật (cần scenedetect, ffmpeg, Pillow) ----------
-def detect_scene_starts(video_path, threshold=27.0, frame_skip=0):
+def detect_scene_starts(video_path, threshold=27.0, frame_skip=0, *, show_progress=True):
     from scenedetect import ContentDetector, SceneManager, open_video
 
     # OpenCV's bundled FFmpeg may try the platform AV1 hardware decoder and fail
@@ -77,7 +78,7 @@ def detect_scene_starts(video_path, threshold=27.0, frame_skip=0):
     video = open_video(str(video_path), backend="pyav")
     sm = SceneManager()
     sm.add_detector(ContentDetector(threshold=threshold))
-    sm.detect_scenes(video, show_progress=True, frame_skip=frame_skip)
+    sm.detect_scenes(video, show_progress=show_progress, frame_skip=frame_skip)
     return [start.get_seconds() for start, _end in sm.get_scene_list()]
 
 
@@ -93,12 +94,31 @@ def detect_scenes_only(cfg, video_id, force=False):
     if output.is_file() and not force:
         return read_json(output)
     started = time.time()
-    starts = detect_scene_starts(vpath, fc.get("scene_threshold", 27.0), fc.get("frame_skip", 0))
+    detection_error = None
+    try:
+        starts = detect_scene_starts(
+            vpath,
+            fc.get("scene_threshold", 27.0),
+            fc.get("frame_skip", 0),
+            show_progress=False,
+        )
+    except Exception as exc:
+        # Scene boundaries improve the graph, but transcript chunking remains a
+        # valid fallback. A decoder problem must not make the whole lecture unusable.
+        starts = []
+        detection_error = type(exc).__name__
+        logging.warning(
+            "Scene detection failed for %s; continuing with transcript chunking (%s)",
+            video_id,
+            detection_error,
+        )
     result = {
         "video_id": video_id,
         "params": {"scene_threshold": fc.get("scene_threshold", 27.0), "frame_skip": fc.get("frame_skip", 0)},
         "scene_starts": [round(float(t), 3) for t in starts],
         "scene_count": len(starts),
+        "detection_status": "fallback" if detection_error else "complete",
+        **({"error_type": detection_error} if detection_error else {}),
         "elapsed_s": round(time.time() - started, 1),
     }
     write_json(output, result)

@@ -1,7 +1,9 @@
 import os
 import tempfile
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest import mock
 
@@ -140,6 +142,56 @@ class TestAskLimits(unittest.TestCase):
             for _ in range(3):
                 leave_ask_slot()
 
+    def test_ask_requests_can_retrieve_concurrently(self):
+        active = 0
+        max_active = 0
+        lock = threading.Lock()
+        both_started = threading.Barrier(2)
+
+        def ask(*_args, **_kwargs):
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+            try:
+                try:
+                    both_started.wait(timeout=0.2)
+                except threading.BrokenBarrierError:
+                    pass
+                return {"answer": "ok", "found": True, "cited": False, "sources": []}
+            finally:
+                with lock:
+                    active -= 1
+
+        service = SimpleNamespace(ask=ask)
+        def run_ask():
+            return handlers.ask(
+                handlers.AskRequest(question="Hàm sigmoid là gì?"),
+                mode_override="hybrid", use_request_mode=False,
+            )
+
+        with mock.patch.dict(handlers.state, {"service": service, "error": None}):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(lambda _index: run_ask(), range(2)))
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(max_active, 2)
+
+    def test_index_reload_keeps_active_service_alive_until_its_users_finish(self):
+        old_service = SimpleNamespace(embedder=SimpleNamespace(close=mock.Mock()))
+        new_service = SimpleNamespace(embedder=SimpleNamespace(close=mock.Mock()))
+        with handlers._service_use_lock:
+            handlers._active_service_users.clear()
+        with mock.patch.dict(handlers.state, {"service": old_service, "error": None}), \
+                mock.patch("vskr.service.Service", return_value=new_service), \
+                mock.patch.object(handlers, "load_config", return_value={}):
+            leased = handlers._acquire_service()
+            handlers._init_service()
+            old_service.embedder.close.assert_not_called()
+            self.assertIs(handlers.state["service"], new_service)
+            handlers._release_service(leased)
+            old_service.embedder.close.assert_called_once_with()
+
     def test_gpu_lock_wait_expires_with_friendly_503_and_retry_after(self):
         data_dir = tempfile.TemporaryDirectory()
         old_service = handlers.state["service"]
@@ -155,15 +207,19 @@ class TestAskLimits(unittest.TestCase):
         handlers.GPU_LOCK_TIMEOUT_S = 0.02
         handlers._gpu_model_lock.acquire()
         try:
-            with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": data_dir.name}):
+            ip = "198.51.100.32"
+            with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": data_dir.name}), \
+                    mock.patch("vskr.api.public.auth.client_ip", return_value=ip):
                 with ASGITestClient(app) as client:
                     started = time.monotonic()
                     response = client.post("/api/ask", json={"question": "Câu hỏi?", "mode": "bm25"})
                     elapsed = time.monotonic() - started
             self.assertEqual(response.status_code, 503)
             self.assertEqual(response.headers["retry-after"], "10")
-            self.assertEqual(response.json()["detail"], "Hệ thống đang cập nhật học liệu, thử lại sau ít phút")
+            self.assertEqual(response.json()["detail"], "Mô hình đang bận xử lý tác vụ khác. Vui lòng thử lại sau ít phút.")
             self.assertLess(elapsed, 1)
+            with _lock:
+                self.assertFalse(_ask_attempts.get(ip))
         finally:
             handlers._gpu_model_lock.release()
             handlers.GPU_LOCK_TIMEOUT_S = old_timeout

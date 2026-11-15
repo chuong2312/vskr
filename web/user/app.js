@@ -3,6 +3,7 @@ import { ApiError, request } from "/shared/api.js";
 const $ = (selector) => document.querySelector(selector);
 const state = {
   videos: [], documents: [], conversations: [], activeConversationId: null, currentVideo: null, sources: [], player: null,
+  signedIn: false,
   sourcesByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
@@ -526,6 +527,21 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     turn.querySelector(".turn-content").replaceChildren(resultNode);
     turn.removeAttribute("data-pending");
     renderResult(result, resultNode, turn.dataset.turnId);
+    if (result.history_saved === false) {
+      setStatus(result.history_message || "Câu trả lời đã có, nhưng chưa lưu được lịch sử. Hãy thử lại sau.", "error");
+    }
+    if (state.signedIn && !result.conversation_id && result.history_saved !== false) {
+      const currentUserTurn = turn.previousElementSibling;
+      const conversation = $("#conversation");
+      for (const child of [...conversation.children]) {
+        if (child !== currentUserTurn && child !== turn) child.remove();
+      }
+      state.sourcesByTurn.clear();
+      state.sourcesByTurn.set(String(turn.dataset.turnId), state.sources);
+      sessionStorage.removeItem("vskr-user-csrf");
+      setAccountView(null, { preserveCurrentThread: true });
+      setStatus("Phiên đăng nhập đã hết hạn. Câu trả lời này chưa được lưu; bạn vẫn có thể tiếp tục hỏi bài với tư cách khách.", "error");
+    }
   } catch (error) {
     if (!navigator.onLine) {
       setTurnStatus(turn, "Bạn đang ngoại tuyến. Kết nối lại internet rồi thử gửi lại câu hỏi.", "error");
@@ -570,10 +586,43 @@ async function showAdminLink() {
 async function loadLearnerSession() {
   try {
     const session = await request("/api/user/auth/me");
+    setAccountView(session);
     $("#user-name").textContent = session.username;
     if (session.csrf_token) sessionStorage.setItem("vskr-user-csrf", session.csrf_token);
     await loadConversations();
-  } catch { location.assign("/login"); }
+  } catch {
+    setAccountView(null);
+    sessionStorage.removeItem("vskr-user-csrf");
+  }
+}
+
+function setAccountView(session, { preserveCurrentThread = false } = {}) {
+  const signedIn = Boolean(session?.user_id);
+  const lostSession = state.signedIn && !signedIn;
+  state.signedIn = signedIn;
+  $("#user-login").hidden = signedIn;
+  $("#user-register").hidden = signedIn;
+  $("#user-name").hidden = !signedIn;
+  $("#user-logout").hidden = !signedIn;
+  $("#history-section").hidden = !signedIn;
+  $("#guest-history-cta").hidden = signedIn;
+  $("#guest-add-notice").hidden = signedIn;
+  $("#user-video-form").hidden = !signedIn;
+  $("#user-document-form").hidden = !signedIn;
+  if (!signedIn) {
+    state.conversations = [];
+    state.activeConversationId = null;
+    renderConversations();
+    if (lostSession && !preserveCurrentThread) {
+      state.sources = [];
+      state.sourcesByTurn.clear();
+      state.activeTurnId = null;
+      state.activeSourceKey = null;
+      $("#conversation").replaceChildren();
+      $("#welcome").hidden = false;
+      renderTimeline();
+    }
+  }
 }
 
 function renderConversations() {
@@ -609,7 +658,12 @@ async function loadConversations() {
     state.conversations = await request("/api/conversations");
     renderConversations();
   } catch (error) {
-    if (error instanceof ApiError && error.status !== 401) setStatus("Chưa tải được lịch sử trò chuyện.", "error");
+    if (error instanceof ApiError && error.status === 401) {
+      sessionStorage.removeItem("vskr-user-csrf");
+      setAccountView(null);
+    } else {
+      setStatus("Chưa tải được lịch sử trò chuyện.", "error");
+    }
   }
 }
 
@@ -635,7 +689,15 @@ async function openConversation(conversationId) {
     if (!conversation.turns.length) $("#welcome").hidden = false;
     renderConversations();
     closeDrawer({ restoreFocus: false });
-  } catch (error) { setStatus(error.message || "Không mở được cuộc trò chuyện.", "error"); }
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      sessionStorage.removeItem("vskr-user-csrf");
+      setAccountView(null);
+      setStatus("Phiên đăng nhập đã hết hạn. Bạn vẫn có thể tiếp tục hỏi bài với tư cách khách.", "error");
+    } else {
+      setStatus(error.message || "Không mở được cuộc trò chuyện.", "error");
+    }
+  }
 }
 
 function startNewConversation() {
@@ -660,7 +722,7 @@ function startNewConversation() {
 $("#user-logout").addEventListener("click", async () => {
   const button = $("#user-logout"); button.disabled = true;
   try { await request("/api/user/auth/logout", { method: "POST" }); }
-  finally { sessionStorage.removeItem("vskr-user-csrf"); location.assign("/login"); }
+  finally { sessionStorage.removeItem("vskr-user-csrf"); location.assign("/"); }
 });
 
 async function loadLibrary() {

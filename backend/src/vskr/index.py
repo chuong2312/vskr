@@ -1,6 +1,7 @@
 """Xây và nạp chỉ mục: chunks.json + vectors.npy (numpy, tích vô hướng trên vector đã chuẩn hóa)."""
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -89,10 +90,14 @@ def build(cfg, embedder, progress=None, output_dir=None):
             print(f"[index] bỏ qua {vid}: chưa có transcript.json")
             continue
         segs = read_json(tp)["segments"]
-        extras = None
-        sp = vdir / "screen_text.json"
-        if ch.get("use_screen_text", True) and sp.exists():
-            extras = read_json(sp)
+        extras = []
+        if ch.get("use_screen_text", True):
+            for artifact_name in ("screen_text.json", "captions.json"):
+                artifact_path = vdir / artifact_name
+                if artifact_path.is_file():
+                    extras.extend(read_json(artifact_path))
+        if not extras:
+            extras = None
         scene_file = vdir / "scenes.json"
         frame_file = vdir / "frames.json"
         scene_starts = (read_json(scene_file).get("scene_starts", []) if scene_file.exists()
@@ -140,6 +145,9 @@ def build(cfg, embedder, progress=None, output_dir=None):
     write_json(idir / "chunks.json", chunks)
     write_json(idir / "knowledge_graph.json", graph)
     info = {
+        "version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "chunk_count": len(chunks),
         "n_chunks": len(chunks),
         "embedding": cfg["embedding"],
         "chunk": ch,

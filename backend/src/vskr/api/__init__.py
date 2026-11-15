@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from ..auth import warn_if_unconfigured
 from . import admin, handlers, public
@@ -23,7 +24,82 @@ app = FastAPI(
     redoc_url=None,
 )
 app.include_router(public.router)
+app.include_router(admin.auth_pages)
 app.include_router(admin.router)
+
+
+class UploadPayloadTooLarge(Exception):
+    pass
+
+
+class UploadBodyLimitMiddleware:
+    """Bound multipart bodies before Starlette spools uploads to temporary files.
+
+    Upload routes parse their forms manually after authentication, so unauthenticated
+    callers are rejected before the receive wrapper is consumed.
+    """
+
+    OVERHEAD_BYTES = 1024 * 1024
+
+    def __init__(self, app, *, limits=None):
+        self.app = app
+        self._test_limits = limits
+
+    def _limit(self, path: str) -> int | None:
+        if self._test_limits is not None:
+            return self._test_limits.get(path)
+        from ..config import load_config
+
+        cfg = load_config()
+        overhead = UploadBodyLimitMiddleware.OVERHEAD_BYTES
+        if path == "/api/ingest":
+            return int(cfg.get("ingest", {}).get("max_upload_bytes", 1_073_741_824)) + overhead
+        if path == "/api/documents":
+            return 100 * 1024 * 1024 + overhead
+        if path == "/api/eval/questions/import":
+            return 5 * 1024 * 1024 + overhead
+        return None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        limit = self._limit(scope.get("path", ""))
+        if limit is None:
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                declared_length = int(raw_length)
+            except ValueError:
+                response = JSONResponse({"detail": "Content-Length không hợp lệ."}, status_code=400)
+                await response(scope, receive, send)
+                return
+            if declared_length < 0 or declared_length > limit:
+                response = JSONResponse({"detail": "Request vượt giới hạn dung lượng cho phép."}, status_code=413)
+                await response(scope, receive, send)
+                return
+
+        received = 0
+
+        async def receive_with_limit():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    raise UploadPayloadTooLarge
+            return message
+
+        try:
+            await self.app(scope, receive_with_limit, send)
+        except UploadPayloadTooLarge:
+            response = JSONResponse({"detail": "Request vượt giới hạn dung lượng cho phép."}, status_code=413)
+            await response(scope, receive, send)
 
 
 class SecurityHeadersMiddleware:
@@ -75,6 +151,7 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
+app.add_middleware(UploadBodyLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 

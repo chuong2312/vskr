@@ -21,9 +21,9 @@ asr:
   initial_prompt: ""         # để trống làm baseline; thử thuật ngữ chuyên ngành như một thí nghiệm riêng
   unload_ollama_first: true  # trước khi chạy ASR, bảo Ollama nhả model khỏi VRAM (tránh OOM khi hai bên cùng dùng GPU 8GB)
 
-frames:                      # chỉ dùng cho OCR (giai đoạn mở rộng); cần video tải bằng --with-video
+frames:                      # dò phân cảnh và lấy frame cho OCR/VLM; cần video local
   scene_threshold: 27.0      # ngưỡng ContentDetector của PySceneDetect (thấp hơn = nhạy hơn)
-  frame_skip: 0              # tăng lên (vd 2) để quét nhanh hơn, đổi lại có thể sót cảnh
+  frame_skip: 4              # xử lý 1/5 frame để tăng tốc; cảnh rất ngắn có thể bị bỏ qua
   interval_s: 8              # lấy mẫu định kỳ, bù cho cảnh gõ code liên tục không có "cắt cảnh"
   scene_offset_s: 1.0        # lấy frame sau đầu cảnh một chút để tránh frame đang chuyển
   min_gap_s: 2.0
@@ -52,7 +52,7 @@ chunk:
   window_s: 50
   overlap_s: 10
   min_chars: 20
-  use_screen_text: true      # chỉ có tác dụng khi video có file screen_text.json (OCR, giai đoạn sau)
+  use_screen_text: true      # index các file screen_text.json (OCR) và captions.json (VLM) nếu có
 
 embedding:
   model: intfloat/multilingual-e5-small

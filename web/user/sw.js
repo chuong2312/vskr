@@ -1,6 +1,8 @@
-const CACHE_NAME = "vskr-user-shell-v7";
+const CACHE_NAME = "vskr-user-shell-v10";
+const AUTH_PAGES = new Set(["/login", "/register"]);
 const SHELL = [
   "/login",
+  "/register",
   "/manifest.webmanifest",
   "/shared/tokens.css",
   "/shared/api.js",
@@ -25,6 +27,13 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  if (AUTH_PAGES.has(url.pathname)) {
+    event.respondWith(fetch(url.href, { cache: "no-store", credentials: "same-origin" }).then((response) => {
+      if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+      return response;
+    }).catch(() => caches.match(request)));
+    return;
+  }
   if (!SHELL.includes(url.pathname)) return;
   event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
     if (response.ok) {

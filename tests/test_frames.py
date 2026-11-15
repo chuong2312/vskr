@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from unittest import mock
 from pathlib import Path
 
@@ -18,6 +19,24 @@ class TestFrames(unittest.TestCase):
 
             self.assertEqual(detect_scene_starts("lecture.mp4"), [0.0])
         open_video.assert_called_once_with("lecture.mp4", backend="pyav")
+
+    def test_ingest_scene_detection_failure_falls_back_to_transcript_indexing(self):
+        from vskr.frames import detect_scenes_only
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_dir = Path(temp_dir) / "videos" / "vid1"
+            video_dir.mkdir(parents=True)
+            (video_dir / "source.mp4").write_bytes(b"video")
+            (video_dir / "meta.json").write_text(json.dumps({"source_file": "source.mp4"}), encoding="utf-8")
+            cfg = {"paths": {"data_dir": temp_dir}, "frames": {"frame_skip": 4}}
+            with mock.patch("vskr.frames.detect_scene_starts", side_effect=RuntimeError("decoder failed")):
+                result = detect_scenes_only(cfg, "vid1")
+
+            self.assertEqual(result["scene_starts"], [])
+            self.assertEqual(result["scene_count"], 0)
+            self.assertEqual(result["detection_status"], "fallback")
+            persisted = json.loads((video_dir / "scenes.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["error_type"], "RuntimeError")
 
     def test_interval_only(self):
         c = candidate_times(30, [], interval_s=10)

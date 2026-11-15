@@ -20,10 +20,6 @@ export async function request(path, options = {}) {
   let body = null;
   try { body = await response.json(); } catch { /* Some downloads and server errors have no JSON body. */ }
   if (!response.ok) {
-    if (response.status === 401 && location.pathname !== "/login") {
-      sessionStorage.removeItem("vskr-user-csrf");
-      location.assign("/login");
-    }
     const message = typeof body?.detail === "string" ? body.detail : `Yêu cầu thất bại (${response.status}).`;
     throw new ApiError(message, response.status, Number(response.headers.get("Retry-After") || 0));
   }

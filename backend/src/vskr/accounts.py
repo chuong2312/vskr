@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import secrets
 import sqlite3
+import threading
 import time
 import uuid
+from collections import OrderedDict, deque
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -21,6 +22,10 @@ from .config import data_dir, load_config
 
 COOKIE_NAME = "vskr_user"
 SESSION_TTL = 30 * 24 * 60 * 60
+REGISTRATION_WINDOW = 60 * 60
+REGISTRATION_LIMIT = 10
+_registration_attempts: OrderedDict[str, deque[float]] = OrderedDict()
+_registration_lock = threading.Lock()
 
 
 def _database_path() -> Path:
@@ -74,12 +79,23 @@ def _connect():
         connection.close()
 
 
-def register(username: str, password: str, invite_code: str):
-    configured = os.environ.get("VSKR_USER_INVITE_CODE", "").strip()
-    if not configured:
-        raise HTTPException(503, "Đăng ký người học đang tắt; admin cần cấu hình mã mời.")
-    if not hmac.compare_digest(invite_code.encode(), configured.encode()):
-        raise HTTPException(403, "Mã mời không hợp lệ.")
+def check_registration_rate(ip: str, now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    with _registration_lock:
+        attempts = _registration_attempts.setdefault(ip, deque())
+        _registration_attempts.move_to_end(ip)
+        while attempts and now - attempts[0] >= REGISTRATION_WINDOW:
+            attempts.popleft()
+        if len(attempts) >= REGISTRATION_LIMIT:
+            retry_after = max(1, int(attempts[0] + REGISTRATION_WINDOW - now + 0.999))
+            raise HTTPException(429, "Đã tạo quá nhiều yêu cầu đăng ký. Hãy thử lại sau.",
+                                headers={"Retry-After": str(retry_after)})
+        attempts.append(now)
+        while len(_registration_attempts) > 10_000:
+            _registration_attempts.popitem(last=False)
+
+
+def register(username: str, password: str):
     username = username.strip()
     if not 3 <= len(username) <= 64 or not all(ch.isalnum() or ch in "._-" for ch in username):
         raise HTTPException(422, "Tên tài khoản dài 3–64 ký tự, chỉ gồm chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.")
@@ -236,6 +252,24 @@ def require_learner_or_admin(request: Request):
             if admin_error.status_code in (401, 404):
                 raise learner_error
             raise
+
+
+def optional_learner_or_admin(request: Request):
+    """Return a signed-in learner/admin or a shared-library-only guest."""
+    user_token = request.cookies.get(COOKIE_NAME)
+    if user_token and get_session(user_token) is not None:
+        # Preserve CSRF and transport checks for valid account sessions.
+        return require_user(request)
+
+    admin_token = request.cookies.get(auth.COOKIE_NAME)
+    if admin_token and auth.get_session(admin_token) is not None:
+        try:
+            return {"admin": True, **auth.validate_admin_request(request)}
+        except HTTPException as exc:
+            if exc.status_code not in (401, 404):
+                raise
+
+    return {"guest": True, "user_id": None}
 
 
 def revoke_session(token: str | None):

@@ -261,3 +261,26 @@ body { background:var(--canvas); }
   .top-actions #user-login { padding:.4rem .6rem; font-size:.74rem; }
   .account-register { min-height:34px; padding:.4rem .62rem; font-size:.74rem; }
 }
+
+.history-new-button { display:flex; width:100%; justify-content:center; margin:.7rem 0 .65rem; }
+.history-search { width:100%; min-height:38px; padding:.5rem .7rem; border:1px solid var(--line); border-radius:10px; background:var(--canvas); color:var(--ink); font:inherit; font-size:.84rem; }
+.history-search:focus-visible, .rename-input:focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+.chat-history .conversation-list { max-height:min(38dvh,420px); overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.conversation-group + .conversation-group { margin-top:.7rem; }
+.conversation-group-title { margin:.65rem .45rem .25rem; color:var(--muted); font-size:.7rem; font-weight:750; }
+.conversation-row { position:relative; }
+.conversation-choice { padding:9px 7px; }
+.conversation-actions { display:flex; flex:none; align-items:center; gap:1px; }
+.conversation-action { display:grid; width:29px; height:29px; padding:0; place-items:center; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:.95rem; cursor:pointer; }
+.conversation-action:hover, .conversation-action:focus-visible { background:var(--canvas); color:var(--ink); }
+.conversation-delete:hover, .conversation-delete:focus-visible { color:var(--danger); }
+.conversation-row .conversation-action { opacity:0; }
+.conversation-row:hover .conversation-action, .conversation-row:focus-within .conversation-action { opacity:1; }
+.rename-dialog { width:min(440px,calc(100% - 1.5rem)); }
+.rename-dialog form { display:grid; gap:.75rem; }
+.rename-dialog .dialog-heading { margin-bottom:.25rem; }
+.rename-label { font-size:.86rem; font-weight:650; }
+.rename-input { min-height:44px; padding:.6rem .7rem; border:1px solid var(--line); border-radius:10px; background:var(--canvas); color:var(--ink); font:inherit; }
+.rename-dialog #rename-conversation-status { min-height:1.2em; margin:0; }
+.dialog-actions { display:flex; justify-content:flex-end; gap:.5rem; }
+@media (pointer:coarse) { .conversation-row .conversation-action { opacity:1; } }

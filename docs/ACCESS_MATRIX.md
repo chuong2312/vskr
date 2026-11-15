@@ -31,6 +31,7 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 | `POST` | `/api/ask` | Public guest; learner session + CSRF; hoặc admin session + CSRF | Khách chỉ tìm thư viện dùng chung và không lưu lịch sử. Learner tìm nội dung dùng chung và của mình, lưu lượt hỏi theo tài khoản. Không nhận retrieval mode từ client; learner/guest dùng hybrid vector + BM25. Response chỉ chứa câu trả lời và nguồn được phép xem. |
 | `GET` | `/api/conversations` | Learner session | Chỉ danh sách cuộc trò chuyện của tài khoản hiện tại. |
 | `GET` | `/api/conversations/{conversation_id}` | Learner session | Chỉ nội dung hỏi đáp và nguồn của chủ cuộc trò chuyện; ID của tài khoản khác trả `404`. |
+| `PATCH` | `/api/conversations/{conversation_id}` | Learner session + CSRF | Đổi tên cuộc trò chuyện của chính tài khoản hiện tại; tối đa 72 ký tự. |
 | `DELETE` | `/api/conversations/{conversation_id}` | Learner session + CSRF | Chỉ chủ sở hữu có thể xóa cuộc trò chuyện; xóa theo cascade các lượt hỏi đáp đã lưu. |
 | `POST` | `/api/admin/ask` *(mới)* | Admin session + CSRF | Cho phép chọn retrieval mode và trả timing/diagnostic cho màn thử hỏi. Không trả path hoặc exception thô. |
 | `GET` | `/api/status` | Public guest, learner session hoặc admin session | Chỉ `{"ready": bool}`. Không lộ `error`, `phase`, `gpu_busy` hay chi tiết kết nối. |

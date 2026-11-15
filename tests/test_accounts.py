@@ -107,6 +107,12 @@ class TestLearnerAccounts(unittest.TestCase):
                 self.assertEqual(saved.status_code, 200)
                 self.assertEqual(saved.json()["turns"][0]["question"], "Vector là gì?")
                 self.assertEqual(saved.json()["turns"][0]["sources"][0]["video_id"], "shared-video")
+                renamed = client.patch(f"/api/conversations/{conversation_id}", json={
+                    "title": "  Ôn   tập   vector  ",
+                }, headers={**headers, "X-CSRF-Token": csrf_a})
+                self.assertEqual(renamed.status_code, 200, renamed.text)
+                self.assertEqual(renamed.json()["title"], "Ôn tập vector")
+                self.assertEqual(client.get("/api/conversations").json()[0]["title"], "Ôn tập vector")
                 self.assertEqual(client.post("/api/user/auth/logout", headers={
                     **headers, "X-CSRF-Token": csrf_a,
                 }).status_code, 200)
@@ -117,6 +123,10 @@ class TestLearnerAccounts(unittest.TestCase):
                 self.assertNotEqual(learner_a["user"]["user_id"], learner_b["user"]["user_id"])
                 self.assertEqual(client.get("/api/conversations").json(), [])
                 self.assertEqual(client.get(f"/api/conversations/{conversation_id}").status_code, 404)
+                forbidden_rename = client.patch(f"/api/conversations/{conversation_id}", json={
+                    "title": "Không thuộc về tài khoản này",
+                }, headers={**headers, "X-CSRF-Token": learner_b["csrf_token"]})
+                self.assertEqual(forbidden_rename.status_code, 404)
 
     def test_answer_is_returned_if_saving_conversation_history_fails(self):
         result = {

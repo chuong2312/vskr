@@ -37,8 +37,12 @@
     <aside class="library-panel" id="library-drawer" aria-label="Danh sách học liệu" aria-hidden="true" inert>
       <section class="chat-history" id="history-section" hidden>
         <div class="section-heading"><div><p class="eyebrow">CÁ NHÂN</p><h2>Lịch sử trò chuyện</h2></div><span id="conversation-count" class="count-badge">0</span></div>
+        <button id="new-conversation" class="small-button history-new-button" type="button">＋ Cuộc trò chuyện mới</button>
+        <label class="sr-only" for="conversation-search">Tìm trong lịch sử trò chuyện</label>
+        <input id="conversation-search" class="history-search" type="search" placeholder="Tìm cuộc trò chuyện…" autocomplete="off">
         <p id="conversation-empty" class="muted">Các cuộc hỏi đáp sẽ được lưu tại đây.</p>
-        <div id="conversation-list" class="conversation-list" aria-label="Các cuộc trò chuyện đã lưu"></div>
+        <p id="conversation-no-match" class="muted" hidden>Không tìm thấy cuộc trò chuyện phù hợp.</p>
+        <div id="conversation-list" class="conversation-list" aria-label="Các cuộc trò chuyện đã lưu" role="list"></div>
       </section>
       <section class="chat-history guest-account-panel" id="guest-history-cta" hidden>
         <p class="eyebrow">TÙY CHỌN</p><h2>Lưu lịch sử trò chuyện</h2>
@@ -78,7 +82,7 @@
       <div class="chat-toolbar">
         <button id="drawer-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="library-drawer" aria-label="Mở thư viện">☰</button>
         <strong>Hỏi VSKR</strong>
-        <button id="new-thread" class="icon-button" type="button" aria-label="Cuộc hỏi mới" title="Cuộc hỏi mới">✎</button>
+        <button id="new-thread" class="icon-button" type="button" aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới">✎</button>
       </div>
       <p id="app-status" class="request-status" role="status" hidden></p>
       <div id="thread" class="thread" role="log" aria-live="polite" aria-relevant="additions text">
@@ -142,6 +146,22 @@
       <button id="close-document" class="icon-button" type="button" aria-label="Đóng">×</button>
     </div>
     <pre id="document-text"></pre>
+  </dialog>
+
+  <dialog id="rename-conversation-dialog" class="document-dialog rename-dialog" aria-labelledby="rename-conversation-heading">
+    <form id="rename-conversation-form">
+      <div class="dialog-heading">
+        <div><p class="eyebrow">LỊCH SỬ</p><h2 id="rename-conversation-heading">Đổi tên cuộc trò chuyện</h2></div>
+        <button id="close-rename-conversation" class="icon-button" type="button" aria-label="Đóng">×</button>
+      </div>
+      <label class="rename-label" for="rename-conversation-title">Tên cuộc trò chuyện</label>
+      <input id="rename-conversation-title" class="rename-input" type="text" maxlength="72" required>
+      <p id="rename-conversation-status" class="request-status" role="status" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button id="cancel-rename-conversation" class="small-button" type="button">Hủy</button>
+        <button id="save-rename-conversation" class="primary-button" type="submit">Lưu tên</button>
+      </div>
+    </form>
   </dialog>
 
   <script type="module" src="/user/assets/app.js"></script>

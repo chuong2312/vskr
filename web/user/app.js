@@ -7,7 +7,7 @@ const state = {
   sourcesByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
-  installPrompt: null, asking: false,
+  installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
 };
 
 function sourceKey(source) {
@@ -528,6 +528,7 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     });
     if (result.conversation_id) {
       state.activeConversationId = result.conversation_id;
+      updateConversationUrl(result.conversation_id);
       loadConversations();
     }
     $("#question-input").value = "";
@@ -600,9 +601,16 @@ async function loadLearnerSession() {
     $("#user-name").textContent = session.username;
     if (session.csrf_token) sessionStorage.setItem("vskr-user-csrf", session.csrf_token);
     await loadConversations();
+    const requestedConversation = new URL(location.href).searchParams.get("conversation");
+    if (requestedConversation && state.conversations.some((item) => item.conversation_id === requestedConversation)) {
+      await openConversation(requestedConversation, { updateUrl: false });
+    } else if (requestedConversation) {
+      updateConversationUrl(null, { replace: true });
+    }
   } catch {
     setAccountView(null);
     sessionStorage.removeItem("vskr-user-csrf");
+    updateConversationUrl(null, { replace: true });
   }
 }
 
@@ -622,6 +630,8 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
   if (!signedIn) {
     state.conversations = [];
     state.activeConversationId = null;
+    $("#conversation-search").value = "";
+    updateConversationUrl(null, { replace: true });
     renderConversations();
     if (lostSession && !preserveCurrentThread) {
       state.sources = [];
@@ -635,31 +645,101 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
   }
 }
 
+function conversationGroupTitle(timestamp) {
+  const value = Number(timestamp);
+  const date = new Date(value < 1e12 ? value * 1000 : value);
+  if (Number.isNaN(date.getTime())) return "Cũ hơn";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 6);
+  const monthAgo = new Date(today);
+  monthAgo.setDate(monthAgo.getDate() - 29);
+
+  if (date >= today) return "Hôm nay";
+  if (date >= yesterday) return "Hôm qua";
+  if (date >= weekAgo) return "7 ngày qua";
+  if (date >= monthAgo) return "30 ngày qua";
+  return new Intl.DateTimeFormat("vi-VN", { month: "long", year: "numeric" }).format(date);
+}
+
+function updateConversationUrl(conversationId, { replace = false } = {}) {
+  const url = new URL(location.href);
+  if (conversationId) url.searchParams.set("conversation", conversationId);
+  else url.searchParams.delete("conversation");
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${location.pathname}${location.search}${location.hash}`;
+  if (next === current) return;
+  history[replace ? "replaceState" : "pushState"]({ conversationId: conversationId || null }, "", next);
+}
+
+function openRenameDialog(conversation) {
+  if (state.asking) return setStatus("Đợi câu trả lời xong rồi hãy đổi tên cuộc trò chuyện.", "error");
+  state.renameConversationId = conversation.conversation_id;
+  $("#rename-conversation-title").value = conversation.title || "";
+  $("#rename-conversation-status").textContent = "";
+  $("#rename-conversation-dialog").showModal();
+  $("#rename-conversation-title").focus();
+  $("#rename-conversation-title").select();
+}
+
 function renderConversations() {
   const list = $("#conversation-list");
   list.replaceChildren();
   $("#conversation-count").textContent = String(state.conversations.length);
   $("#conversation-empty").hidden = state.conversations.length > 0;
-  for (const conversation of state.conversations) {
-    const row = make("div", `conversation-row${conversation.conversation_id === state.activeConversationId ? " is-active" : ""}`);
-    const open = make("button", "conversation-choice", conversation.title || "Cuộc trò chuyện mới");
-    open.type = "button";
-    open.setAttribute("aria-current", String(conversation.conversation_id === state.activeConversationId));
-    open.addEventListener("click", () => openConversation(conversation.conversation_id));
-    const remove = make("button", "conversation-delete", "×");
-    remove.type = "button";
-    remove.setAttribute("aria-label", `Xóa cuộc trò chuyện: ${conversation.title}`);
-    remove.title = "Xóa cuộc trò chuyện";
-    remove.addEventListener("click", async () => {
-      if (!window.confirm(`Xóa cuộc trò chuyện “${conversation.title}”?`)) return;
-      try {
-        await request(`/api/conversations/${encodeURIComponent(conversation.conversation_id)}`, { method: "DELETE" });
-        if (state.activeConversationId === conversation.conversation_id) startNewConversation();
-        await loadConversations();
-      } catch (error) { setStatus(error.message, "error"); }
-    });
-    row.append(open, remove);
-    list.append(row);
+  const query = $("#conversation-search").value.trim().toLocaleLowerCase("vi");
+  const visible = state.conversations.filter((conversation) =>
+    (conversation.title || "Cuộc trò chuyện mới").toLocaleLowerCase("vi").includes(query));
+  $("#conversation-no-match").hidden = !state.conversations.length || visible.length > 0;
+
+  const groups = new Map();
+  for (const conversation of visible) {
+    const title = conversationGroupTitle(conversation.updated_at || conversation.created_at);
+    if (!groups.has(title)) groups.set(title, []);
+    groups.get(title).push(conversation);
+  }
+
+  for (const [groupTitle, conversations] of groups) {
+    const group = make("section", "conversation-group");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", groupTitle);
+    group.append(make("h3", "conversation-group-title", groupTitle));
+    for (const conversation of conversations) {
+      const row = make("div", `conversation-row${conversation.conversation_id === state.activeConversationId ? " is-active" : ""}`);
+      row.setAttribute("role", "listitem");
+      const open = make("button", "conversation-choice", conversation.title || "Cuộc trò chuyện mới");
+      open.type = "button";
+      open.setAttribute("aria-current", String(conversation.conversation_id === state.activeConversationId));
+      open.addEventListener("click", () => openConversation(conversation.conversation_id));
+      const actions = make("div", "conversation-actions");
+      const rename = make("button", "conversation-action conversation-rename", "✎");
+      rename.type = "button";
+      rename.setAttribute("aria-label", `Đổi tên cuộc trò chuyện: ${conversation.title}`);
+      rename.title = "Đổi tên";
+      rename.addEventListener("click", () => openRenameDialog(conversation));
+      const remove = make("button", "conversation-delete", "×");
+      remove.classList.add("conversation-action");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Xóa cuộc trò chuyện: ${conversation.title}`);
+      remove.title = "Xóa cuộc trò chuyện";
+      remove.addEventListener("click", async () => {
+        if (state.asking) return setStatus("Đợi câu trả lời xong rồi hãy xóa cuộc trò chuyện.", "error");
+        if (!window.confirm(`Xóa cuộc trò chuyện “${conversation.title}”?`)) return;
+        try {
+          await request(`/api/conversations/${encodeURIComponent(conversation.conversation_id)}`, { method: "DELETE" });
+          if (state.activeConversationId === conversation.conversation_id) startNewConversation({ replaceUrl: true });
+          await loadConversations();
+        } catch (error) { setStatus(error.message, "error"); }
+      });
+      actions.append(rename, remove);
+      row.append(open, actions);
+      group.append(row);
+    }
+    list.append(group);
   }
 }
 
@@ -677,11 +757,20 @@ async function loadConversations() {
   }
 }
 
-async function openConversation(conversationId) {
+async function openConversation(conversationId, { updateUrl = true } = {}) {
+  if (state.asking) {
+    setStatus("Đợi câu trả lời xong rồi hãy chuyển cuộc trò chuyện.", "error");
+    closeDrawer();
+    return;
+  }
+  const loadToken = ++state.conversationLoadToken;
   try {
+    setStatus("Đang mở cuộc trò chuyện…");
     const conversation = await request(`/api/conversations/${encodeURIComponent(conversationId)}`);
+    if (loadToken !== state.conversationLoadToken) return;
     clearRetry();
     state.activeConversationId = conversation.conversation_id;
+    if (updateUrl) updateConversationUrl(conversation.conversation_id);
     state.sources = [];
     state.sourcesByTurn.clear();
     state.activeTurnId = null;
@@ -701,17 +790,24 @@ async function openConversation(conversationId) {
     renderConversations();
     closeDrawer({ restoreFocus: false });
   } catch (error) {
+    if (loadToken !== state.conversationLoadToken) return;
     if (error instanceof ApiError && error.status === 401) {
       sessionStorage.removeItem("vskr-user-csrf");
       setAccountView(null);
       setStatus("Phiên đăng nhập đã hết hạn. Bạn vẫn có thể tiếp tục hỏi bài với tư cách khách.", "error");
     } else {
+      if (error instanceof ApiError && error.status === 404) updateConversationUrl(null, { replace: true });
       setStatus(error.message || "Không mở được cuộc trò chuyện.", "error");
     }
   }
 }
 
-function startNewConversation() {
+function startNewConversation({ updateUrl = true, replaceUrl = false, focus = true } = {}) {
+  if (state.asking) {
+    setStatus("Đợi câu trả lời xong rồi hãy bắt đầu cuộc trò chuyện mới.", "error");
+    return;
+  }
+  state.conversationLoadToken += 1;
   clearRetry();
   state.activeConversationId = null;
   $("#conversation").replaceChildren();
@@ -727,7 +823,9 @@ function startNewConversation() {
   renderTimeline();
   renderConversations();
   $("#thread").scrollTop = 0;
-  questionInput.focus();
+  if (updateUrl) updateConversationUrl(null, { replace: replaceUrl });
+  closeDrawer({ restoreFocus: false });
+  if (focus) questionInput.focus();
 }
 
 $("#user-logout").addEventListener("click", async () => {
@@ -763,6 +861,45 @@ $("#question-form").addEventListener("submit", (event) => {
   $("#suggestions").hidden = true;
   $("#suggest-toggle").setAttribute("aria-expanded", "false");
   submitQuestion();
+});
+$("#new-conversation").addEventListener("click", () => startNewConversation());
+$("#conversation-search").addEventListener("input", renderConversations);
+$("#close-rename-conversation").addEventListener("click", () => $("#rename-conversation-dialog").close());
+$("#cancel-rename-conversation").addEventListener("click", () => $("#rename-conversation-dialog").close());
+$("#rename-conversation-dialog").addEventListener("click", (event) => {
+  if (event.target === $("#rename-conversation-dialog")) $("#rename-conversation-dialog").close();
+});
+$("#rename-conversation-dialog").addEventListener("close", () => { state.renameConversationId = null; });
+$("#rename-conversation-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const conversationId = state.renameConversationId;
+  const title = $("#rename-conversation-title").value.trim();
+  const status = $("#rename-conversation-status");
+  const saveButton = $("#save-rename-conversation");
+  if (!conversationId || !title) {
+    status.textContent = "Nhập tên cho cuộc trò chuyện.";
+    return;
+  }
+  saveButton.disabled = true;
+  status.textContent = "Đang lưu tên…";
+  try {
+    const updated = await request(`/api/conversations/${encodeURIComponent(conversationId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    state.conversations = state.conversations.map((conversation) =>
+      conversation.conversation_id === updated.conversation_id
+        ? { ...conversation, title: updated.title, updated_at: Math.floor(Date.now() / 1000) }
+        : conversation)
+      .sort((left, right) => Number(right.updated_at) - Number(left.updated_at));
+    renderConversations();
+    $("#rename-conversation-dialog").close();
+  } catch (error) {
+    status.textContent = error.message || "Không đổi được tên cuộc trò chuyện.";
+  } finally {
+    saveButton.disabled = false;
+  }
 });
 $("#close-document").addEventListener("click", () => $("#document-dialog").close());
 $("#document-dialog").addEventListener("click", (event) => {
@@ -912,6 +1049,7 @@ drawerToggle.addEventListener("click", () => {
 drawerBackdrop.addEventListener("click", () => closeDrawer({ restoreFocus: true }));
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if ($("#rename-conversation-dialog").open) return;
   const suggestions = $("#suggestions");
   if (!suggestions.hidden) {
     suggestions.hidden = true;
@@ -976,6 +1114,11 @@ studyPanel.addEventListener("wheel", (event) => {
 }, { passive: false });
 thread.addEventListener("scroll", () => { bottomButton.hidden = thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 100; });
 bottomButton.addEventListener("click", () => scrollThreadToEnd({ smooth: true }));
+window.addEventListener("popstate", () => {
+  const conversationId = new URL(location.href).searchParams.get("conversation");
+  if (conversationId) openConversation(conversationId, { updateUrl: false });
+  else startNewConversation({ updateUrl: false, focus: false });
+});
 
 setNetworkStatus();
 loadLearnerSession();

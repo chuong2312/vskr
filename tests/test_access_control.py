@@ -74,6 +74,9 @@ def _send_route(client, method, path, *, origin=None, csrf=None):
         options["params"] = {"query": "test"}
     if method == "GET":
         return client.get(concrete, **options)
+    if method == "PATCH":
+        options["json"] = {"title": "Đã đổi tên"}
+        return client.patch(concrete, **options)
     if method == "DELETE":
         return client.delete(concrete, **options)
     if path == "/api/documents":

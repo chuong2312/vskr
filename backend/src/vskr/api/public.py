@@ -25,6 +25,10 @@ class PublicAskRequest(BaseModel):
     conversation_id: str | None = Field(default=None, max_length=64)
 
 
+class RenameConversationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=72)
+
+
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=256)
     password: str = Field(min_length=1, max_length=1024)
@@ -276,6 +280,12 @@ def list_conversations(user=Depends(accounts.require_user)):
 @router.get("/api/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, user=Depends(accounts.require_user)):
     return accounts.get_conversation(user["user_id"], conversation_id)
+
+
+@router.patch("/api/conversations/{conversation_id}")
+def rename_conversation(conversation_id: str, payload: RenameConversationRequest,
+                        user=Depends(accounts.require_user)):
+    return accounts.rename_conversation(user["user_id"], conversation_id, payload.title)
 
 
 @router.delete("/api/conversations/{conversation_id}")

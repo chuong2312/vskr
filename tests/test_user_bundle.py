@@ -37,6 +37,19 @@ class TestUserBundle(unittest.TestCase):
         self.assertIn("if (scroll && followThread) scrollThreadToEnd()", app)
         self.assertIn("if (followThread) scrollThreadToEnd()", app)
 
+    def test_conversation_history_has_search_grouping_rename_and_deep_link_controls(self):
+        web_root = Path(__file__).parents[1] / "web" / "user"
+        page = (web_root / "index.html").read_text(encoding="utf-8")
+        app = (web_root / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="new-conversation"', page)
+        self.assertIn('id="conversation-search"', page)
+        self.assertIn('id="rename-conversation-dialog"', page)
+        self.assertIn('method: "PATCH"', app)
+        self.assertIn("function conversationGroupTitle(timestamp)", app)
+        self.assertIn('searchParams.set("conversation", conversationId)', app)
+        self.assertIn('window.addEventListener("popstate"', app)
+
     def test_user_pwa_shell_is_public_and_does_not_cache_api_or_video(self):
         data_dir = tempfile.TemporaryDirectory()
         try:
@@ -79,7 +92,7 @@ class TestUserBundle(unittest.TestCase):
             self.assertEqual(api_client.status_code, 200)
             self.assertNotIn('location.assign("/login")', api_client.text)
             shell = worker.text.split("self.addEventListener(\"install\"", 1)[0]
-            self.assertIn('const CACHE_NAME = "vskr-user-shell-v11"', shell)
+            self.assertIn('const CACHE_NAME = "vskr-user-shell-v12"', shell)
             self.assertIn('"/register"', shell)
             self.assertIn('"/login"', shell)
             self.assertIn('const AUTH_PAGES = new Set(["/login", "/register"])', shell)

@@ -218,6 +218,22 @@ def get_conversation(user_id: str, conversation_id: str):
         ]}
 
 
+def rename_conversation(user_id: str, conversation_id: str, title: str):
+    title = " ".join(title.split())
+    if not title:
+        raise HTTPException(422, "Tên cuộc trò chuyện không được để trống.")
+    if len(title) > 72:
+        raise HTTPException(422, "Tên cuộc trò chuyện tối đa 72 ký tự.")
+    with _connect() as db:
+        cursor = db.execute(
+            "UPDATE conversations SET title = ?, updated_at = ? WHERE conversation_id = ? AND user_id = ?",
+            (title, int(time.time()), conversation_id, user_id),
+        )
+        if not cursor.rowcount:
+            raise HTTPException(404, "Không tìm thấy cuộc trò chuyện.")
+    return {"conversation_id": conversation_id, "title": title}
+
+
 def delete_conversation(user_id: str, conversation_id: str):
     with _connect() as db:
         cursor = db.execute("DELETE FROM conversations WHERE conversation_id = ? AND user_id = ?",

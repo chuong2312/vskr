@@ -335,14 +335,15 @@ function jumpCurrentVideo(start) {
     state.pendingJump = { videoId: state.currentVideo.video_id, start };
   }
 
-  function closeLecture() {
-    if (state.player?.pause) state.player.pause();
-    if (state.player?.destroy) state.player.destroy();
-    state.player = null;
-    $("#lecture-card").hidden = true;
-    $("#welcome").hidden = Boolean($("#conversation").children.length);
-    renderTimeline();
-  }
+}
+
+function closeLecture() {
+  if (state.player?.pause) state.player.pause();
+  if (state.player?.destroy) state.player.destroy();
+  state.player = null;
+  $("#lecture-card").hidden = true;
+  $("#welcome").hidden = Boolean($("#conversation").children.length);
+  renderTimeline();
 }
 
 async function openSource(source, turnId = state.activeTurnId) {

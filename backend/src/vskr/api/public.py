@@ -1,16 +1,18 @@
-"""Routes available to anonymous viewers and login/logout endpoints."""
+"""Learner app, learner authentication, and the deliberately small admin login surface."""
 
 from __future__ import annotations
 
+import hmac
 import logging
+import os
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from .. import audit, auth
+from .. import accounts, audit, auth
 from ..config import ROOT
 from . import handlers
 from .limits import check_ask_rate, enter_ask_slot, leave_ask_slot
@@ -25,6 +27,10 @@ class PublicAskRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=256)
     password: str = Field(min_length=1, max_length=1024)
+
+
+class RegisterRequest(LoginRequest):
+    invite_code: str = Field(min_length=1, max_length=256)
 
 
 def _file_response(root: Path, relative_path: str, not_found: str):
@@ -48,6 +54,7 @@ def _safe_source_link(source: dict) -> str | None:
         host = (parsed.hostname or "").lower()
     except ValueError:
         return None
+    youtube_id = str(source.get("youtube_id") or video_id)
     if video_id and (
         host == "youtu.be"
         or host == "youtube.com"
@@ -55,13 +62,81 @@ def _safe_source_link(source: dict) -> str | None:
         or host == "youtube-nocookie.com"
         or host.endswith(".youtube-nocookie.com")
     ):
-        return f"https://www.youtube.com/watch?v={quote(video_id, safe='')}&t={start}s"
+        if host == "youtu.be" and not source.get("youtube_id"):
+            youtube_id = parsed.path.strip("/").split("/")[0]
+        elif not source.get("youtube_id"):
+            youtube_id = video_id
+        return f"https://www.youtube.com/watch?v={quote(youtube_id, safe='')}&t={start}s"
     return handlers._safe_source_url(link)
 
 
 @router.get("/")
-def user_home():
+def user_home(request: Request):
+    if not accounts.get_session(request.cookies.get(accounts.COOKIE_NAME)):
+        return RedirectResponse("/login", status_code=303)
     return FileResponse(ROOT / "web" / "user" / "index.html")
+
+
+@router.get("/login")
+def user_login_page():
+    return FileResponse(ROOT / "web" / "user" / "login.html", headers={"X-Robots-Tag": "noindex, nofollow"})
+
+
+@router.get("/api/user/auth/config")
+def user_auth_config():
+    return {"registration_enabled": bool(os.environ.get("VSKR_USER_INVITE_CODE", "").strip())}
+
+
+@router.post("/api/user/auth/register")
+def user_register(payload: RegisterRequest, request: Request):
+    if not auth._secure_cookie_request(request) or not auth._same_origin(request):
+        raise HTTPException(403, "Yêu cầu đăng ký không hợp lệ.")
+    retry = auth.login_retry_after(auth.client_ip(request), payload.username)
+    if retry:
+        raise HTTPException(429, "Thử lại đăng ký sau.", headers={"Retry-After": str(retry)})
+    invite = os.environ.get("VSKR_USER_INVITE_CODE", "").strip()
+    if invite and not hmac.compare_digest(payload.invite_code.encode(), invite.encode()):
+        auth._record_login_failure(auth.client_ip(request), payload.username)
+        raise HTTPException(403, "Mã mời không hợp lệ.")
+    user = accounts.register(payload.username, payload.password, payload.invite_code)
+    auth._clear_login_failures(auth.client_ip(request), payload.username)
+    token, session = accounts.create_session(payload.username, payload.password)
+    response = JSONResponse({"user": {"user_id": user["user_id"], "username": user["username"]}, "csrf_token": session["csrf_token"]})
+    accounts.set_cookie(response, token)
+    return response
+
+
+@router.post("/api/user/auth/login")
+def user_login(payload: LoginRequest, request: Request):
+    if not auth._secure_cookie_request(request) or not auth._same_origin(request):
+        raise HTTPException(403, "Yêu cầu đăng nhập không hợp lệ.")
+    ip = auth.client_ip(request)
+    retry = auth.login_retry_after(ip, payload.username)
+    if retry:
+        raise HTTPException(429, "Sai tên đăng nhập hoặc mật khẩu.", headers={"Retry-After": str(retry)})
+    try:
+        token, session = accounts.create_session(payload.username, payload.password)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            auth._record_login_failure(ip, payload.username)
+        raise
+    auth._clear_login_failures(ip, payload.username)
+    response = JSONResponse({"user": {"user_id": session["user_id"], "username": session["username"]}, "csrf_token": session["csrf_token"]})
+    accounts.set_cookie(response, token)
+    return response
+
+
+@router.post("/api/user/auth/logout")
+def user_logout(request: Request, user=Depends(accounts.require_user)):
+    accounts.revoke_session(request.cookies.get(accounts.COOKIE_NAME))
+    response = JSONResponse({"ok": True})
+    accounts.clear_cookie(response)
+    return response
+
+
+@router.get("/api/user/auth/me")
+def user_me(user=Depends(accounts.require_user)):
+    return {"user_id": user["user_id"], "username": user["username"], "csrf_token": user["csrf_token"]}
 
 
 @router.get("/user/assets/{asset_path:path}")
@@ -104,36 +179,60 @@ def admin_login_asset(asset_path: str):
 
 
 @router.get("/api/videos")
-def public_videos():
-    return handlers.public_videos()
+def public_videos(user=Depends(accounts.require_learner_or_admin)):
+    return handlers.public_videos(owner_id=user["user_id"])
 
 
 @router.get("/api/catalog")
-def public_catalog():
-    return handlers.public_catalog()
+def public_catalog(user=Depends(accounts.require_learner_or_admin)):
+    return handlers.public_catalog(owner_id=user["user_id"])
+
+
+@router.post("/api/ingest", status_code=202)
+async def public_ingest(url: str | None = Form(None), file: UploadFile | None = File(None), user=Depends(accounts.require_learner_or_admin)):
+    result = await handlers.start_ingest(url=url, file=file, owner_id=user.get("user_id"))
+    audit.write_event("ingest.start", target_id=result.get("job_id"), kind="upload" if file else "url")
+    return result
+
+
+@router.post("/api/documents", status_code=202)
+async def public_upload_document(file: UploadFile = File(...), user=Depends(accounts.require_learner_or_admin)):
+    result = await handlers.upload_document(file=file, owner_id=user.get("user_id"))
+    audit.write_event("document.upload", target_id=result.get("job_id"), kind="document")
+    return result
+
+
+@router.get("/api/jobs/{job_id}")
+def public_job_status(job_id: str, user=Depends(accounts.require_learner_or_admin)):
+    job = handlers.get_job(job_id)
+    if not user.get("admin") and job.get("owner_id") != user["user_id"]:
+        raise HTTPException(404, "Không tìm thấy tác vụ.")
+    if user.get("admin"):
+        return job
+    return {key: job[key] for key in ("job_id", "status", "phase", "message", "title") if key in job}
 
 
 @router.get("/api/documents/{document_id}/sections/{section}")
-def public_document_section(document_id: str, section: int):
+def public_document_section(document_id: str, section: int, user=Depends(accounts.require_learner_or_admin)):
     if not handlers._indexed_document(document_id):
         raise HTTPException(404, "Không tìm thấy mục tài liệu.")
-    return handlers.document_section(document_id, section)
+    return handlers.document_section(document_id, section, owner_id=user.get("user_id"))
 
 
 @router.get("/api/videos/{video_id}/file")
-def public_video_file(video_id: str):
-    if not handlers._indexed_video(video_id):
+def public_video_file(video_id: str, user=Depends(accounts.require_learner_or_admin)):
+    if not handlers._indexed_video(video_id, owner_id=user.get("user_id")):
         raise HTTPException(404, "Không tìm thấy video.")
-    return handlers.uploaded_video_file(video_id)
+    return handlers.uploaded_video_file(video_id, owner_id=user.get("user_id"))
 
 
 @router.get("/api/status")
-def public_status():
+def public_status(user=Depends(accounts.require_learner_or_admin)):
     return {"ready": handlers.state["service"] is not None}
 
 
 @router.post("/api/ask")
-def ask(request: Request, payload: PublicAskRequest):
+def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.require_learner_or_admin)):
     question = payload.question
     if not question.strip():
         raise HTTPException(422, "Câu hỏi không được để trống.")
@@ -142,12 +241,12 @@ def ask(request: Request, payload: PublicAskRequest):
     enter_ask_slot()
     try:
         check_ask_rate(auth.client_ip(request))
-        result = handlers.ask(handlers.AskRequest(question=question), use_request_mode=False)
+        result = handlers.ask(handlers.AskRequest(question=question), use_request_mode=False, owner_id=user.get("user_id"))
         sources = []
         for source in result.get("sources", []):
             item = {
                 key: source[key]
-                for key in ("n", "source_type", "video_id", "document_id", "section", "title", "label", "start", "end", "text", "cited")
+                for key in ("n", "source_type", "video_id", "youtube_id", "document_id", "section", "title", "label", "start", "end", "text", "cited")
                 if key in source
             }
             item["link"] = _safe_source_link(source)

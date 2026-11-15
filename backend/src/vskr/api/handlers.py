@@ -351,7 +351,7 @@ def delete_job(job_id: str):
     return {"deleted": job_id}
 
 
-def document_section(document_id: str, section: int):
+def document_section(document_id: str, section: int, owner_id=None):
     cfg = load_config()
     root = (data_dir(cfg) / "documents").resolve()
     doc_dir = (root / document_id).resolve()
@@ -361,6 +361,8 @@ def document_section(document_id: str, section: int):
     if not meta_path.is_file() or not sections_path.is_file():
         raise HTTPException(404, "Không tìm thấy tài liệu.")
     meta = read_json(meta_path)
+    if owner_id is not None and meta.get("owner_id") not in (None, owner_id):
+        raise HTTPException(404, "Không tìm thấy mục tài liệu.")
     chunks = read_json(sections_path).get("chunks", [])
     match = next((c for c in chunks if c.get("section") == section), None)
     if match is None:
@@ -368,7 +370,7 @@ def document_section(document_id: str, section: int):
     return {"document_id": document_id, "title": meta.get("title"), "section": section, "text": match["text"]}
 
 
-def uploaded_video_file(video_id: str):
+def uploaded_video_file(video_id: str, owner_id=None):
     cfg = load_config()
     video_root = videos_dir(cfg).resolve()
     vdir = video_dir(cfg, video_id)
@@ -378,6 +380,8 @@ def uploaded_video_file(video_id: str):
     if not meta_path.is_file():
         raise HTTPException(404, "Không tìm thấy video.")
     meta = read_json(meta_path)
+    if owner_id is not None and meta.get("owner_id") not in (None, owner_id):
+        raise HTTPException(404, "Không tìm thấy video.")
     if meta.get("source_type") != "upload" or not meta.get("has_video_file"):
         raise HTTPException(404, "Video này không có file upload để phát trực tiếp.")
     source_path = resolve_source(vdir, meta)
@@ -445,17 +449,17 @@ def admin_status():
     return full
 
 
-def _indexed_video(video_id: str) -> bool:
+def _indexed_video(video_id: str, owner_id=None) -> bool:
     service = state["service"]
-    return bool(service and any(chunk.get("video_id") == video_id for chunk in service.index.chunks))
+    return bool(service and any(chunk.get("video_id") == video_id and (owner_id is None or not chunk.get("owner_id") or chunk.get("owner_id") == owner_id) for chunk in service.index.chunks))
 
 
-def _indexed_document(document_id: str) -> bool:
+def _indexed_document(document_id: str, owner_id=None) -> bool:
     service = state["service"]
-    return bool(service and any(chunk.get("document_id") == document_id for chunk in service.index.chunks))
+    return bool(service and any(chunk.get("document_id") == document_id and (owner_id is None or not chunk.get("owner_id") or chunk.get("owner_id") == owner_id) for chunk in service.index.chunks))
 
 
-def public_videos():
+def public_videos(owner_id=None):
     if state["service"] is None:
         _init_service()
     service = state["service"]
@@ -464,6 +468,8 @@ def public_videos():
     indexed_video_ids = {chunk.get("video_id") for chunk in service.index.chunks if chunk.get("video_id")}
     result = []
     for meta in service.meta.values():
+        if owner_id is not None and meta.get("owner_id") not in (None, owner_id):
+            continue
         video_id = meta.get("video_id")
         if not video_id or video_id not in indexed_video_ids:
             continue
@@ -477,7 +483,7 @@ def public_videos():
             or host == "youtube-nocookie.com"
             or host.endswith(".youtube-nocookie.com")
         ):
-            playback_url = f"https://www.youtube.com/watch?v={video_id}"
+            playback_url = f"https://www.youtube.com/watch?v={meta.get('youtube_id') or video_id}"
         if not playback_url:
             playback_url = _safe_source_url(meta.get("url"))
         result.append({
@@ -489,8 +495,8 @@ def public_videos():
     return result
 
 
-def public_catalog():
-    videos = public_videos()
+def public_catalog(owner_id=None):
+    videos = public_videos(owner_id=owner_id)
     cfg = load_config()
     from ..documents import list_documents
 
@@ -500,6 +506,8 @@ def public_catalog():
         chunk.get("document_id") for chunk in service.index.chunks if chunk.get("document_id")
     } if service else set()
     for item in list_documents(cfg):
+        if owner_id is not None and item.get("owner_id") not in (None, owner_id):
+            continue
         document_id = item.get("document_id")
         if not document_id or document_id not in indexed_document_ids:
             continue
@@ -527,14 +535,20 @@ def _process_ingest_job(job_id, source):
             from ..documents import ingest_document
 
             meta = ingest_document(source["path"], cfg, document_id=source["document_id"])
+            if source.get("owner_id"):
+                meta["owner_id"] = source["owner_id"]
+                write_json(data_dir(cfg) / "documents" / source["document_id"] / "meta.json", meta)
             _update_job(job_id, document_id=meta["document_id"], title=meta["title"])
         else:
             _update_job(job_id, status="running", phase="ingest", message="Đang tải/đọc video và tách audio…")
             if source["kind"] == "url":
-                meta = ingest(source["url"], cfg, with_video=True)
+                meta = ingest(source["url"], cfg, with_video=True, video_id=source.get("video_id"))
             else:
                 meta = ingest_file(source["path"], cfg, source["video_id"], title=source["title"])
             video_id = meta["video_id"]
+            if source.get("owner_id"):
+                meta["owner_id"] = source["owner_id"]
+                write_json(video_dir(cfg, video_id) / "meta.json", meta)
             _update_job(job_id, phase="scenes", message="Đang phát hiện phân cảnh trong video…")
             from ..frames import detect_scenes_only
 
@@ -620,6 +634,7 @@ def _queue_job(source, title=None):
             "message": "Đang chờ các tác vụ xử lý trước hoàn tất…",
             "video_id": source.get("video_id"), "document_id": source.get("document_id"),
             "title": title or source.get("title"),
+            "owner_id": source.get("owner_id"),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "_source": source,
         }
@@ -627,7 +642,7 @@ def _queue_job(source, title=None):
     return job_id
 
 
-async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFile] = File(None)):
+async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFile] = File(None), owner_id=None):
     """Queue one URL or local video upload; pipeline jobs are serialized to protect GPU VRAM."""
     clean_url = (url or "").strip()
     if bool(clean_url) == bool(file):
@@ -639,7 +654,8 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
     source = None
     if clean_url:
         validate_ingest_url(clean_url)
-        source = {"kind": "url", "url": clean_url}
+        video_id = f"user-{owner_id[:10]}-{uuid.uuid4().hex[:12]}" if owner_id else None
+        source = {"kind": "url", "url": clean_url, "video_id": video_id, "owner_id": owner_id}
     else:
         filename = Path(file.filename or "video").name
         suffix = Path(filename).suffix.lower()
@@ -682,13 +698,14 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
             "path": str(destination),
             "video_id": video_id,
             "title": Path(filename).stem or video_id,
+            "owner_id": owner_id,
         }
 
     job_id = _queue_job(source, source.get("title"))
     return {"job_id": job_id, "status": "queued"}
 
 
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), owner_id=None):
     filename = Path(file.filename or "document.txt").name
     suffix = Path(filename).suffix.lower()
     if suffix not in {".txt", ".md", ".rst", ".pdf", ".docx"}:
@@ -717,6 +734,7 @@ async def upload_document(file: UploadFile = File(...)):
     finally:
         await file.close()
     source = {"kind": "document", "path": str(path), "document_id": document_id, "title": Path(filename).stem}
+    source["owner_id"] = owner_id
     job_id = _queue_job(source, source["title"])
     return {"job_id": job_id, "status": "queued"}
 
@@ -769,7 +787,7 @@ def reload_index():
     return admin_status()
 
 
-def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False):
+def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False, owner_id=None):
     q = req.question.strip()
     if not q:
         raise HTTPException(400, "Câu hỏi trống")
@@ -792,7 +810,8 @@ def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=Fal
                 headers={"Retry-After": "10"},
             )
         with _service_use_lock:
-            return state["service"].ask(q, mode=mode, llm_lock=_gpu_model_lock, lock_timeout=GPU_LOCK_TIMEOUT_S)
+            return state["service"].ask(q, mode=mode, llm_lock=_gpu_model_lock, lock_timeout=GPU_LOCK_TIMEOUT_S,
+                                         owner_id=owner_id)
     except HTTPException:
         raise
     except RuntimeError as e:

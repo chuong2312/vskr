@@ -22,6 +22,7 @@
 <nav class="app-nav" aria-label="Điều hướng chính">
   <button type="button" data-page="overview" aria-current="page">Tổng quan</button>
   <button type="button" data-page="library" aria-current="false">Học liệu</button>
+  <button type="button" data-page="users" aria-current="false">Tài khoản</button>
   <button type="button" data-page="tasks" aria-current="false">Tác vụ</button>
   <button type="button" data-page="qa" aria-current="false">Thử hỏi</button>
   <button type="button" data-page="evaluation" aria-current="false">Đánh giá</button>
@@ -42,6 +43,12 @@
     <article class="panel metric-card"><span class="metric-label">Chỉ mục</span><strong id="system-index" class="metric-value">—</strong><span class="hint">Số đoạn đã lập chỉ mục</span></article>
   </section>
   <section class="panel dashboard-details"><h3>Thông tin chỉ mục</h3><dl id="index-details" class="details-list"><dt>Ngày tạo</dt><dd>—</dd><dt>Phiên bản</dt><dd>—</dd></dl><p id="system-error" class="err" role="status"></p></section>
+</main>
+
+<main class="library-main" id="users-screen" hidden>
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Tài khoản người học</h2><p class="hint">Tài khoản đăng ký bằng mã mời. Tắt tài khoản sẽ thu hồi các phiên đăng nhập hiện có.</p></div><button class="small-action" id="refresh-users" type="button">Làm mới</button></div>
+  <p id="users-status" class="hint" role="status" aria-live="polite"></p>
+  <div class="panel audit-table-wrap"><table class="audit-table"><thead><tr><th>Tên tài khoản</th><th>Ngày tạo</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody id="users-list"><tr><td colspan="4">Đang tải…</td></tr></tbody></table></div>
 </main>
 
 <main class="library-main" id="tasks-screen" hidden>

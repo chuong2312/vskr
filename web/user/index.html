@@ -25,6 +25,8 @@
       <span id="network-status" class="network-status" role="status" hidden></span>
       <button id="search-toggle" class="quiet-button search-toggle" type="button" aria-label="Tìm học liệu" aria-expanded="false" aria-controls="library-search">⌕</button>
       <button id="install-app" class="quiet-button" type="button" hidden>Cài ứng dụng</button>
+      <span id="user-name" class="quiet-button" aria-label="Tài khoản người học"></span>
+      <button id="user-logout" class="quiet-button" type="button">Đăng xuất</button>
       <a id="admin-link" class="quiet-button admin-link" hidden>Quản trị</a>
     </div>
   </header>
@@ -35,6 +37,11 @@
         <div class="section-heading">
           <div><p class="eyebrow">THƯ VIỆN</p><h2>Bài giảng</h2></div>
           <span id="video-count" class="count-badge">—</span>
+        </div>
+        <button id="add-video-toggle" class="small-button" type="button" aria-expanded="false" aria-controls="add-video-panel">＋ Thêm video</button>
+        <div id="add-video-panel" class="user-add-panel" hidden>
+          <form id="user-video-form"><label for="user-video-url">Dán link video</label><input id="user-video-url" type="url" placeholder="https://…"><label for="user-video-file">Hoặc chọn video</label><input id="user-video-file" type="file" accept="video/*"><button class="primary-button" type="submit">Thêm video để hỏi</button><p id="user-video-status" class="request-status" role="status"></p></form>
+          <form id="user-document-form"><label for="user-document-file">Thêm tài liệu</label><input id="user-document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx"><button class="small-button" type="submit">Thêm tài liệu để hỏi</button><p id="user-document-status" class="request-status" role="status"></p></form>
         </div>
         <p id="library-loading" class="muted">Đang tải học liệu…</p>
         <p id="library-empty" class="muted" hidden>Chưa có bài giảng nào sẵn sàng.</p>

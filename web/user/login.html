@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#174a52"><link rel="stylesheet" href="/shared/tokens.css">
+  <link rel="stylesheet" href="/user/assets/styles.css"><title>Đăng nhập — VSKR</title>
+  <style>
+    body{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--page,#0b1716)}
+    .auth-card{width:min(100%,440px);padding:32px;border:1px solid var(--line,#314846);border-radius:22px;background:var(--panel,#172725);box-shadow:0 24px 80px #0004}
+    .auth-card h1{margin:24px 0 8px}.auth-card>p{color:var(--muted,#a8b9b6);line-height:1.6}.auth-card form{display:grid;gap:12px;margin-top:24px}
+    .auth-card label{font-size:.9rem}.auth-card input{width:100%;padding:12px;border:1px solid var(--line,#314846);border-radius:10px;background:#0e1a19;color:inherit}
+    .auth-card button{padding:12px;border-radius:10px;cursor:pointer}.auth-switch{margin-top:20px}.auth-switch button{border:0;background:none;color:#89d0c7;text-decoration:underline}
+    #auth-status{min-height:1.5em;color:#f6a6a6}.brand{display:flex;align-items:center;gap:12px}.brand-mark{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:#8bcac2;color:#10312f;font-weight:bold}
+  </style>
+</head>
+<body>
+  <main class="auth-card">
+    <a class="brand" href="/login"><span class="brand-mark">V</span><span><strong>VSKR</strong><br><small>Học cùng bài giảng của bạn</small></span></a>
+    <h1 id="auth-title">Đăng nhập người học</h1><p id="auth-description">Đăng nhập để thêm video riêng, lưu học liệu của bạn và hỏi đáp có trích dẫn.</p>
+    <form id="auth-form">
+      <label for="username">Tên tài khoản</label><input id="username" name="username" minlength="3" maxlength="64" autocomplete="username" required>
+      <label for="password">Mật khẩu</label><input id="password" name="password" type="password" minlength="10" maxlength="1024" autocomplete="current-password" required>
+      <div id="invite-wrap" hidden><label for="invite-code">Mã mời đăng ký</label><input id="invite-code" name="invite_code" autocomplete="off"></div>
+      <button class="primary-button" id="submit-button" type="submit">Đăng nhập</button><p id="auth-status" role="status"></p>
+    </form>
+    <p class="auth-switch" id="auth-switch"><span id="switch-copy">Chưa có tài khoản?</span> <button id="switch-mode" type="button">Đăng ký bằng mã mời</button></p>
+  </main>
+  <script type="module" src="/user/assets/login.js"></script>
+</body>
+</html>

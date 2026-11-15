@@ -8,14 +8,22 @@ export class ApiError extends Error {
 }
 
 export async function request(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const csrf = sessionStorage.getItem("vskr-user-csrf");
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
+  if (csrf && !["GET", "HEAD", "OPTIONS"].includes(method)) headers["X-CSRF-Token"] = csrf;
   const response = await fetch(path, {
     ...options,
-    headers: { Accept: "application/json", ...(options.headers || {}) },
+    headers,
     credentials: "same-origin",
   });
   let body = null;
   try { body = await response.json(); } catch { /* Some downloads and server errors have no JSON body. */ }
   if (!response.ok) {
+    if (response.status === 401 && location.pathname !== "/login") {
+      sessionStorage.removeItem("vskr-user-csrf");
+      location.assign("/login");
+    }
     const message = typeof body?.detail === "string" ? body.detail : `Yêu cầu thất bại (${response.status}).`;
     throw new ApiError(message, response.status, Number(response.headers.get("Retry-After") || 0));
   }

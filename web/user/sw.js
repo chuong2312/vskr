@@ -1,11 +1,12 @@
-const CACHE_NAME = "vskr-user-shell-v4";
+const CACHE_NAME = "vskr-user-shell-v6";
 const SHELL = [
-  "/",
+  "/login",
   "/manifest.webmanifest",
   "/shared/tokens.css",
   "/shared/api.js",
   "/user/assets/styles.css",
   "/user/assets/app.js",
+  "/user/assets/login.js",
   "/user/assets/icons/icon-192.png",
   "/user/assets/icons/icon-512.png",
   "/user/assets/icons/icon.svg",

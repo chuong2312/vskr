@@ -4,6 +4,7 @@ from . import index as index_mod
 from .embedder import Embedder
 from .qa import answer_question
 from .retriever import Retriever
+from .bm25 import BM25, tokenize
 from .util import fmt_time, source_link
 
 
@@ -52,9 +53,21 @@ class Service:
             for m in self.meta.values()
         ]
 
-    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10):
+    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, owner_id=None):
         t0 = time.time()
-        hits = self.retriever.search(question, mode=mode)
+        retriever = self.retriever
+        if owner_id is not None and hasattr(self, "index"):
+            allowed = [i for i, chunk in enumerate(self.index.chunks)
+                       if not chunk.get("owner_id") or chunk.get("owner_id") == owner_id]
+            chunks = [self.index.chunks[i] for i in allowed]
+            vectors = self.index.vectors[allowed]
+            scoped_index = index_mod.Index(
+                chunks, vectors, BM25([tokenize(chunk["text"]) for chunk in chunks]),
+                self.index.info, {"version": 1, "nodes": [], "edges": []},
+            )
+            retriever = Retriever(scoped_index, self.embedder, self.cfg["retrieval"])
+            mode = "hybrid" if mode in (None, "hybrid_graph", "graph") else mode
+        hits = retriever.search(question, mode=mode)
         t1 = time.time()
         if llm_lock is not None and not llm_lock.acquire(timeout=lock_timeout):
             raise ModelBusyError("Shared GPU slot did not become available before the request deadline.")
@@ -77,6 +90,7 @@ class Service:
                     "chunk_id": c["chunk_id"],
                     "source_type": "document" if is_document else "video",
                     "video_id": c.get("video_id"),
+                    "youtube_id": m.get("youtube_id"),
                     "document_id": document_id,
                     "section": section,
                     "title": m.get("title") or c.get("title"),

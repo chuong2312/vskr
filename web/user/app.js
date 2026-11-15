@@ -47,6 +47,52 @@ function setStatus(message = "", kind = "", status = $("#app-status")) {
   status.classList.toggle("error", kind === "error");
 }
 
+async function waitForPublicJob(jobId, statusNode) {
+  while (true) {
+    const job = await request(`/api/jobs/${encodeURIComponent(jobId)}`);
+    statusNode.textContent = `${job.phase || "Đang xử lý"}: ${job.message || "Vui lòng chờ…"}`;
+    if (job.status === "error") throw new Error(job.error_detail || job.message || "Xử lý thất bại.");
+    if (job.status === "done") return job;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+}
+
+$("#add-video-toggle").addEventListener("click", () => {
+  const panel = $("#add-video-panel");
+  panel.hidden = !panel.hidden;
+  $("#add-video-toggle").setAttribute("aria-expanded", String(!panel.hidden));
+});
+$("#user-video-url").addEventListener("input", () => { if ($("#user-video-url").value.trim()) $("#user-video-file").value = ""; });
+$("#user-video-file").addEventListener("change", () => { if ($("#user-video-file").files.length) $("#user-video-url").value = ""; });
+$("#user-video-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const status = $("#user-video-status"), url = $("#user-video-url").value.trim(), file = $("#user-video-file").files[0];
+  if (Boolean(url) === Boolean(file)) { status.textContent = "Dán một link hoặc chọn một video."; return; }
+  const payload = new FormData();
+  if (url) payload.append("url", url); else payload.append("file", file);
+  const button = event.submitter; button.disabled = true; status.textContent = "Đang tiếp nhận video…";
+  try {
+    const queued = await request("/api/ingest", { method: "POST", body: payload });
+    await waitForPublicJob(queued.job_id, status);
+    await loadLibrary();
+    status.textContent = "Video đã sẵn sàng. Bạn có thể hỏi ngay.";
+  } catch (error) { status.textContent = error.message || "Không thêm được video."; }
+  finally { button.disabled = false; }
+});
+$("#user-document-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const status = $("#user-document-status"), file = $("#user-document-file").files[0];
+  if (!file) { status.textContent = "Chọn một tài liệu trước."; return; }
+  const payload = new FormData(); payload.append("file", file);
+  const button = event.submitter; button.disabled = true; status.textContent = "Đang tiếp nhận tài liệu…";
+  try {
+    const queued = await request("/api/documents", { method: "POST", body: payload });
+    await waitForPublicJob(queued.job_id, status);
+    await loadLibrary(); status.textContent = "Tài liệu đã sẵn sàng để hỏi.";
+  } catch (error) { status.textContent = error.message || "Không thêm được tài liệu."; }
+  finally { button.disabled = false; }
+});
+
 function clearRetry() {
   if (state.retryInterval) clearInterval(state.retryInterval);
   state.retryInterval = null;
@@ -517,6 +563,20 @@ async function showAdminLink() {
   } catch { /* Public reading and questions do not depend on admin session lookup. */ }
 }
 
+async function loadLearnerSession() {
+  try {
+    const session = await request("/api/user/auth/me");
+    $("#user-name").textContent = session.username;
+    if (session.csrf_token) sessionStorage.setItem("vskr-user-csrf", session.csrf_token);
+  } catch { location.assign("/login"); }
+}
+
+$("#user-logout").addEventListener("click", async () => {
+  const button = $("#user-logout"); button.disabled = true;
+  try { await request("/api/user/auth/logout", { method: "POST" }); }
+  finally { sessionStorage.removeItem("vskr-user-csrf"); location.assign("/login"); }
+});
+
 async function loadLibrary() {
   try {
     const [catalog, status] = await Promise.all([request("/api/catalog"), request("/api/status")]);
@@ -746,6 +806,7 @@ thread.addEventListener("scroll", () => { bottomButton.hidden = thread.scrollTop
 bottomButton.addEventListener("click", () => thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" }));
 
 setNetworkStatus();
+loadLearnerSession();
 loadLibrary();
 showAdminLink();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});

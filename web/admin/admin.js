@@ -74,6 +74,7 @@ document.querySelectorAll("[data-page]").forEach((button) => button.addEventList
   document.querySelectorAll("[data-page]").forEach((el) => el.setAttribute("aria-current", el === button ? "page" : "false"));
   if (button.dataset.page === "overview") loadDashboard();
   if (button.dataset.page === "library") loadLibrary();
+  if (button.dataset.page === "users") loadUsers();
   if (button.dataset.page === "tasks") loadTasks();
   if (button.dataset.page === "qa" && !qaInitialized) init();
   if (button.dataset.page === "evaluation") loadEvaluation();
@@ -176,6 +177,34 @@ $("#tasks-list").addEventListener("click", async (event) => {
     $("#tasks-status").textContent = `Không thể thử lại: ${error.message}`;
     button.disabled = false;
   }
+});
+
+async function loadUsers() {
+  const status = $("#users-status"), tbody = $("#users-list");
+  status.textContent = "Đang tải tài khoản…";
+  try {
+    const users = await fetch("/api/admin/users").then(async (r) => { if (!r.ok) throw new Error("Không tải được tài khoản."); return r.json(); });
+    tbody.replaceChildren();
+    for (const user of users) {
+      const row = document.createElement("tr");
+      row.innerHTML = `<td>${esc(user.username)}</td><td>${new Date(user.created_at * 1000).toLocaleDateString("vi-VN")}</td><td>${user.disabled ? "Đã tắt" : "Đang hoạt động"}</td><td><button class="small-action" data-user-action="${user.disabled ? "enable" : "disable"}" data-user-id="${esc(user.user_id)}">${user.disabled ? "Mở lại" : "Tắt tài khoản"}</button></td>`;
+      tbody.append(row);
+    }
+    if (!users.length) tbody.innerHTML = '<tr><td colspan="4">Chưa có tài khoản nào.</td></tr>';
+    status.textContent = `${users.length} tài khoản`;
+  } catch (error) { status.textContent = error.message; }
+}
+
+$("#refresh-users")?.addEventListener("click", loadUsers);
+$("#users-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-user-action]");
+  if (!button) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/admin/users/${encodeURIComponent(button.dataset.userId)}/${button.dataset.userAction}`, { method: "POST" });
+    if (!response.ok) throw new Error("Không cập nhật được tài khoản.");
+    await loadUsers();
+  } catch (error) { $("#users-status").textContent = error.message; button.disabled = false; }
 });
 
 $("#logout-button").addEventListener("click", async (event) => {

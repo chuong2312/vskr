@@ -3,11 +3,30 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
-from .. import audit, auth
+from .. import audit, auth, accounts
 from ..config import ROOT
 from . import handlers
 
 router = APIRouter(dependencies=[Depends(auth.require_admin)])
+
+
+@router.get("/api/admin/users")
+def users():
+    return accounts.list_users()
+
+
+@router.post("/api/admin/users/{user_id}/disable")
+def disable_user(user_id: str):
+    accounts.set_user_disabled(user_id, True)
+    audit.write_event("user.disable", target_id=user_id)
+    return {"disabled": True}
+
+
+@router.post("/api/admin/users/{user_id}/enable")
+def enable_user(user_id: str):
+    accounts.set_user_disabled(user_id, False)
+    audit.write_event("user.enable", target_id=user_id)
+    return {"disabled": False}
 
 
 def _admin_file(relative_path: str):

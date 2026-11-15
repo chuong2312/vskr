@@ -16,7 +16,7 @@ TEST_HASH = hash_password(secrets.token_urlsafe(24))
 class TestUserBundle(unittest.TestCase):
     def test_public_bundle_has_no_admin_or_management_routes(self):
         web_root = Path(__file__).parents[1] / "web" / "user"
-        forbidden = ("/api/ingest", "/api/eval", "/api/graph", "/api/reload", "/admin")
+        forbidden = ("/api/eval", "/api/graph", "/api/reload", "/admin")
         for path in web_root.rglob("*"):
             if path.is_file() and path.suffix in {".html", ".js", ".css", ".webmanifest"}:
                 contents = path.read_text(encoding="utf-8")
@@ -33,7 +33,8 @@ class TestUserBundle(unittest.TestCase):
                     worker = client.get("/sw.js")
                     shared = client.get("/shared/tokens.css")
                     icon = client.get("/user/assets/icons/icon.svg")
-            self.assertEqual(page.status_code, 200)
+            self.assertEqual(page.status_code, 303)
+            self.assertEqual(page.headers["location"], "/login")
             self.assertEqual(manifest.status_code, 200)
             self.assertIn("application/manifest+json", manifest.headers["content-type"])
             self.assertEqual(worker.status_code, 200)
@@ -41,7 +42,8 @@ class TestUserBundle(unittest.TestCase):
             self.assertEqual(shared.status_code, 200)
             self.assertEqual(icon.status_code, 200)
             shell = worker.text.split("self.addEventListener(\"install\"", 1)[0]
-            self.assertIn('"/"', shell)
+            self.assertIn('"/login"', shell)
+            self.assertNotIn('"/"', shell)
             self.assertNotIn("/api/", shell)
             self.assertNotIn("/api/videos/", shell)
             self.assertIn('url.pathname.startsWith("/api/")', worker.text)

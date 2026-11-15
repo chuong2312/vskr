@@ -13,14 +13,20 @@ async def _inline_run_sync(call, *args, **kwargs):
 
 
 class ASGITestClient:
-    def __init__(self, app, base_url="http://localhost"):
+    def __init__(self, app, base_url="http://localhost", authenticated_learner=True):
         self.app = app
         self.base_url = base_url
         self.loop = None
         self.client = None
         self._patches = []
+        self.authenticated_learner = authenticated_learner
+        self._previous_overrides = None
 
     def __enter__(self):
+        if self.authenticated_learner:
+            from vskr.accounts import require_learner_or_admin
+            self._previous_overrides = dict(self.app.dependency_overrides)
+            self.app.dependency_overrides[require_learner_or_admin] = lambda: {"user_id": "test-learner", "username": "test-learner", "csrf_token": "test-csrf"}
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self._patches = [
@@ -46,6 +52,9 @@ class ASGITestClient:
             if self.client is not None:
                 self.loop.run_until_complete(self.client.__aexit__(exc_type, exc, tb))
         finally:
+            if self._previous_overrides is not None:
+                self.app.dependency_overrides.clear()
+                self.app.dependency_overrides.update(self._previous_overrides)
             for patcher in reversed(self._patches):
                 patcher.stop()
             self.loop.close()

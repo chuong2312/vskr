@@ -84,13 +84,14 @@ def resolve_source(vdir, meta):
     return q if q.exists() else None
 
 
-def ingest(url, cfg, with_video=False):
+def ingest(url, cfg, with_video=False, video_id=None):
     import yt_dlp
 
     with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
         info = ydl.extract_info(url, download=False)
     check_duration(info.get("duration"), cfg)
-    vid = info["id"]
+    youtube_id = info["id"]
+    vid = video_id or youtube_id
     vdir = video_dir(cfg, vid)
     vdir.mkdir(parents=True, exist_ok=True)
 
@@ -112,6 +113,7 @@ def ingest(url, cfg, with_video=False):
     _extract_audio(src, vdir)
     meta = {
         "video_id": vid,
+        "youtube_id": youtube_id,
         "title": info.get("title"),
         "uploader": info.get("uploader"),
         "duration": duration,

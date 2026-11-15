@@ -66,7 +66,8 @@
       <section class="signed-in-account" id="signed-in-account" hidden>
         <span id="account-avatar" class="account-avatar">N</span>
         <span><strong id="account-display-name">Người dùng</strong><small id="account-email"></small></span>
-        <button id="sidebar-logout" class="icon-button" type="button" aria-label="Đăng xuất">⋯</button>
+        <button id="sidebar-account-menu" class="icon-button" type="button" aria-label="Mở menu tài khoản" aria-expanded="false">⋯</button>
+        <div id="sidebar-account-actions" class="account-menu" hidden><button id="sidebar-logout" type="button">Đăng xuất</button></div>
       </section>
       <section>
         <div class="section-heading">
@@ -149,7 +150,7 @@
           </div>
         </div>
         <div class="composer-input">
-          <textarea id="question-input" rows="1" maxlength="500" placeholder="Hỏi về bất kỳ bài giảng hoặc tài liệu nào trong thư viện…" required></textarea>
+          <textarea id="question-input" rows="1" maxlength="500" placeholder="Hỏi về bài giảng hoặc tài liệu…" required></textarea>
           <button id="ask-button" class="primary-button send-button" type="submit" aria-label="Gửi câu hỏi">➤</button>
         </div>
         <div class="composer-footer">

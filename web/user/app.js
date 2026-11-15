@@ -8,6 +8,7 @@ const state = {
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
+  preferredConversationVideoId: null,
 };
 
 function sourceKey(source) {
@@ -262,10 +263,10 @@ function setupPlayer(video) {
   area.append(message);
 }
 
-function selectVideo(video) {
+function selectVideo(video, { open = true } = {}) {
   state.currentVideo = video;
-  $("#welcome").hidden = true;
-  $("#lecture-card").hidden = false;
+  $("#welcome").hidden = open;
+  $("#lecture-card").hidden = !open;
   $("#lecture-title").textContent = video.title || "Bài giảng";
   $("#lecture-duration").textContent = video.duration ? formatTime(video.duration) : "";
   renderVideos();
@@ -332,6 +333,15 @@ function jumpCurrentVideo(start) {
     state.player.playVideo();
   } else {
     state.pendingJump = { videoId: state.currentVideo.video_id, start };
+  }
+
+  function closeLecture() {
+    if (state.player?.pause) state.player.pause();
+    if (state.player?.destroy) state.player.destroy();
+    state.player = null;
+    $("#lecture-card").hidden = true;
+    $("#welcome").hidden = Boolean($("#conversation").children.length);
+    renderTimeline();
   }
 }
 
@@ -528,6 +538,7 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     });
     if (result.conversation_id) {
       state.activeConversationId = result.conversation_id;
+      $("#conversation-heading").textContent = result.conversation_title || question.slice(0, 60);
       updateConversationUrl(result.conversation_id);
       loadConversations();
     }
@@ -627,9 +638,18 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
   $("#guest-add-notice").hidden = signedIn;
   $("#user-video-form").hidden = !signedIn;
   $("#user-document-form").hidden = !signedIn;
+  $("#signed-in-account").hidden = !signedIn;
+  if (signedIn) {
+    const email = session.email || session.username || "";
+    const displayName = session.display_name || email.split("@", 1)[0] || "Người dùng";
+    $("#account-display-name").textContent = displayName;
+    $("#account-email").textContent = email;
+    $("#account-avatar").textContent = displayName.trim().charAt(0).toUpperCase() || "N";
+  }
   if (!signedIn) {
     state.conversations = [];
     state.activeConversationId = null;
+    state.preferredConversationVideoId = null;
     $("#conversation-search").value = "";
     updateConversationUrl(null, { replace: true });
     renderConversations();
@@ -684,6 +704,15 @@ function openRenameDialog(conversation) {
   $("#rename-conversation-dialog").showModal();
   $("#rename-conversation-title").focus();
   $("#rename-conversation-title").select();
+}
+
+function conversationVideoId(conversation) {
+  for (const turn of [...(conversation.turns || [])].reverse()) {
+    const source = (Array.isArray(turn.sources) ? turn.sources : [])
+      .find((item) => item?.source_type === "video" && item.video_id);
+    if (source) return String(source.video_id);
+  }
+  return null;
 }
 
 function renderConversations() {
@@ -770,6 +799,8 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     if (loadToken !== state.conversationLoadToken) return;
     clearRetry();
     state.activeConversationId = conversation.conversation_id;
+    $("#conversation-heading").textContent = conversation.title || "Cuộc trò chuyện mới";
+    state.preferredConversationVideoId = conversationVideoId(conversation);
     if (updateUrl) updateConversationUrl(conversation.conversation_id);
     state.sources = [];
     state.sourcesByTurn.clear();
@@ -785,6 +816,8 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
       answerTurn.querySelector(".turn-content").replaceChildren(resultNode);
       renderResult(savedTurn, resultNode, answerTurn.dataset.turnId, { scroll: false });
     }
+    const sourceVideo = state.videos.find((video) => video.video_id === state.preferredConversationVideoId);
+    if (sourceVideo) selectVideo(sourceVideo);
     scrollThreadToEnd();
     if (!conversation.turns.length) $("#welcome").hidden = false;
     renderConversations();
@@ -810,6 +843,8 @@ function startNewConversation({ updateUrl = true, replaceUrl = false, focus = tr
   state.conversationLoadToken += 1;
   clearRetry();
   state.activeConversationId = null;
+  $("#conversation-heading").textContent = "Cuộc trò chuyện mới";
+  state.preferredConversationVideoId = null;
   $("#conversation").replaceChildren();
   $("#welcome").hidden = false;
   questionInput.value = "";
@@ -842,7 +877,14 @@ async function loadLibrary() {
     $("#library-loading").hidden = true;
     renderDocuments();
     renderVideos();
-    if (state.videos.length) selectVideo(state.videos[0]);
+    const badge = $("#sidebar-library-badge");
+    if (badge) {
+      badge.textContent = String(state.videos.length + state.documents.length);
+      badge.hidden = !(state.signedIn && state.videos.length + state.documents.length);
+    }
+    const preferredVideoId = state.currentVideo?.video_id || state.preferredConversationVideoId;
+    const initialVideo = state.videos.find((video) => video.video_id === preferredVideoId);
+    if (initialVideo) selectVideo(initialVideo, { open: false });
     else {
       $("#welcome").hidden = false;
       if (!status.ready) setStatus("Thư viện đang được khởi tạo. Hãy tải lại trang sau ít phút.");
@@ -862,7 +904,89 @@ $("#question-form").addEventListener("submit", (event) => {
   $("#suggest-toggle").setAttribute("aria-expanded", "false");
   submitQuestion();
 });
+document.querySelectorAll(".welcome-suggestions button").forEach((button) => {
+  button.addEventListener("click", () => {
+    questionInput.value = button.textContent;
+    updateQuestionInput();
+    submitQuestion();
+  });
+});
 $("#new-conversation").addEventListener("click", () => startNewConversation());
+$("#new-conversation-sidebar").addEventListener("click", () => startNewConversation());
+$("#sidebar-add-content").addEventListener("click", () => {
+  $("#add-video-toggle").click();
+  closeDrawer({ restoreFocus: false });
+});
+$("#sidebar-collapse").addEventListener("click", () => closeDrawer({ restoreFocus: false }));
+$("#sidebar-account-menu").addEventListener("click", () => {
+  const menu = $("#sidebar-account-actions");
+  menu.hidden = !menu.hidden;
+  $("#sidebar-account-menu").setAttribute("aria-expanded", String(!menu.hidden));
+});
+$("#sidebar-logout").addEventListener("click", () => {
+  $("#sidebar-account-actions").hidden = true;
+  $("#sidebar-account-menu").setAttribute("aria-expanded", "false");
+  $("#user-logout").click();
+});
+$("#sidebar-library").addEventListener("click", () => {
+  $("#video-list").scrollIntoView({ block: "nearest" });
+  closeDrawer({ restoreFocus: false });
+});
+$("#close-lecture").addEventListener("click", closeLecture);
+
+const accountDialog = $("#account-dialog");
+let accountMode = "login";
+function openAccountDialog(mode = "login") {
+  accountMode = mode;
+  const registering = mode === "register";
+  $("#account-dialog-title").textContent = registering ? "Tạo tài khoản" : "Đăng nhập";
+  $("#account-login-tab").setAttribute("aria-selected", String(!registering));
+  $("#account-register-tab").setAttribute("aria-selected", String(registering));
+  $("#account-display-label").hidden = !registering;
+  $("#account-display-input").hidden = !registering;
+  $("#account-display-input").required = registering;
+  $("#account-password-input").autocomplete = registering ? "new-password" : "current-password";
+  $("#account-submit").textContent = registering ? "Đăng ký" : "Đăng nhập";
+  $("#account-form-status").textContent = "";
+  accountDialog.showModal();
+  $("#account-email-input").focus();
+}
+$("#user-login").addEventListener("click", (event) => { event.preventDefault(); openAccountDialog("login"); });
+$("#user-register").addEventListener("click", (event) => { event.preventDefault(); openAccountDialog("register"); });
+document.querySelectorAll(".guest-account-panel a, .guest-add-notice a").forEach((link) => {
+  link.addEventListener("click", (event) => { event.preventDefault(); openAccountDialog(link.textContent.includes("Đăng ký") || link.textContent.includes("Tạo") ? "register" : "login"); });
+});
+$("#account-login-tab").addEventListener("click", () => openAccountDialog("login"));
+$("#account-register-tab").addEventListener("click", () => openAccountDialog("register"));
+$("#close-account-dialog").addEventListener("click", () => accountDialog.close());
+accountDialog.addEventListener("click", (event) => { if (event.target === accountDialog) accountDialog.close(); });
+$("#account-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = $("#account-submit");
+  const status = $("#account-form-status");
+  submit.disabled = true;
+  status.textContent = accountMode === "register" ? "Đang tạo tài khoản…" : "Đang đăng nhập…";
+  try {
+    const body = {
+      email: $("#account-email-input").value.trim(),
+      password: $("#account-password-input").value,
+    };
+    if (accountMode === "register") body.display_name = $("#account-display-input").value.trim();
+    const result = await request(accountMode === "register" ? "/api/user/register" : "/api/user/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (result.csrf_token) sessionStorage.setItem("vskr-user-csrf", result.csrf_token);
+    accountDialog.close();
+    await loadLearnerSession();
+    await loadLibrary();
+  } catch (error) {
+    status.textContent = error.message || "Không thể hoàn tất yêu cầu.";
+  } finally {
+    submit.disabled = false;
+  }
+});
 $("#conversation-search").addEventListener("input", renderConversations);
 $("#close-rename-conversation").addEventListener("click", () => $("#rename-conversation-dialog").close());
 $("#cancel-rename-conversation").addEventListener("click", () => $("#rename-conversation-dialog").close());
@@ -1023,6 +1147,10 @@ searchToggle.addEventListener("click", () => {
   else closeSearch();
 });
 const drawer = $("#library-drawer"), drawerToggle = $("#drawer-toggle"), drawerBackdrop = $("#drawer-backdrop");
+if (!window.matchMedia("(max-width: 899px)").matches) {
+  drawer.inert = false;
+  drawer.setAttribute("aria-hidden", "false");
+}
 function openDrawer() {
   drawer.classList.add("open");
   drawer.inert = false;

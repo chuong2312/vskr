@@ -394,6 +394,10 @@ body { background:var(--canvas); }
 .signed-in-account, .guest-account-panel { margin-top:auto !important; }
 .guest-account-panel { position:static; flex:none; }
 .signed-in-account { position:static; flex:none; }
+.signed-in-account { position:relative; }
+.account-menu { position:absolute; right:8px; bottom:42px; z-index:5; padding:4px; border:1px solid var(--line); border-radius:9px; background:var(--surface); box-shadow:0 8px 24px #001a1a1c; }
+.account-menu button { border:0; border-radius:6px; padding:7px 12px; background:transparent; color:var(--ink); font:inherit; font-size:.8rem; white-space:nowrap; cursor:pointer; }
+.account-menu button:hover { background:var(--soft); }
 .sidebar-nav svg, .sidebar-brand svg { width:20px; height:20px; flex:none; }
 .privacy-note { font-size:0; }
 .privacy-note::after { content:"Tìm trong nội dung công khai và nội dung bạn đã thêm."; font-size:.72rem; }

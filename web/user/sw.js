@@ -1,13 +1,14 @@
-const CACHE_NAME = "vskr-user-shell-v13";
+const CACHE_NAME = "vskr-user-shell-v16";
 const AUTH_PAGES = new Set(["/login", "/register"]);
 const SHELL = [
+  "/",
   "/login",
   "/register",
   "/manifest.webmanifest",
   "/shared/tokens.css",
   "/shared/api.js",
-  "/user/assets/styles.css?v=history-2026-11-16",
-  "/user/assets/app.js?v=history-2026-11-16",
+  "/user/assets/styles.css?v=history-context-r2",
+  "/user/assets/app.js?v=history-context-r2",
   "/user/assets/login.js",
   "/user/assets/icons/icon-192.png",
   "/user/assets/icons/icon-512.png",
@@ -35,12 +36,15 @@ self.addEventListener("fetch", (event) => {
     }).catch(() => caches.match(request)));
     return;
   }
-  if (!SHELL_PATHS.has(url.pathname)) return;
-  event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+  const isUserAsset = url.pathname === "/" || AUTH_PAGES.has(url.pathname)
+    || url.pathname.startsWith("/user/assets/")
+    || url.pathname.startsWith("/shared/");
+  if (!isUserAsset || (url.pathname !== "/" && !SHELL_PATHS.has(url.pathname))) return;
+  event.respondWith(fetch(request, { cache: "no-store" }).then((response) => {
     if (response.ok) {
       const copy = response.clone();
       caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
     }
     return response;
-  })));
+  }).catch(() => caches.match(request)));
 });

@@ -8,7 +8,7 @@
   <link rel="icon" href="/user/assets/icons/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/shared/tokens.css">
-  <link rel="stylesheet" href="/user/assets/styles.css?v=history-2026-11-16">
+  <link rel="stylesheet" href="/user/assets/styles.css?v=history-context-r2">
   <title>VSKR — Hỏi đáp bài giảng</title>
 </head>
 <body>
@@ -35,22 +35,38 @@
 
   <main class="layout">
     <aside class="library-panel" id="library-drawer" aria-label="Danh sách học liệu" aria-hidden="true" inert>
+      <div class="sidebar-brand">
+        <a class="brand" href="/" aria-label="VSKR, trang chủ">
+          <span class="brand-mark" aria-hidden="true">V</span>
+          <span><strong>VSKR</strong><small>Hỏi đáp bài giảng</small></span>
+        </a>
+        <button id="sidebar-collapse" class="icon-button" type="button" aria-label="Thu gọn thanh bên">◧</button>
+      </div>
+      <nav class="sidebar-nav" aria-label="Điều hướng">
+        <button id="new-conversation-sidebar" type="button"><span aria-hidden="true">＋</span><span>Cuộc trò chuyện mới</span></button>
+        <button id="sidebar-add-content" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 14V3m0 0L6 7m4-4 4 4M4 12v4h12v-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Thêm nội dung</span></button>
+        <button id="sidebar-library" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h3v12H4zm5 0h3v12H9zm5 0h2v12h-2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span>Thư viện</span><span id="sidebar-library-badge" class="count-badge" hidden>0</span></button>
+      </nav>
       <section class="chat-history" id="history-section" hidden>
         <div class="section-heading"><div><p class="eyebrow">CÁ NHÂN</p><h2>Lịch sử trò chuyện</h2></div><span id="conversation-count" class="count-badge">0</span></div>
         <button id="new-conversation" class="small-button history-new-button" type="button">＋ Cuộc trò chuyện mới</button>
-        <label class="sr-only" for="conversation-search">Tìm trong lịch sử trò chuyện</label>
-        <input id="conversation-search" class="history-search" type="search" placeholder="Tìm cuộc trò chuyện…" autocomplete="off">
+        <label class="history-search-wrap" for="conversation-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m13 13 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><input id="conversation-search" type="search" placeholder="Tìm trong lịch sử" autocomplete="off"></label>
         <p id="conversation-empty" class="muted">Các cuộc hỏi đáp sẽ được lưu tại đây.</p>
         <p id="conversation-no-match" class="muted" hidden>Không tìm thấy cuộc trò chuyện phù hợp.</p>
         <div id="conversation-list" class="conversation-list" aria-label="Các cuộc trò chuyện đã lưu" role="list"></div>
       </section>
       <section class="chat-history guest-account-panel" id="guest-history-cta" hidden>
-        <p class="eyebrow">TÙY CHỌN</p><h2>Lưu lịch sử trò chuyện</h2>
-        <p class="muted">Bạn có thể hỏi bài ngay mà không cần tài khoản. Tạo tài khoản hoặc đăng nhập để lưu và xem lại lịch sử.</p>
+        <h2>Bạn đang dùng với tư cách khách</h2>
+        <p class="muted">Bạn có thể hỏi bài ngay mà không cần tài khoản. Cuộc trò chuyện sẽ mất khi bạn rời trang. Đăng nhập để lưu lịch sử hỏi đáp.</p>
         <div class="account-actions">
           <a class="small-button" href="/login">Đăng nhập</a>
           <a class="small-button account-register-link" href="/register">Tạo tài khoản</a>
         </div>
+      </section>
+      <section class="signed-in-account" id="signed-in-account" hidden>
+        <span id="account-avatar" class="account-avatar">N</span>
+        <span><strong id="account-display-name">Người dùng</strong><small id="account-email"></small></span>
+        <button id="sidebar-logout" class="icon-button" type="button" aria-label="Đăng xuất">⋯</button>
       </section>
       <section>
         <div class="section-heading">
@@ -81,7 +97,7 @@
     <section class="study-panel" aria-label="Hỏi đáp bài giảng">
       <div class="chat-toolbar">
         <button id="drawer-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="library-drawer" aria-label="Mở thư viện">☰</button>
-        <strong>Hỏi VSKR</strong>
+        <strong id="conversation-heading">Cuộc trò chuyện mới</strong>
         <button id="new-thread" class="icon-button" type="button" aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới">✎</button>
       </div>
       <p id="app-status" class="request-status" role="status" hidden></p>
@@ -91,6 +107,11 @@
           <p class="eyebrow">HỌC CÙNG VSKR</p>
           <h1>Hỏi điều bạn muốn hiểu</h1>
           <p>Đặt câu hỏi về bài giảng. Mỗi câu trả lời đi kèm đoạn video hoặc mục tài liệu để bạn tự đối chiếu.</p>
+          <div class="welcome-suggestions">
+            <button type="button">Ý chính của bài giảng là gì?</button>
+            <button type="button">Giải thích khái niệm quan trọng nhất</button>
+            <button type="button">Tóm tắt nội dung chính theo từng phần</button>
+          </div>
         </div>
 
         <section id="lecture-card" class="lecture-card" aria-label="Video bài giảng" hidden>
@@ -103,7 +124,7 @@
               </div>
               <h2 id="lecture-title"></h2>
             </div>
-            <span id="lecture-duration" class="duration-label"></span>
+            <div class="stage-actions"><span id="lecture-duration" class="duration-label"></span><button id="close-lecture" class="icon-button" type="button" aria-label="Đóng video">×</button></div>
           </div>
           <div id="player" class="player" aria-label="Trình phát video"></div>
           <div class="timeline-wrap">
@@ -164,6 +185,27 @@
     </form>
   </dialog>
 
-  <script type="module" src="/user/assets/app.js?v=history-2026-11-16"></script>
+  <dialog id="account-dialog" class="account-dialog" aria-labelledby="account-dialog-title">
+    <div class="dialog-heading">
+      <h2 id="account-dialog-title">Đăng nhập</h2>
+      <button id="close-account-dialog" class="icon-button" type="button" aria-label="Đóng">×</button>
+    </div>
+    <div class="account-tabs" role="tablist">
+      <button id="account-login-tab" type="button" role="tab" aria-selected="true">Đăng nhập</button>
+      <button id="account-register-tab" type="button" role="tab" aria-selected="false">Tạo tài khoản</button>
+    </div>
+    <form id="account-form">
+      <label for="account-email-input">Email</label>
+      <input id="account-email-input" type="email" autocomplete="username" required>
+      <label for="account-password-input">Mật khẩu</label>
+      <input id="account-password-input" type="password" autocomplete="current-password" minlength="8" required>
+      <label id="account-display-label" for="account-display-input" hidden>Tên hiển thị</label>
+      <input id="account-display-input" type="text" autocomplete="name" maxlength="60" hidden>
+      <p id="account-form-status" class="request-status" role="alert"></p>
+      <button id="account-submit" class="primary-button" type="submit">Đăng nhập</button>
+    </form>
+  </dialog>
+
+  <script type="module" src="/user/assets/app.js?v=history-context-r2"></script>
 </body>
 </html>

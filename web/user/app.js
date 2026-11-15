@@ -390,7 +390,8 @@ function appendCitedAnswer(container, answer, sources, turnId) {
   container.append(document.createTextNode(answer.slice(cursor)));
 }
 
-function renderResult(result, root, turnId) {
+function renderResult(result, root, turnId, { scroll = true } = {}) {
+  const followThread = isThreadNearEnd();
   state.sources = Array.isArray(result.sources) ? result.sources : [];
   state.activeTurnId = String(turnId);
   state.activeSourceKey = null;
@@ -435,7 +436,7 @@ function renderResult(result, root, turnId) {
     root.append(details);
   }
   renderTimeline();
-  scrollThreadToEnd();
+  if (scroll && followThread) scrollThreadToEnd();
 }
 
 function sourcePreview(text, limit = 280) {
@@ -463,12 +464,19 @@ function appendSourceText(card, text) {
   card.append(toggle);
 }
 
-function scrollThreadToEnd() {
-  const thread = $("#thread");
-  thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" });
+function isThreadNearEnd(thread = $("#thread")) {
+  return thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 96;
 }
 
-function addTurn(role, content, pending = false) {
+function scrollThreadToEnd({ smooth = false, onlyIfNearEnd = false } = {}) {
+  const thread = $("#thread");
+  if (onlyIfNearEnd && !isThreadNearEnd(thread)) return false;
+  if (smooth) thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" });
+  else thread.scrollTop = thread.scrollHeight;
+  return true;
+}
+
+function addTurn(role, content, pending = false, { scroll = true, forceScroll = false } = {}) {
   const row = make("div", role === "user" ? "user-turn" : "assistant-turn");
   const turnId = `turn-${++state.turnCounter}`;
   row.id = turnId;
@@ -479,7 +487,7 @@ function addTurn(role, content, pending = false) {
   row.append(avatar, body);
   if (pending) row.dataset.pending = "true";
   $("#conversation").append(row);
-  scrollThreadToEnd();
+  if (scroll) scrollThreadToEnd({ onlyIfNearEnd: !forceScroll });
   return row;
 }
 
@@ -501,8 +509,9 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     turn.querySelector(".turn-content").replaceChildren();
   } else {
     $("#welcome").hidden = true;
-    addTurn("user", question);
-    turn = addTurn("assistant", "", true);
+    addTurn("user", question, false, { scroll: false });
+    turn = addTurn("assistant", "", true, { scroll: false });
+    scrollThreadToEnd();
   }
   const pending = make("p", "request-status", retryTurn ? "Đang thử gửi lại câu hỏi…" : "Đang tìm trong bài giảng và tài liệu…");
   pending.setAttribute("role", "status");
@@ -543,6 +552,7 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
       setStatus("Phiên đăng nhập đã hết hạn. Câu trả lời này chưa được lưu; bạn vẫn có thể tiếp tục hỏi bài với tư cách khách.", "error");
     }
   } catch (error) {
+    const followThread = isThreadNearEnd();
     if (!navigator.onLine) {
       setTurnStatus(turn, "Bạn đang ngoại tuyến. Kết nối lại internet rồi thử gửi lại câu hỏi.", "error");
     } else if (error instanceof ApiError && error.status === 429) {
@@ -556,7 +566,7 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     } else {
       setTurnStatus(turn, "Không kết nối được máy chủ. Kiểm tra kết nối rồi thử lại.", "error");
     }
-    scrollThreadToEnd();
+    if (followThread) scrollThreadToEnd();
   } finally {
     state.asking = false;
     $("#ask-button").disabled = false;
@@ -680,12 +690,13 @@ async function openConversation(conversationId) {
     $("#welcome").hidden = true;
     setStatus("");
     for (const savedTurn of conversation.turns) {
-      addTurn("user", savedTurn.question);
-      const answerTurn = addTurn("assistant", "");
+      addTurn("user", savedTurn.question, false, { scroll: false });
+      const answerTurn = addTurn("assistant", "", false, { scroll: false });
       const resultNode = make("div", "result");
       answerTurn.querySelector(".turn-content").replaceChildren(resultNode);
-      renderResult(savedTurn, resultNode, answerTurn.dataset.turnId);
+      renderResult(savedTurn, resultNode, answerTurn.dataset.turnId, { scroll: false });
     }
+    scrollThreadToEnd();
     if (!conversation.turns.length) $("#welcome").hidden = false;
     renderConversations();
     closeDrawer({ restoreFocus: false });
@@ -715,7 +726,7 @@ function startNewConversation() {
   state.activeSourceKey = null;
   renderTimeline();
   renderConversations();
-  $("#thread").scrollTo({ top: 0, behavior: "smooth" });
+  $("#thread").scrollTop = 0;
   questionInput.focus();
 }
 
@@ -937,8 +948,34 @@ questionInput.addEventListener("keydown", (event) => {
   }
 });
 const thread = $("#thread"), bottomButton = $("#thread-bottom");
+const studyPanel = document.querySelector(".study-panel");
+function canScrollVertically(element, deltaY) {
+  if (!(element instanceof HTMLElement)) return false;
+  const overflowY = getComputedStyle(element).overflowY;
+  const maxScrollTop = element.scrollHeight - element.clientHeight;
+  if (!(overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") || maxScrollTop <= 1) return false;
+  return deltaY < 0 ? element.scrollTop > 1 : element.scrollTop < maxScrollTop - 1;
+}
+studyPanel.addEventListener("wheel", (event) => {
+  if (event.defaultPrevented || event.ctrlKey || !event.deltaY) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || thread.contains(target)) return;
+
+  for (let element = target; element && element !== studyPanel; element = element.parentElement) {
+    if (canScrollVertically(element, event.deltaY)) return;
+  }
+  if (!canScrollVertically(thread, event.deltaY)) return;
+
+  const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+    ? event.deltaY * 16
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+      ? event.deltaY * thread.clientHeight
+      : event.deltaY;
+  thread.scrollTop += delta;
+  event.preventDefault();
+}, { passive: false });
 thread.addEventListener("scroll", () => { bottomButton.hidden = thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 100; });
-bottomButton.addEventListener("click", () => thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" }));
+bottomButton.addEventListener("click", () => scrollThreadToEnd({ smooth: true }));
 
 setNetworkStatus();
 loadLearnerSession();

@@ -23,6 +23,20 @@ class TestUserBundle(unittest.TestCase):
                 for value in forbidden:
                     self.assertNotIn(value, contents, f"{value} leaked into {path.relative_to(web_root)}")
 
+    def test_chat_scroll_stays_in_thread_and_does_not_force_follow_manual_scroll(self):
+        web_root = Path(__file__).parents[1] / "web" / "user"
+        styles = (web_root / "styles.css").read_text(encoding="utf-8")
+        app = (web_root / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("grid-template-rows:minmax(0,1fr)", styles)
+        self.assertIn("min-height:0; max-width:none", styles)
+        self.assertIn("overflow-y:auto; overscroll-behavior-y:contain", styles)
+        self.assertIn("position:relative; bottom:auto; flex:none", styles)
+        self.assertIn('studyPanel.addEventListener("wheel"', app)
+        self.assertIn("thread.contains(target)", app)
+        self.assertIn("if (scroll && followThread) scrollThreadToEnd()", app)
+        self.assertIn("if (followThread) scrollThreadToEnd()", app)
+
     def test_user_pwa_shell_is_public_and_does_not_cache_api_or_video(self):
         data_dir = tempfile.TemporaryDirectory()
         try:
@@ -65,7 +79,7 @@ class TestUserBundle(unittest.TestCase):
             self.assertEqual(api_client.status_code, 200)
             self.assertNotIn('location.assign("/login")', api_client.text)
             shell = worker.text.split("self.addEventListener(\"install\"", 1)[0]
-            self.assertIn('const CACHE_NAME = "vskr-user-shell-v10"', shell)
+            self.assertIn('const CACHE_NAME = "vskr-user-shell-v11"', shell)
             self.assertIn('"/register"', shell)
             self.assertIn('"/login"', shell)
             self.assertIn('const AUTH_PAGES = new Set(["/login", "/register"])', shell)

@@ -84,7 +84,7 @@ def _safe_source_link(source: dict) -> str | None:
 
 @router.get("/")
 def user_home():
-    return FileResponse(ROOT / "web" / "user" / "index.html")
+    return FileResponse(ROOT / "web" / "user" / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/login")
@@ -169,7 +169,9 @@ def user_me(user=Depends(accounts.require_user)):
 
 @router.get("/user/assets/{asset_path:path}")
 def user_asset(asset_path: str):
-    return _file_response(ROOT / "web" / "user", asset_path, "Không tìm thấy tài nguyên.")
+    response = _file_response(ROOT / "web" / "user", asset_path, "Không tìm thấy tài nguyên.")
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @router.get("/shared/{asset_path:path}")

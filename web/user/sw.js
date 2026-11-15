@@ -1,4 +1,4 @@
-const CACHE_NAME = "vskr-user-shell-v12";
+const CACHE_NAME = "vskr-user-shell-v13";
 const AUTH_PAGES = new Set(["/login", "/register"]);
 const SHELL = [
   "/login",
@@ -6,13 +6,14 @@ const SHELL = [
   "/manifest.webmanifest",
   "/shared/tokens.css",
   "/shared/api.js",
-  "/user/assets/styles.css",
-  "/user/assets/app.js",
+  "/user/assets/styles.css?v=history-2026-11-16",
+  "/user/assets/app.js?v=history-2026-11-16",
   "/user/assets/login.js",
   "/user/assets/icons/icon-192.png",
   "/user/assets/icons/icon-512.png",
   "/user/assets/icons/icon.svg",
 ];
+const SHELL_PATHS = new Set(SHELL.map((asset) => new URL(asset, self.location.href).pathname));
 
 if (self.location.protocol === "http:" || self.location.protocol === "https:") self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -34,7 +35,7 @@ self.addEventListener("fetch", (event) => {
     }).catch(() => caches.match(request)));
     return;
   }
-  if (!SHELL.includes(url.pathname)) return;
+  if (!SHELL_PATHS.has(url.pathname)) return;
   event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
     if (response.ok) {
       const copy = response.clone();

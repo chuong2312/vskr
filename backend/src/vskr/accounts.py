@@ -21,9 +21,11 @@ from .auth import _same_origin, _secure_cookie_request, hash_password
 from .config import data_dir, load_config
 
 COOKIE_NAME = "vskr_user"
-SESSION_TTL = 30 * 24 * 60 * 60
+GUEST_COOKIE_NAME = "vskr_guest"
+SESSION_TTL = 14 * 24 * 60 * 60
+SESSION_IDLE_TTL = 7 * 24 * 60 * 60
 REGISTRATION_WINDOW = 60 * 60
-REGISTRATION_LIMIT = 10
+REGISTRATION_LIMIT = 5
 _registration_attempts: OrderedDict[str, deque[float]] = OrderedDict()
 _registration_lock = threading.Lock()
 
@@ -60,8 +62,15 @@ def _connect():
             user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
             title TEXT NOT NULL,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            source_id TEXT,
+            source_type TEXT NOT NULL DEFAULT 'library'
         )""")
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(conversations)")}
+        if "source_id" not in columns:
+            connection.execute("ALTER TABLE conversations ADD COLUMN source_id TEXT")
+        if "source_type" not in columns:
+            connection.execute("ALTER TABLE conversations ADD COLUMN source_type TEXT NOT NULL DEFAULT 'library'")
         connection.execute("""CREATE TABLE IF NOT EXISTS conversation_turns (
             turn_id TEXT PRIMARY KEY,
             conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
@@ -97,10 +106,13 @@ def check_registration_rate(ip: str, now: float | None = None) -> None:
 
 def register(username: str, password: str):
     username = username.strip()
-    if not 3 <= len(username) <= 64 or not all(ch.isalnum() or ch in "._-" for ch in username):
-        raise HTTPException(422, "Tên tài khoản dài 3–64 ký tự, chỉ gồm chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.")
-    if len(password) < 10 or len(password) > 1024:
-        raise HTTPException(422, "Mật khẩu cần ít nhất 10 ký tự.")
+    if "@" in username:
+        if len(username) > 254 or username.count("@") != 1 or username.startswith("@"):
+            raise HTTPException(422, "Email không hợp lệ.")
+    elif not 3 <= len(username) <= 64 or not all(ch.isalnum() or ch in "._-" for ch in username):
+        raise HTTPException(422, "Tên tài khoản không hợp lệ.")
+    if len(password) < 8 or len(password) > 1024:
+        raise HTTPException(422, "Mật khẩu cần ít nhất 8 ký tự.")
     user_id = uuid.uuid4().hex
     try:
         with _connect() as db:
@@ -146,7 +158,8 @@ def get_session(token: str | None, *, touch=True):
                           JOIN users u USING(user_id) WHERE s.token_hash = ?""", (_token_hash(token),)).fetchone()
         if not row:
             return None
-        if row["disabled"] or now - row["created_at"] >= SESSION_TTL:
+        if (row["disabled"] or now - row["created_at"] >= SESSION_TTL
+                or now - row["last_seen"] >= SESSION_IDLE_TTL):
             db.execute("DELETE FROM user_sessions WHERE token_hash = ?", (_token_hash(token),))
             return None
         if touch:
@@ -170,19 +183,40 @@ def set_user_disabled(user_id: str, disabled: bool):
             db.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
 
 
-def save_exchange(user_id: str, conversation_id: str | None, question: str, result: dict):
+def create_conversation(user_id: str, title: str, source_id: str | None, source_type: str):
+    if source_type not in {"video", "document", "library"}:
+        raise HTTPException(422, "Loại nguồn không hợp lệ.")
+    if source_type != "library" and not source_id:
+        raise HTTPException(422, "Hội thoại cần có nguồn.")
+    now = int(time.time())
+    conversation_id = uuid.uuid4().hex
+    title = " ".join(title.split())[:72] or "Cuộc trò chuyện mới"
+    with _connect() as db:
+        db.execute("""INSERT INTO conversations
+                   (conversation_id, user_id, title, created_at, updated_at, source_id, source_type)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (conversation_id, user_id, title, now, now, source_id, source_type))
+    return {"conversation_id": conversation_id, "title": title, "source_id": source_id, "source_type": source_type}
+
+
+def save_exchange(user_id: str, conversation_id: str | None, question: str, result: dict,
+                  *, source_id: str | None = None, source_type: str = "library"):
     now = int(time.time())
     with _connect() as db:
         if conversation_id:
-            row = db.execute("SELECT 1 FROM conversations WHERE conversation_id = ? AND user_id = ?",
+            row = db.execute("SELECT source_id, source_type FROM conversations WHERE conversation_id = ? AND user_id = ?",
                              (conversation_id, user_id)).fetchone()
             if not row:
                 raise HTTPException(404, "Không tìm thấy cuộc trò chuyện.")
+            if row["source_id"] != source_id or row["source_type"] != source_type:
+                raise HTTPException(409, "Nguồn của cuộc trò chuyện không thể thay đổi.")
         else:
             conversation_id = uuid.uuid4().hex
             title = " ".join(question.split())[:72] or "Cuộc trò chuyện mới"
-            db.execute("INSERT INTO conversations VALUES (?, ?, ?, ?, ?)",
-                       (conversation_id, user_id, title, now, now))
+            db.execute("""INSERT INTO conversations
+                       (conversation_id, user_id, title, created_at, updated_at, source_id, source_type)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (conversation_id, user_id, title, now, now, source_id, source_type))
         db.execute("""INSERT INTO conversation_turns
                    (turn_id, conversation_id, question, answer, found, cited, sources_json, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -196,14 +230,15 @@ def save_exchange(user_id: str, conversation_id: str | None, question: str, resu
 def list_conversations(user_id: str):
     with _connect() as db:
         return [dict(row) for row in db.execute("""SELECT c.conversation_id, c.title, c.created_at,
-                   c.updated_at, COUNT(t.turn_id) AS turn_count
+                   c.updated_at, c.source_id, c.source_type, COUNT(t.turn_id) AS turn_count
                    FROM conversations c LEFT JOIN conversation_turns t USING(conversation_id)
                    WHERE c.user_id = ? GROUP BY c.conversation_id ORDER BY c.updated_at DESC""", (user_id,))]
 
 
 def get_conversation(user_id: str, conversation_id: str):
     with _connect() as db:
-        conversation = db.execute("""SELECT conversation_id, title, created_at, updated_at FROM conversations
+        conversation = db.execute("""SELECT conversation_id, title, created_at, updated_at, source_id, source_type
+                                   FROM conversations
                                    WHERE conversation_id = ? AND user_id = ?""",
                                   (conversation_id, user_id)).fetchone()
         if not conversation:
@@ -211,7 +246,7 @@ def get_conversation(user_id: str, conversation_id: str):
         turns = db.execute("""SELECT question, answer, found, cited, sources_json, created_at
                             FROM conversation_turns WHERE conversation_id = ? ORDER BY created_at, rowid""",
                            (conversation_id,)).fetchall()
-        return {**dict(conversation), "turns": [
+        return {**dict(conversation), "source_deleted": False, "turns": [
             {"question": row["question"], "answer": row["answer"], "found": bool(row["found"]),
              "cited": bool(row["cited"]), "sources": json.loads(row["sources_json"]), "created_at": row["created_at"]}
             for row in turns
@@ -285,7 +320,18 @@ def optional_learner_or_admin(request: Request):
             if exc.status_code not in (401, 404):
                 raise
 
-    return {"guest": True, "user_id": None}
+    guest = request.cookies.get(GUEST_COOKIE_NAME)
+    if not guest:
+        guest = secrets.token_urlsafe(32)
+        request.state.new_guest_token = guest
+    return {"guest": True, "user_id": None, "owner": f"g:{guest}", "guest_token": guest}
+
+
+def require_learner_or_guest(request: Request):
+    user = optional_learner_or_admin(request)
+    if user.get("admin"):
+        raise HTTPException(403, "Tài khoản quản trị không thể thêm nội dung.")
+    return user
 
 
 def revoke_session(token: str | None):
@@ -297,7 +343,13 @@ def revoke_session(token: str | None):
 def set_cookie(response, token: str):
     from .auth import cookie_secure
     response.set_cookie(COOKIE_NAME, token, max_age=SESSION_TTL, httponly=True,
-                        secure=cookie_secure(), samesite="lax", path="/")
+                        secure=cookie_secure(), samesite="strict", path="/")
+
+
+def set_guest_cookie(response, token: str):
+    from .auth import cookie_secure
+    response.set_cookie(GUEST_COOKIE_NAME, token, max_age=30 * 24 * 60 * 60,
+                        httponly=True, secure=cookie_secure(), samesite="strict", path="/")
 
 
 def clear_cookie(response):

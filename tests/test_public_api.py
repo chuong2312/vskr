@@ -127,6 +127,43 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertNotIn("conversation_id", answer.json())
         self.assertEqual(history.status_code, 401)
         self.assertTrue(ask.call_args.kwargs["shared_only"])
+        self.assertTrue(ask.call_args.kwargs["owner_id"].startswith("g:"))
+
+    def test_conversation_source_is_forwarded_as_an_index_scope(self):
+        fake_result = {"answer": "A", "found": True, "cited": False, "sources": []}
+        with mock.patch("vskr.api.public.handlers.source_is_visible", return_value=True), \
+                mock.patch("vskr.api.public.handlers.ask", return_value=fake_result) as ask:
+            with ASGITestClient(app) as client:
+                response = client.post("/api/ask", json={
+                    "question": "Hỏi video A", "source_id": "video-a", "source_type": "video",
+                })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(ask.call_args.kwargs["allowed_sources"], {"video-a"})
+
+    def test_private_guessed_source_is_not_queryable(self):
+        with mock.patch("vskr.api.public.handlers.source_is_visible", return_value=False), \
+                mock.patch("vskr.api.public.handlers.ask") as ask:
+            with ASGITestClient(app) as client:
+                response = client.post("/api/ask", json={
+                    "question": "Đoán nguồn riêng", "source_id": "private-video-a", "source_type": "video",
+                })
+        self.assertEqual(response.status_code, 404)
+        ask.assert_not_called()
+
+    def test_guest_can_query_public_source_but_not_private_source(self):
+        fake_result = {"answer": "A", "found": True, "cited": False, "sources": []}
+        with mock.patch("vskr.api.public.handlers.source_is_visible", side_effect=lambda _type, source, *_args, **_kwargs: source == "public-video"), \
+                mock.patch("vskr.api.public.handlers.ask", return_value=fake_result) as ask:
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                public_response = client.post("/api/ask", json={
+                    "question": "Hỏi nguồn chung", "source_id": "public-video", "source_type": "video",
+                })
+                private_response = client.post("/api/ask", json={
+                    "question": "Hỏi nguồn riêng", "source_id": "private-video", "source_type": "video",
+                })
+        self.assertEqual(public_response.status_code, 200, public_response.text)
+        self.assertEqual(private_response.status_code, 404)
+        self.assertEqual(ask.call_args.kwargs["allowed_sources"], {"public-video"})
 
     def test_source_links_only_allow_safe_hosts_and_strip_query_tokens(self):
         self.assertEqual(

@@ -12,7 +12,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .. import accounts, audit, auth
-from ..config import ROOT
+from ..config import ROOT, data_dir, load_config
+from ..util import read_json, write_json
 from . import handlers
 from .limits import check_ask_rate, enter_ask_slot, leave_ask_slot, rollback_ask_rate
 from .ssrf import validate_learner_ingest_url
@@ -23,15 +24,32 @@ router = APIRouter()
 class PublicAskRequest(BaseModel):
     question: str
     conversation_id: str | None = Field(default=None, max_length=64)
+    source_id: str | None = Field(default=None, max_length=256)
+    source_type: str = Field(default="library", max_length=16)
+
+
+class CreateConversationRequest(BaseModel):
+    title: str = Field(default="Cuộc trò chuyện mới", max_length=72)
+    source_id: str | None = Field(default=None, max_length=256)
+    source_type: str = Field(default="library", max_length=16)
 
 
 class RenameConversationRequest(BaseModel):
     title: str = Field(min_length=1, max_length=72)
 
 
+class VisibilityPayload(BaseModel):
+    visibility: str
+
+
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=256)
+    username: str | None = Field(default=None, min_length=1, max_length=256)
+    email: str | None = Field(default=None, min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=1024)
+
+    @property
+    def identifier(self):
+        return (self.email or self.username or "").strip().lower()
 
 
 def _form_upload(form, name: str, *, required: bool = False):
@@ -118,43 +136,48 @@ def user_auth_config():
 
 
 @router.post("/api/user/auth/register")
+@router.post("/api/user/register")
 def user_register(payload: LoginRequest, request: Request):
     if not auth._secure_cookie_request(request) or not auth._same_origin(request):
         raise HTTPException(403, "Yêu cầu đăng ký không hợp lệ.")
     ip = auth.client_ip(request)
     accounts.check_registration_rate(ip)
-    retry = auth.login_retry_after(ip, payload.username)
+    identifier = payload.identifier
+    retry = auth.login_retry_after(ip, identifier)
     if retry:
         raise HTTPException(429, "Thử lại đăng ký sau.", headers={"Retry-After": str(retry)})
-    user = accounts.register(payload.username, payload.password)
-    auth._clear_login_failures(ip, payload.username)
-    token, session = accounts.create_session(payload.username, payload.password)
+    user = accounts.register(identifier, payload.password)
+    auth._clear_login_failures(ip, identifier)
+    token, session = accounts.create_session(identifier, payload.password)
     response = JSONResponse({"user": {"user_id": user["user_id"], "username": user["username"]}, "csrf_token": session["csrf_token"]})
     accounts.set_cookie(response, token)
     return response
 
 
 @router.post("/api/user/auth/login")
+@router.post("/api/user/login")
 def user_login(payload: LoginRequest, request: Request):
     if not auth._secure_cookie_request(request) or not auth._same_origin(request):
         raise HTTPException(403, "Yêu cầu đăng nhập không hợp lệ.")
     ip = auth.client_ip(request)
-    retry = auth.login_retry_after(ip, payload.username)
+    identifier = payload.identifier
+    retry = auth.login_retry_after(ip, identifier)
     if retry:
         raise HTTPException(429, "Sai tên đăng nhập hoặc mật khẩu.", headers={"Retry-After": str(retry)})
     try:
-        token, session = accounts.create_session(payload.username, payload.password)
+        token, session = accounts.create_session(identifier, payload.password)
     except HTTPException as exc:
         if exc.status_code == 401:
-            auth._record_login_failure(ip, payload.username)
+            auth._record_login_failure(ip, identifier)
         raise
-    auth._clear_login_failures(ip, payload.username)
+    auth._clear_login_failures(ip, identifier)
     response = JSONResponse({"user": {"user_id": session["user_id"], "username": session["username"]}, "csrf_token": session["csrf_token"]})
     accounts.set_cookie(response, token)
     return response
 
 
 @router.post("/api/user/auth/logout")
+@router.post("/api/user/logout")
 def user_logout(request: Request, user=Depends(accounts.require_user)):
     accounts.revoke_session(request.cookies.get(accounts.COOKIE_NAME))
     response = JSONResponse({"ok": True})
@@ -164,7 +187,23 @@ def user_logout(request: Request, user=Depends(accounts.require_user)):
 
 @router.get("/api/user/auth/me")
 def user_me(user=Depends(accounts.require_user)):
-    return {"user_id": user["user_id"], "username": user["username"], "csrf_token": user["csrf_token"]}
+    return {"user": {"id": user["user_id"], "email": user["username"],
+                     "display_name": user["username"]},
+            "user_id": user["user_id"], "username": user["username"],
+            "csrf_token": user["csrf_token"],
+            "limits": {"max_upload_mb": 1024, "max_duration_min": 120,
+                       "max_active_jobs": 2}}
+
+
+@router.get("/api/user/me")
+def user_me_contract(request: Request):
+    token = request.cookies.get(accounts.COOKIE_NAME)
+    user = accounts.get_session(token)
+    if not user:
+        return {"user": None, "csrf_token": None,
+                "limits": {"max_upload_mb": 100, "max_duration_min": 15,
+                           "max_active_jobs": 1}}
+    return user_me(user)
 
 
 @router.get("/user/assets/{asset_path:path}")
@@ -210,35 +249,45 @@ def admin_login_asset(asset_path: str):
 
 @router.get("/api/videos")
 def public_videos(user=Depends(accounts.optional_learner_or_admin)):
-    return handlers.public_videos(owner_id=user.get("user_id"), shared_only=user.get("guest", False))
+    return handlers.public_videos(owner_id=user.get("owner") or user.get("user_id"),
+                                  shared_only=False)
 
 
 @router.get("/api/catalog")
 def public_catalog(user=Depends(accounts.optional_learner_or_admin)):
-    return handlers.public_catalog(owner_id=user.get("user_id"), shared_only=user.get("guest", False))
+    return handlers.public_catalog(owner_id=user.get("owner") or user.get("user_id"),
+                                   shared_only=False)
 
 
 @router.post("/api/ingest", status_code=202)
-async def public_ingest(request: Request, user=Depends(accounts.require_learner_or_admin)):
+async def public_ingest(request: Request, user=Depends(accounts.require_learner_or_guest)):
     async with request.form(max_files=1, max_fields=1, max_part_size=64 * 1024) as form:
         file = _form_upload(form, "file")
         url = form.get("url")
         if url is not None and not isinstance(url, str):
             raise HTTPException(400, "Trường URL không hợp lệ.")
-        if url and not user.get("admin"):
+        if url:
             url = validate_learner_ingest_url(url)
-        result = await handlers.start_ingest(url=url, file=file, owner_id=user.get("user_id"))
+        result = await handlers.start_ingest(url=url, file=file,
+                                             owner_id=user.get("owner") or user.get("user_id"))
     audit.write_event("ingest.start", target_id=result.get("job_id"), kind="upload" if file else "url")
-    return result
+    response = JSONResponse(result, status_code=202)
+    if user.get("guest_token"):
+        accounts.set_guest_cookie(response, user["guest_token"])
+    return response
 
 
 @router.post("/api/documents", status_code=202)
-async def public_upload_document(request: Request, user=Depends(accounts.require_learner_or_admin)):
+async def public_upload_document(request: Request, user=Depends(accounts.require_learner_or_guest)):
     async with request.form(max_files=1, max_fields=0, max_part_size=64 * 1024) as form:
         file = _form_upload(form, "file", required=True)
-        result = await handlers.upload_document(file=file, owner_id=user.get("user_id"))
+        result = await handlers.upload_document(file=file,
+                                                owner_id=user.get("owner") or user.get("user_id"))
     audit.write_event("document.upload", target_id=result.get("job_id"), kind="document")
-    return result
+    response = JSONResponse(result, status_code=202)
+    if user.get("guest_token"):
+        accounts.set_guest_cookie(response, user["guest_token"])
+    return response
 
 
 @router.get("/api/jobs/{job_id}")
@@ -279,6 +328,15 @@ def list_conversations(user=Depends(accounts.require_user)):
     return accounts.list_conversations(user["user_id"])
 
 
+@router.post("/api/conversations")
+def create_conversation(payload: CreateConversationRequest, user=Depends(accounts.require_user)):
+    if payload.source_type not in {"video", "document", "library"}:
+        raise HTTPException(422, "Loại nguồn không hợp lệ.")
+    if not handlers.source_is_visible(payload.source_type, payload.source_id, user["user_id"]):
+        raise HTTPException(404, "Không tìm thấy nguồn.")
+    return accounts.create_conversation(user["user_id"], payload.title, payload.source_id, payload.source_type)
+
+
 @router.get("/api/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, user=Depends(accounts.require_user)):
     return accounts.get_conversation(user["user_id"], conversation_id)
@@ -296,6 +354,53 @@ def delete_conversation(conversation_id: str, user=Depends(accounts.require_user
     return {"deleted": True}
 
 
+@router.get("/api/my/jobs")
+def my_jobs(user=Depends(accounts.require_learner_or_guest)):
+    owner = user.get("owner") or user.get("user_id")
+    return [job for job in handlers.list_jobs(200)
+            if job.get("owner_id") == owner]
+
+
+@router.get("/api/jobs/{job_id}")
+def my_job(job_id: str, user=Depends(accounts.require_learner_or_guest)):
+    job = handlers.get_job(job_id)
+    if job.get("owner_id") != (user.get("owner") or user.get("user_id")):
+        raise HTTPException(404, "Không tìm thấy job.")
+    return job
+
+
+@router.delete("/api/my/content/{kind}/{item_id}")
+def delete_my_content(kind: str, item_id: str, user=Depends(accounts.require_learner_or_guest)):
+    cfg = load_config()
+    root = data_dir(cfg) / ("videos" if kind == "video" else "documents")
+    meta_path = root / item_id / "meta.json"
+    if kind not in {"video", "document"} or not meta_path.is_file():
+        raise HTTPException(404, "Không tìm thấy nội dung.")
+    meta = read_json(meta_path)
+    owner = user.get("owner") or user.get("user_id")
+    if (meta.get("owner") or meta.get("owner_id")) != owner:
+        raise HTTPException(404, "Không tìm thấy nội dung.")
+    return handlers.delete_video(item_id) if kind == "video" else handlers.delete_document(item_id)
+
+
+@router.post("/api/my/content/{kind}/{item_id}/visibility")
+def request_visibility(kind: str, item_id: str, payload: VisibilityPayload,
+                       user=Depends(accounts.require_learner_or_guest)):
+    if payload.visibility not in {"private", "pending"}:
+        raise HTTPException(422, "Chỉ có thể đặt private hoặc pending.")
+    cfg = load_config()
+    root = data_dir(cfg) / ("videos" if kind == "video" else "documents")
+    meta_path = root / item_id / "meta.json"
+    if kind not in {"video", "document"} or not meta_path.is_file():
+        raise HTTPException(404, "Không tìm thấy nội dung.")
+    meta = read_json(meta_path)
+    if (meta.get("owner") or meta.get("owner_id")) != (user.get("owner") or user.get("user_id")):
+        raise HTTPException(404, "Không tìm thấy nội dung.")
+    meta["visibility"] = payload.visibility
+    write_json(meta_path, meta)
+    return {"id": item_id, "visibility": payload.visibility}
+
+
 @router.post("/api/ask")
 def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optional_learner_or_admin)):
     question = payload.question
@@ -308,9 +413,28 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
     attempt_id = None
     try:
         attempt_id = check_ask_rate(client_ip)
+        source_id = payload.source_id
+        source_type = payload.source_type
+        if payload.conversation_id and user.get("user_id"):
+            conversation = accounts.get_conversation(user["user_id"], payload.conversation_id)
+            source_id = conversation["source_id"]
+            source_type = conversation["source_type"]
+        if source_type not in {"video", "document", "library"}:
+            raise HTTPException(422, "Loại nguồn không hợp lệ.")
+        owner_id = user.get("owner") or user.get("user_id")
+        shared_only = bool(user.get("guest"))
+        if source_type != "library" and not handlers.source_is_visible(
+                source_type, source_id, owner_id, shared_only=shared_only):
+            raise HTTPException(404, "Không tìm thấy nguồn.")
+        if source_type != "library":
+            allowed_sources = {source_id}
+        elif shared_only:
+            allowed_sources = None
+        else:
+            allowed_sources = None
         result = handlers.ask(
             handlers.AskRequest(question=question), use_request_mode=False,
-            owner_id=user.get("user_id"), shared_only=user.get("guest", False),
+            owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources,
         )
         sources = []
         for source in result.get("sources", []):
@@ -325,7 +449,8 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
         if user.get("user_id"):
             try:
                 response["conversation_id"] = accounts.save_exchange(
-                    user["user_id"], payload.conversation_id, question, response
+                    user["user_id"], payload.conversation_id, question, response,
+                    source_id=source_id, source_type=source_type,
                 )
                 response["history_saved"] = True
             except sqlite3.Error:

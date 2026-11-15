@@ -129,7 +129,7 @@ def _validate_eval_question(raw):
     return {"id": item["id"], "question": item["question"], "type": item["type"], "relevant": clean_refs}
 
 
-state = {"service": None, "error": None}
+state = {"service": None, "error": None, "failed_at": 0.0}
 GPU_LOCK_TIMEOUT_S = 10
 _lock = threading.Lock()
 _service_use_lock = threading.RLock()
@@ -193,13 +193,17 @@ def _init_service():
     """Nạp chỉ mục + embedder. Có thể gọi lại: nhờ vậy chạy `index` xong là dùng được ngay,
     không cần khởi động lại server (quan trọng khi `serve` và `index` chạy ở hai container khác nhau)."""
     with _lock:
+        if state["service"] is None and state.get("failed_at", 0) and time.time() - state["failed_at"] < 30:
+            return
         try:
             from ..service import Service
 
             replacement = Service(load_config())
             _replace_service(replacement)
+            state["failed_at"] = 0.0
         except Exception as e:  # chưa có chỉ mục, thiếu thư viện...
             logging.exception("Could not initialize VSKR service")
+            state["failed_at"] = time.time()
             _replace_service(None, error=f"{type(e).__name__}: {e}")
 
 
@@ -444,7 +448,7 @@ def document_section(document_id: str, section: int, owner_id=None, *, shared_on
     if not meta_path.is_file() or not sections_path.is_file():
         raise HTTPException(404, "Không tìm thấy tài liệu.")
     meta = read_json(meta_path)
-    if not _owner_is_visible(meta.get("owner_id"), owner_id, shared_only=shared_only):
+    if not _meta_is_visible(meta, owner_id, shared_only=shared_only):
         raise HTTPException(404, "Không tìm thấy mục tài liệu.")
     chunks = read_json(sections_path).get("chunks", [])
     match = next((c for c in chunks if c.get("section") == section), None)
@@ -463,7 +467,7 @@ def uploaded_video_file(video_id: str, owner_id=None, *, shared_only=False):
     if not meta_path.is_file():
         raise HTTPException(404, "Không tìm thấy video.")
     meta = read_json(meta_path)
-    if not _owner_is_visible(meta.get("owner_id"), owner_id, shared_only=shared_only):
+    if not _meta_is_visible(meta, owner_id, shared_only=shared_only):
         raise HTTPException(404, "Không tìm thấy video.")
     if meta.get("source_type") != "upload" or not meta.get("has_video_file"):
         raise HTTPException(404, "Video này không có file upload để phát trực tiếp.")
@@ -538,6 +542,16 @@ def _owner_is_visible(item_owner_id, owner_id=None, *, shared_only=False):
     return owner_id is None or not item_owner_id or item_owner_id == owner_id
 
 
+def _meta_is_visible(meta, owner_id=None, *, shared_only=False):
+    owner = meta.get("owner") or meta.get("owner_id")
+    visibility = meta.get("visibility", "public" if not owner else "private")
+    if owner_id is None and not shared_only:
+        return True
+    if shared_only:
+        return visibility == "public" and not owner
+    return visibility == "public" or (owner is not None and owner in {owner_id, f"u:{owner_id}"})
+
+
 def _indexed_video(video_id: str, owner_id=None, *, shared_only=False) -> bool:
     service = state["service"]
     return bool(service and any(
@@ -556,6 +570,22 @@ def _indexed_document(document_id: str, owner_id=None, *, shared_only=False) -> 
     ))
 
 
+def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *, shared_only=False) -> bool:
+    if source_type == "library":
+        return True
+    if not source_id or source_type not in {"video", "document"}:
+        return False
+    if source_type == "video":
+        meta = (state["service"].meta if state["service"] else {}).get(source_id)
+        return bool(meta and _meta_is_visible(meta, owner_id, shared_only=shared_only)
+                    and _indexed_video(source_id, owner_id, shared_only=shared_only))
+    from ..documents import list_documents
+    item = next((entry for entry in list_documents(load_config())
+                 if entry.get("document_id") == source_id), None)
+    return bool(item and _meta_is_visible(item, owner_id, shared_only=shared_only)
+                and _indexed_document(source_id, owner_id, shared_only=shared_only))
+
+
 def public_videos(owner_id=None, *, shared_only=False):
     if state["service"] is None:
         _init_service()
@@ -569,7 +599,7 @@ def public_videos(owner_id=None, *, shared_only=False):
             video_owners.setdefault(video_id, set()).add(chunk.get("owner_id"))
     result = []
     for meta in service.meta.values():
-        if not _owner_is_visible(meta.get("owner_id"), owner_id, shared_only=shared_only):
+        if not _meta_is_visible(meta, owner_id, shared_only=shared_only):
             continue
         video_id = meta.get("video_id")
         owners = video_owners.get(video_id, set())
@@ -612,7 +642,7 @@ def public_catalog(owner_id=None, *, shared_only=False):
             if document_id:
                 document_owners.setdefault(document_id, set()).add(chunk.get("owner_id"))
     for item in list_documents(cfg):
-        if not _owner_is_visible(item.get("owner_id"), owner_id, shared_only=shared_only):
+        if not _meta_is_visible(item, owner_id, shared_only=shared_only):
             continue
         document_id = item.get("document_id")
         owners = document_owners.get(document_id, set())
@@ -764,7 +794,19 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
 
     cfg = load_config()
     ingest_cfg = cfg.get("ingest", {})
-    max_bytes = int(ingest_cfg.get("max_upload_bytes", 1_073_741_824))
+    guest = str(owner_id or "").startswith("g:")
+    role_limits = cfg.get("limits", {}).get("guest" if guest else "user", {})
+    max_bytes = int(role_limits.get("max_upload_bytes", ingest_cfg.get("max_upload_bytes", 1_073_741_824)))
+    max_duration = int(role_limits.get("max_duration_s", ingest_cfg.get("max_duration_s", 7200)))
+    with _jobs_lock:
+        active = sum(1 for job in _jobs.values()
+                     if job.get("owner_id") == owner_id and job.get("status") in {"queued", "running"})
+        if active >= int(role_limits.get("max_active_jobs", 2)):
+            raise HTTPException(429, "Bạn đã đạt số tác vụ đang xử lý tối đa.")
+        if sum(1 for job in _jobs.values() if job.get("status") in {"queued", "running"}) >= int(ingest_cfg.get("max_queue_length", 20)):
+            raise HTTPException(503, "Hàng đợi xử lý đang đầy.", headers={"Retry-After": "30"})
+    cfg = dict(cfg)
+    cfg["ingest"] = dict(ingest_cfg, max_upload_bytes=max_bytes, max_duration_s=max_duration)
     source = None
     if clean_url:
         validate_ingest_url(clean_url)
@@ -826,6 +868,13 @@ async def upload_document(file: UploadFile = File(...), owner_id=None):
         await file.close()
         raise HTTPException(415, "Định dạng chưa hỗ trợ. Hãy tải TXT, MD, PDF hoặc DOCX.")
     cfg = load_config()
+    guest = str(owner_id or "").startswith("g:")
+    role_limits = cfg.get("limits", {}).get("guest" if guest else "user", {})
+    with _jobs_lock:
+        active = sum(1 for job in _jobs.values()
+                     if job.get("owner_id") == owner_id and job.get("status") in {"queued", "running"})
+        if active >= int(role_limits.get("max_active_jobs", 2)):
+            raise HTTPException(429, "Bạn đã đạt số tác vụ đang xử lý tối đa.")
     upload_root = data_dir(cfg) / "documents" / ".uploads"
     upload_root.mkdir(parents=True, exist_ok=True)
     document_id = f"doc-{uuid.uuid4().hex[:12]}"
@@ -835,8 +884,9 @@ async def upload_document(file: UploadFile = File(...), owner_id=None):
         with path.open("wb") as out:
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
-                if size > 100 * 1024 * 1024:
-                    raise HTTPException(413, "Tài liệu vượt giới hạn 100 MB.")
+                document_limit = 20 * 1024 * 1024 if guest else 100 * 1024 * 1024
+                if size > document_limit:
+                    raise HTTPException(413, "Tài liệu vượt giới hạn cho phép.")
                 out.write(chunk)
     except HTTPException:
         path.unlink(missing_ok=True)
@@ -901,7 +951,8 @@ def reload_index():
     return admin_status()
 
 
-def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False, owner_id=None, shared_only=False):
+def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False, owner_id=None,
+        shared_only=False, allowed_sources=None):
     q = req.question.strip()
     if not q:
         raise HTTPException(400, "Câu hỏi trống")
@@ -927,7 +978,7 @@ def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=Fal
             )
         try:
             return service.ask(q, mode=mode, llm_lock=_gpu_model_lock, lock_timeout=GPU_LOCK_TIMEOUT_S,
-                               owner_id=owner_id, shared_only=shared_only)
+                               owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources)
         finally:
             _release_service(service)
     except HTTPException:

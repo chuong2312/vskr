@@ -339,7 +339,14 @@ def create_conversation(payload: CreateConversationRequest, user=Depends(account
 
 @router.get("/api/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, user=Depends(accounts.require_user)):
-    return accounts.get_conversation(user["user_id"], conversation_id)
+    conversation = accounts.get_conversation(user["user_id"], conversation_id)
+    conversation["source_deleted"] = (
+        conversation["source_type"] != "library"
+        and not handlers.source_is_visible(
+            conversation["source_type"], conversation["source_id"], user["user_id"]
+        )
+    )
+    return conversation
 
 
 @router.patch("/api/conversations/{conversation_id}")
@@ -425,6 +432,11 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
         shared_only = bool(user.get("guest"))
         if source_type != "library" and not handlers.source_is_visible(
                 source_type, source_id, owner_id, shared_only=shared_only):
+            if payload.conversation_id and user.get("user_id"):
+                raise HTTPException(410, detail={
+                    "message": "Nguồn của cuộc trò chuyện đã bị xoá.",
+                    "source_deleted": True,
+                })
             raise HTTPException(404, "Không tìm thấy nguồn.")
         if source_type != "library":
             allowed_sources = {source_id}

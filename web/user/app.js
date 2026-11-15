@@ -8,7 +8,7 @@ const state = {
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
-  preferredConversationVideoId: null,
+  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Cả thư viện" },
 };
 
 function sourceKey(source) {
@@ -25,6 +25,22 @@ function formatTime(value) {
   const remainder = seconds % 60;
   const pad = (number) => String(number).padStart(2, "0");
   return hours ? `${hours}:${pad(minutes)}:${pad(remainder)}` : `${minutes}:${pad(remainder)}`;
+}
+
+function setConversationSource(source = { source_id: null, source_type: "library", title: "Cả thư viện" }) {
+  state.conversationSource = source;
+  const chip = $("#conversation-source-chip");
+  chip.textContent = source.source_type === "library" ? "Cả thư viện" : source.title;
+  chip.hidden = source.source_type === "library";
+  $("#privacy-note").textContent = source.source_type === "library"
+    ? "Tìm trên toàn bộ thư viện."
+    : `Chỉ tìm trong: ${source.title}`;
+}
+
+function setSourceDeleted(deleted) {
+  $("#source-deleted-banner").hidden = !deleted;
+  $("#question-input").disabled = deleted;
+  $("#ask-button").disabled = deleted;
 }
 
 function make(tag, className, text) {
@@ -111,7 +127,7 @@ function renderLibraryDialog() {
     item.querySelector(".library-item-meta").textContent = `${formatTime(video.duration || 0)}  ·  Riêng tư`;
     const button = make("button", "small-button", "Xem");
     button.type = "button";
-    button.addEventListener("click", () => { libraryDialog.close(); selectVideo(video); });
+    button.addEventListener("click", () => { libraryDialog.close(); beginConversationWithSource(video); });
     item.append(button);
     list.append(item);
   }
@@ -541,7 +557,7 @@ function setTurnStatus(turn, message, kind = "") {
 }
 
 async function submitQuestion(question = $("#question-input").value.trim(), options = {}) {
-  if (!question || state.asking) return;
+  if (!question || state.asking || $("#source-deleted-banner").hidden === false) return;
   const retryTurn = options.retryTurn || null;
   clearRetry();
   let turn;
@@ -565,7 +581,12 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     const result = await request("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, conversation_id: state.activeConversationId }),
+      body: JSON.stringify({
+        question,
+        conversation_id: state.activeConversationId,
+        source_id: state.conversationSource.source_id,
+        source_type: state.conversationSource.source_type,
+      }),
     });
     if (result.conversation_id) {
       state.activeConversationId = result.conversation_id;
@@ -831,6 +852,12 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     clearRetry();
     state.activeConversationId = conversation.conversation_id;
     $("#conversation-heading").textContent = conversation.title || "Cuộc trò chuyện mới";
+    setConversationSource({
+      source_id: conversation.source_id || null,
+      source_type: conversation.source_type || "library",
+      title: conversation.source_title || conversation.title || "Cả thư viện",
+    });
+    setSourceDeleted(Boolean(conversation.source_deleted));
     state.preferredConversationVideoId = conversationVideoId(conversation);
     if (updateUrl) updateConversationUrl(conversation.conversation_id);
     state.sources = [];
@@ -847,7 +874,8 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
       answerTurn.querySelector(".turn-content").replaceChildren(resultNode);
       renderResult(savedTurn, resultNode, answerTurn.dataset.turnId, { scroll: false });
     }
-    const sourceVideo = state.videos.find((video) => video.video_id === state.preferredConversationVideoId);
+    const sourceVideo = state.videos.find((video) => video.video_id === conversation.source_id)
+      || state.videos.find((video) => video.video_id === state.preferredConversationVideoId);
     if (sourceVideo) selectVideo(sourceVideo);
     scrollThreadToEnd();
     if (!conversation.turns.length) $("#welcome").hidden = false;
@@ -866,7 +894,7 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
   }
 }
 
-function startNewConversation({ updateUrl = true, replaceUrl = false, focus = true } = {}) {
+function resetConversationView({ updateUrl = true, replaceUrl = false, focus = true } = {}) {
   if (state.asking) {
     setStatus("Đợi câu trả lời xong rồi hãy bắt đầu cuộc trò chuyện mới.", "error");
     return;
@@ -874,6 +902,8 @@ function startNewConversation({ updateUrl = true, replaceUrl = false, focus = tr
   state.conversationLoadToken += 1;
   clearRetry();
   state.activeConversationId = null;
+  setConversationSource();
+  setSourceDeleted(false);
   $("#conversation-heading").textContent = "Cuộc trò chuyện mới";
   state.preferredConversationVideoId = null;
   $("#conversation").replaceChildren();
@@ -892,6 +922,95 @@ function startNewConversation({ updateUrl = true, replaceUrl = false, focus = tr
   if (updateUrl) updateConversationUrl(null, { replace: replaceUrl });
   closeDrawer({ restoreFocus: false });
   if (focus) questionInput.focus();
+}
+
+function renderConversationSourcePicker() {
+  const list = $("#conversation-source-list");
+  const query = $("#conversation-source-search").value.trim().toLocaleLowerCase("vi");
+  list.replaceChildren();
+  const items = [
+    ...state.videos.map((item) => ({ ...item, source_id: item.video_id, source_type: "video", meta: formatTime(item.duration || 0) })),
+    ...state.documents.map((item) => ({ ...item, source_id: item.document_id, source_type: "document", meta: `${item.sections || 0} mục` })),
+  ].filter((item) => (item.title || "").toLocaleLowerCase("vi").includes(query));
+  for (const item of items) {
+    const row = make("button", "library-item source-picker-item");
+    row.type = "button";
+    row.append(
+      make("span", "library-item-icon", item.source_type === "video" ? "▶" : "▤"),
+      (() => {
+        const info = make("span");
+        info.append(make("strong", "library-item-title", item.title || "Nguồn"));
+        info.append(make("small", "library-item-meta", item.meta));
+        return info;
+      })(),
+    );
+    row.addEventListener("click", () => beginConversationWithSource(item));
+    list.append(row);
+  }
+  if (!items.length) list.append(make("p", "muted", "Không tìm thấy nguồn phù hợp."));
+}
+
+async function beginConversationWithSource(source) {
+  const normalized = {
+    source_id: source.source_type === "library" ? null : source.source_id,
+    source_type: source.source_type,
+    title: source.title || "Cả thư viện",
+  };
+  if (state.signedIn) {
+    try {
+      const created = await request("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Cuộc trò chuyện mới", source_id: normalized.source_id, source_type: normalized.source_type }),
+      });
+      state.activeConversationId = created.conversation_id;
+      updateConversationUrl(created.conversation_id);
+      await loadConversations();
+    } catch (error) {
+      setStatus(error.message || "Không tạo được cuộc trò chuyện.", "error");
+      return;
+    }
+  } else {
+    state.activeConversationId = null;
+    updateConversationUrl(null, { replace: true });
+  }
+  state.conversationLoadToken += 1;
+  clearRetry();
+  state.sources = [];
+  state.sourcesByTurn.clear();
+  state.activeTurnId = null;
+  state.activeSourceKey = null;
+  state.preferredConversationVideoId = normalized.source_type === "video" ? normalized.source_id : null;
+  setConversationSource(normalized);
+  setSourceDeleted(false);
+  $("#conversation-heading").textContent = "Cuộc trò chuyện mới";
+  $("#conversation").replaceChildren();
+  $("#welcome").hidden = false;
+  if (normalized.source_type === "video") {
+    const video = state.videos.find((item) => item.video_id === normalized.source_id);
+    if (video) selectVideo(video);
+  } else {
+    closeLecture();
+  }
+  renderTimeline();
+  renderConversations();
+  $("#conversation-source-dialog").close();
+  questionInput.focus();
+}
+
+function openConversationSourcePicker() {
+  if (state.asking) {
+    setStatus("Đợi câu trả lời xong rồi hãy bắt đầu cuộc trò chuyện mới.", "error");
+    return;
+  }
+  $("#conversation-source-search").value = "";
+  renderConversationSourcePicker();
+  $("#conversation-source-dialog").showModal();
+}
+
+function startNewConversation(options = {}) {
+  if (options.resetOnly) return resetConversationView(options);
+  openConversationSourcePicker();
 }
 
 $("#user-logout").addEventListener("click", async () => {
@@ -966,9 +1085,17 @@ $("#sidebar-library").addEventListener("click", () => {
 });
 $("#close-content-dialog").addEventListener("click", () => contentDialog.close());
 $("#close-library-dialog").addEventListener("click", () => libraryDialog.close());
+$("#close-conversation-source").addEventListener("click", () => $("#conversation-source-dialog").close());
 for (const dialog of [contentDialog, libraryDialog]) {
   dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
 }
+$("#conversation-source-dialog").addEventListener("click", (event) => {
+  if (event.target === $("#conversation-source-dialog")) $("#conversation-source-dialog").close();
+});
+$("#conversation-source-search").addEventListener("input", renderConversationSourcePicker);
+$("#conversation-library-choice").addEventListener("click", () => beginConversationWithSource({
+  source_type: "library", source_id: null, title: "Cả thư viện",
+}));
 document.querySelectorAll(".content-tab[data-content-tab]").forEach((tab) => tab.addEventListener("click", () => {
   const selected = tab.dataset.contentTab;
   document.querySelectorAll(".content-tab[data-content-tab]").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
@@ -1154,7 +1281,7 @@ function updateSearch() {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       if (entry.type === "video") {
-        selectVideo(entry.item);
+        beginConversationWithSource(entry.item);
         closeDrawer({ restoreFocus: false });
       } else {
         openDrawer();

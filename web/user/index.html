@@ -98,9 +98,10 @@
     <section class="study-panel" aria-label="Hỏi đáp bài giảng">
       <div class="chat-toolbar">
         <button id="drawer-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="library-drawer" aria-label="Mở thư viện">☰</button>
-        <strong id="conversation-heading">Cuộc trò chuyện mới</strong>
+        <div class="chat-heading"><strong id="conversation-heading">Cuộc trò chuyện mới</strong><span id="conversation-source-chip" class="source-chip" hidden></span></div>
         <button id="new-thread" class="icon-button" type="button" aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới">✎</button>
       </div>
+      <p id="source-deleted-banner" class="source-deleted-banner" hidden>Video đã bị xoá. Bạn vẫn có thể đọc lịch sử cuộc trò chuyện.</p>
       <p id="app-status" class="request-status" role="status" hidden></p>
       <div id="thread" class="thread" role="log" aria-live="polite" aria-relevant="additions text">
         <div id="welcome" class="welcome-card">
@@ -158,7 +159,7 @@
           <span class="muted">Enter để gửi · Shift+Enter xuống dòng</span>
         </div>
       </form>
-      <p class="privacy-note">Tìm trong nội dung công khai và nội dung bạn đã thêm.</p>
+      <p id="privacy-note" class="privacy-note">Tìm trên toàn bộ thư viện.</p>
     </section>
   </main>
 
@@ -226,6 +227,21 @@
       <button class="library-tab content-tab" type="button" aria-selected="false" data-library-tab="public">Công khai</button>
     </div>
     <div id="library-dialog-list" class="library-dialog-list"></div>
+  </dialog>
+
+  <dialog id="conversation-source-dialog" class="library-dialog" aria-labelledby="conversation-source-title">
+    <div class="dialog-heading">
+      <h2 id="conversation-source-title">Chọn nguồn cho cuộc trò chuyện</h2>
+      <button id="close-conversation-source" class="icon-button" type="button" aria-label="Đóng">×</button>
+    </div>
+    <div class="content-tabs" role="tablist">
+      <button class="source-tab content-tab" type="button" aria-selected="true" data-source-tab="mine">Của tôi</button>
+      <button class="source-tab content-tab" type="button" aria-selected="false" data-source-tab="public">Công khai</button>
+    </div>
+    <label class="sr-only" for="conversation-source-search">Tìm nguồn</label>
+    <input id="conversation-source-search" class="source-picker-search" type="search" placeholder="Tìm video hoặc tài liệu…">
+    <div id="conversation-source-list" class="library-dialog-list"></div>
+    <button id="conversation-library-choice" class="small-button source-library-choice" type="button">Hỏi trên cả thư viện</button>
   </dialog>
 
   <dialog id="account-dialog" class="account-dialog" aria-labelledby="account-dialog-title">

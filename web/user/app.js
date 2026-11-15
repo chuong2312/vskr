@@ -9,6 +9,7 @@ const state = {
   retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
   preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Cả thư viện" },
+  segmentContext: null,
 };
 
 function sourceKey(source) {
@@ -381,6 +382,13 @@ function jumpCurrentVideo(start) {
     state.pendingJump = { videoId: state.currentVideo.video_id, start };
   }
 
+  function currentPlaybackTime() {
+    if (!state.player) return 0;
+    if (state.player.tagName === "VIDEO") return Number(state.player.currentTime) || 0;
+    if (typeof state.player.getCurrentTime === "function") return Number(state.player.getCurrentTime()) || 0;
+    return 0;
+  }
+
 }
 
 function closeLecture() {
@@ -559,6 +567,10 @@ function setTurnStatus(turn, message, kind = "") {
 async function submitQuestion(question = $("#question-input").value.trim(), options = {}) {
   if (!question || state.asking || $("#source-deleted-banner").hidden === false) return;
   const retryTurn = options.retryTurn || null;
+  if (state.segmentContext && question && !question.startsWith("Tại ")) {
+    question = `Tại ${formatTime(state.segmentContext)}: ${question}`;
+  }
+  state.segmentContext = null;
   clearRetry();
   let turn;
   if (retryTurn?.isConnected) {
@@ -1130,6 +1142,13 @@ $("#content-document-form").addEventListener("submit", (event) => {
   $("#user-document-form").requestSubmit();
 });
 $("#close-lecture").addEventListener("click", closeLecture);
+$("#ask-current-segment").addEventListener("click", () => {
+  const time = currentPlaybackTime();
+  state.segmentContext = time;
+  questionInput.value = `Tại ${formatTime(time)}: `;
+  updateQuestionInput();
+  questionInput.focus();
+});
 
 const accountDialog = $("#account-dialog");
 let accountMode = "login";

@@ -195,6 +195,7 @@ body { background:var(--canvas); }
 .timeline { background:var(--soft); }
 .timeline-mark { background:var(--accent); }
 .timeline-empty { color:var(--muted); }
+.ask-segment-button { margin-top:10px; }
 .study-panel:has(#lecture-card:not([hidden])) { background:var(--stage); }
 .study-panel:has(#lecture-card:not([hidden])) .chat-toolbar { background:var(--chat-bg); }
 .study-panel:has(#lecture-card:not([hidden])) .thread { background:var(--chat-bg); }

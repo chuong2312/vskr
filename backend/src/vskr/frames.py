@@ -71,7 +71,10 @@ def dhash(path):
 def detect_scene_starts(video_path, threshold=27.0, frame_skip=0):
     from scenedetect import ContentDetector, SceneManager, open_video
 
-    video = open_video(str(video_path))
+    # OpenCV's bundled FFmpeg may try the platform AV1 hardware decoder and fail
+    # on machines without a compatible device/driver. PyAV decodes through
+    # FFmpeg's software path here, which is slower but reliable for indexing.
+    video = open_video(str(video_path), backend="pyav")
     sm = SceneManager()
     sm.add_detector(ContentDetector(threshold=threshold))
     sm.detect_scenes(video, show_progress=True, frame_skip=frame_skip)

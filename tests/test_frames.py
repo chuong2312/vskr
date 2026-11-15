@@ -1,11 +1,24 @@
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from vskr.frames import candidate_times, cap_evenly, dedupe_hashes, dhash, hamming
 
 
 class TestFrames(unittest.TestCase):
+    def test_scene_detection_uses_pyav_backend(self):
+        scene = (mock.Mock(get_seconds=mock.Mock(return_value=0.0)), mock.Mock())
+        manager = mock.Mock()
+        manager.get_scene_list.return_value = [scene]
+        with mock.patch("scenedetect.open_video", return_value=object()) as open_video, \
+             mock.patch("scenedetect.SceneManager", return_value=manager), \
+             mock.patch("scenedetect.ContentDetector"):
+            from vskr.frames import detect_scene_starts
+
+            self.assertEqual(detect_scene_starts("lecture.mp4"), [0.0])
+        open_video.assert_called_once_with("lecture.mp4", backend="pyav")
+
     def test_interval_only(self):
         c = candidate_times(30, [], interval_s=10)
         self.assertEqual([t for t, _ in c], [0.0, 10.0, 20.0])

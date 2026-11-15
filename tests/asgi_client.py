@@ -26,7 +26,7 @@ class ASGITestClient:
         if self.authenticated_learner:
             from vskr.accounts import require_learner_or_admin
             self._previous_overrides = dict(self.app.dependency_overrides)
-            self.app.dependency_overrides[require_learner_or_admin] = lambda: {"user_id": "test-learner", "username": "test-learner", "csrf_token": "test-csrf"}
+            self.app.dependency_overrides[require_learner_or_admin] = lambda: {"admin": True, "csrf_token": "test-csrf"}
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self._patches = [

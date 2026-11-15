@@ -2,7 +2,7 @@ import { ApiError, request } from "/shared/api.js";
 
 const $ = (selector) => document.querySelector(selector);
 const state = {
-  videos: [], documents: [], currentVideo: null, sources: [], player: null,
+  videos: [], documents: [], conversations: [], activeConversationId: null, currentVideo: null, sources: [], player: null,
   sourcesByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
@@ -514,8 +514,12 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     const result = await request("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, conversation_id: state.activeConversationId }),
     });
+    if (result.conversation_id) {
+      state.activeConversationId = result.conversation_id;
+      loadConversations();
+    }
     $("#question-input").value = "";
     updateQuestionInput();
     const resultNode = make("div", "result");
@@ -568,7 +572,89 @@ async function loadLearnerSession() {
     const session = await request("/api/user/auth/me");
     $("#user-name").textContent = session.username;
     if (session.csrf_token) sessionStorage.setItem("vskr-user-csrf", session.csrf_token);
+    await loadConversations();
   } catch { location.assign("/login"); }
+}
+
+function renderConversations() {
+  const list = $("#conversation-list");
+  list.replaceChildren();
+  $("#conversation-count").textContent = String(state.conversations.length);
+  $("#conversation-empty").hidden = state.conversations.length > 0;
+  for (const conversation of state.conversations) {
+    const row = make("div", `conversation-row${conversation.conversation_id === state.activeConversationId ? " is-active" : ""}`);
+    const open = make("button", "conversation-choice", conversation.title || "Cuộc trò chuyện mới");
+    open.type = "button";
+    open.setAttribute("aria-current", String(conversation.conversation_id === state.activeConversationId));
+    open.addEventListener("click", () => openConversation(conversation.conversation_id));
+    const remove = make("button", "conversation-delete", "×");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Xóa cuộc trò chuyện: ${conversation.title}`);
+    remove.title = "Xóa cuộc trò chuyện";
+    remove.addEventListener("click", async () => {
+      if (!window.confirm(`Xóa cuộc trò chuyện “${conversation.title}”?`)) return;
+      try {
+        await request(`/api/conversations/${encodeURIComponent(conversation.conversation_id)}`, { method: "DELETE" });
+        if (state.activeConversationId === conversation.conversation_id) startNewConversation();
+        await loadConversations();
+      } catch (error) { setStatus(error.message, "error"); }
+    });
+    row.append(open, remove);
+    list.append(row);
+  }
+}
+
+async function loadConversations() {
+  try {
+    state.conversations = await request("/api/conversations");
+    renderConversations();
+  } catch (error) {
+    if (error instanceof ApiError && error.status !== 401) setStatus("Chưa tải được lịch sử trò chuyện.", "error");
+  }
+}
+
+async function openConversation(conversationId) {
+  try {
+    const conversation = await request(`/api/conversations/${encodeURIComponent(conversationId)}`);
+    clearRetry();
+    state.activeConversationId = conversation.conversation_id;
+    state.sources = [];
+    state.sourcesByTurn.clear();
+    state.activeTurnId = null;
+    state.activeSourceKey = null;
+    $("#conversation").replaceChildren();
+    $("#welcome").hidden = true;
+    setStatus("");
+    for (const savedTurn of conversation.turns) {
+      addTurn("user", savedTurn.question);
+      const answerTurn = addTurn("assistant", "");
+      const resultNode = make("div", "result");
+      answerTurn.querySelector(".turn-content").replaceChildren(resultNode);
+      renderResult(savedTurn, resultNode, answerTurn.dataset.turnId);
+    }
+    if (!conversation.turns.length) $("#welcome").hidden = false;
+    renderConversations();
+    closeDrawer({ restoreFocus: false });
+  } catch (error) { setStatus(error.message || "Không mở được cuộc trò chuyện.", "error"); }
+}
+
+function startNewConversation() {
+  clearRetry();
+  state.activeConversationId = null;
+  $("#conversation").replaceChildren();
+  $("#welcome").hidden = false;
+  questionInput.value = "";
+  questionInput.style.height = "auto";
+  updateQuestionInput();
+  setStatus("");
+  state.sources = [];
+  state.sourcesByTurn.clear();
+  state.activeTurnId = null;
+  state.activeSourceKey = null;
+  renderTimeline();
+  renderConversations();
+  $("#thread").scrollTo({ top: 0, behavior: "smooth" });
+  questionInput.focus();
 }
 
 $("#user-logout").addEventListener("click", async () => {
@@ -778,20 +864,7 @@ $("#prev-video").addEventListener("click", () => { const i = state.videos.findIn
 $("#next-video").addEventListener("click", () => { const i = state.videos.findIndex((v) => v.video_id === state.currentVideo?.video_id); if (i >= 0 && i < state.videos.length - 1) selectVideo(state.videos[i + 1]); });
 $("#new-thread").addEventListener("click", () => {
   if (state.asking) return;
-  clearRetry();
-  $("#conversation").replaceChildren();
-  $("#welcome").hidden = false;
-  questionInput.value = "";
-  questionInput.style.height = "auto";
-  updateQuestionInput();
-  setStatus("");
-  state.sources = [];
-  state.sourcesByTurn.clear();
-  state.activeTurnId = null;
-  state.activeSourceKey = null;
-  renderTimeline();
-  $("#thread").scrollTo({ top: 0, behavior: "smooth" });
-  questionInput.focus();
+  startNewConversation();
 });
 $("#suggest-toggle").addEventListener("click", () => { const box = $("#suggestions"), open = box.hidden; box.hidden = !open; $("#suggest-toggle").setAttribute("aria-expanded", String(open)); });
 $("#suggestions").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#question-input").value = button.textContent; $("#question-input").dispatchEvent(new Event("input")); $("#question-input").focus(); $("#suggestions").hidden = true; $("#suggest-toggle").setAttribute("aria-expanded", "false"); });

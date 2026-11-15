@@ -28,6 +28,9 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 | `GET` | `/api/videos/{video_id}/file` | Learner session (hoặc admin session) | Chỉ trả file thuộc thư viện dùng chung hoặc tài khoản hiện tại; kiểm tra trạng thái index và vị trí file. |
 | `GET` | `/api/documents/{document_id}/sections/{section}` | Learner session (hoặc admin session) | Chỉ trả mục thuộc thư viện dùng chung hoặc tài khoản hiện tại. |
 | `POST` | `/api/ask` | Learner session + CSRF | Tìm trên học liệu dùng chung và học liệu của đúng tài khoản; không gửi chế độ truy xuất từ client. Người học dùng hybrid vector + BM25 để tránh graph của tài khoản khác ảnh hưởng kết quả. Response chỉ chứa câu trả lời và nguồn được phép xem. |
+| `GET` | `/api/conversations` | Learner session | Chỉ danh sách cuộc trò chuyện của tài khoản hiện tại. |
+| `GET` | `/api/conversations/{conversation_id}` | Learner session | Chỉ nội dung hỏi đáp và nguồn của chủ cuộc trò chuyện; ID của tài khoản khác trả `404`. |
+| `DELETE` | `/api/conversations/{conversation_id}` | Learner session + CSRF | Chỉ chủ sở hữu có thể xóa cuộc trò chuyện; xóa theo cascade các lượt hỏi đáp đã lưu. |
 | `POST` | `/api/admin/ask` *(mới)* | Admin session + CSRF | Cho phép chọn retrieval mode và trả timing/diagnostic cho màn thử hỏi. Không trả path hoặc exception thô. |
 | `GET` | `/api/status` | Learner session (hoặc admin session) | Chỉ `{"ready": bool}`. Không lộ `error`, `phase`, `gpu_busy` hay chi tiết kết nối. |
 | `GET` | `/api/auth/me` | Public | Không có phiên: `{"admin": false}`; có phiên hợp lệ: `{"admin": true, "csrf_token": ..., "admin_url": "/admin"}` để UI chỉ hiện liên kết quản trị sau khi xác thực. Không trả session token. |

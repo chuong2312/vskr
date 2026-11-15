@@ -117,7 +117,7 @@ vskr admin hash-password
 
 Đặt `VSKR_ADMIN_USER` và dán hash Argon2id được in vào `VSKR_ADMIN_PASSWORD_HASH` trong `.env`. Không đặt mật khẩu mặc định và không commit `.env`. Khi chưa có cả hai giá trị hợp lệ, các route quản trị bị tắt; login báo admin chưa được cấu hình. `VSKR_COOKIE_SECURE` mặc định là `true`. Chỉ đặt `false` cho phát triển qua `http://localhost`; ứng dụng từ chối cookie không Secure trên host bên ngoài. `VSKR_TRUSTED_PROXIES` nhận danh sách IP/CIDR, phân cách bằng dấu phẩy; nếu để trống, app bỏ qua `X-Forwarded-For`.
 
-Đăng ký người học chỉ mở khi đặt `VSKR_USER_INVITE_CODE` thành mã ngẫu nhiên dài trong `.env`; tạo mã bằng `python -c 'import secrets; print(secrets.token_urlsafe(24))'` rồi gửi riêng cho người được mời. Để trống sẽ tắt đăng ký mới. Tài khoản và phiên được lưu trong `data/accounts.sqlite3`; admin có thể thu hồi quyền vào bằng cách tắt tài khoản tại `/admin` → **Tài khoản**. Học liệu cũ chưa có `owner_id` được xem là thư viện dùng chung, còn nội dung mới của người học được giới hạn theo tài khoản.
+Đăng ký người học chỉ mở khi đặt `VSKR_USER_INVITE_CODE` thành mã ngẫu nhiên dài trong `.env`; tạo mã bằng `python -c 'import secrets; print(secrets.token_urlsafe(24))'` rồi gửi riêng cho người được mời. Để trống sẽ tắt đăng ký mới. Tài khoản, phiên và lịch sử hội thoại được lưu trong `data/accounts.sqlite3`; mỗi người chỉ xem hoặc xóa được cuộc trò chuyện của mình. Admin có thể thu hồi quyền vào bằng cách tắt tài khoản tại `/admin` → **Tài khoản**. Học liệu cũ chưa có `owner_id` được xem là thư viện dùng chung, còn nội dung mới của người học được giới hạn theo tài khoản.
 
 ## Triển khai
 

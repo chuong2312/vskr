@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -34,6 +35,7 @@ def _connect():
     connection.row_factory = sqlite3.Row
     try:
         connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("""CREATE TABLE IF NOT EXISTS users (
             user_id TEXT PRIMARY KEY,
             username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -47,6 +49,23 @@ def _connect():
             csrf_token TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             last_seen INTEGER NOT NULL
+        )""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS conversations (
+            conversation_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS conversation_turns (
+            turn_id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            found INTEGER NOT NULL,
+            cited INTEGER NOT NULL,
+            sources_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL
         )""")
         connection.commit()
         yield connection
@@ -133,6 +152,62 @@ def set_user_disabled(user_id: str, disabled: bool):
             raise HTTPException(404, "Không tìm thấy tài khoản.")
         if disabled:
             db.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+
+
+def save_exchange(user_id: str, conversation_id: str | None, question: str, result: dict):
+    now = int(time.time())
+    with _connect() as db:
+        if conversation_id:
+            row = db.execute("SELECT 1 FROM conversations WHERE conversation_id = ? AND user_id = ?",
+                             (conversation_id, user_id)).fetchone()
+            if not row:
+                raise HTTPException(404, "Không tìm thấy cuộc trò chuyện.")
+        else:
+            conversation_id = uuid.uuid4().hex
+            title = " ".join(question.split())[:72] or "Cuộc trò chuyện mới"
+            db.execute("INSERT INTO conversations VALUES (?, ?, ?, ?, ?)",
+                       (conversation_id, user_id, title, now, now))
+        db.execute("""INSERT INTO conversation_turns
+                   (turn_id, conversation_id, question, answer, found, cited, sources_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (uuid.uuid4().hex, conversation_id, question, result["answer"],
+                    int(bool(result.get("found"))), int(bool(result.get("cited"))),
+                    json.dumps(result.get("sources", []), ensure_ascii=False), now))
+        db.execute("UPDATE conversations SET updated_at = ? WHERE conversation_id = ?", (now, conversation_id))
+    return conversation_id
+
+
+def list_conversations(user_id: str):
+    with _connect() as db:
+        return [dict(row) for row in db.execute("""SELECT c.conversation_id, c.title, c.created_at,
+                   c.updated_at, COUNT(t.turn_id) AS turn_count
+                   FROM conversations c LEFT JOIN conversation_turns t USING(conversation_id)
+                   WHERE c.user_id = ? GROUP BY c.conversation_id ORDER BY c.updated_at DESC""", (user_id,))]
+
+
+def get_conversation(user_id: str, conversation_id: str):
+    with _connect() as db:
+        conversation = db.execute("""SELECT conversation_id, title, created_at, updated_at FROM conversations
+                                   WHERE conversation_id = ? AND user_id = ?""",
+                                  (conversation_id, user_id)).fetchone()
+        if not conversation:
+            raise HTTPException(404, "Không tìm thấy cuộc trò chuyện.")
+        turns = db.execute("""SELECT question, answer, found, cited, sources_json, created_at
+                            FROM conversation_turns WHERE conversation_id = ? ORDER BY created_at, rowid""",
+                           (conversation_id,)).fetchall()
+        return {**dict(conversation), "turns": [
+            {"question": row["question"], "answer": row["answer"], "found": bool(row["found"]),
+             "cited": bool(row["cited"]), "sources": json.loads(row["sources_json"]), "created_at": row["created_at"]}
+            for row in turns
+        ]}
+
+
+def delete_conversation(user_id: str, conversation_id: str):
+    with _connect() as db:
+        cursor = db.execute("DELETE FROM conversations WHERE conversation_id = ? AND user_id = ?",
+                            (conversation_id, user_id))
+        if not cursor.rowcount:
+            raise HTTPException(404, "Không tìm thấy cuộc trò chuyện.")
 
 
 def require_user(request: Request):

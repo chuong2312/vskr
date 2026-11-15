@@ -55,6 +55,42 @@ class TestLearnerAccounts(unittest.TestCase):
                 duplicate = client.post("/api/user/auth/register", json=payload, headers=headers)
                 self.assertEqual(duplicate.status_code, 409)
 
+    def test_conversation_history_is_persisted_and_private_to_the_account(self):
+        env = {**self.env, "VSKR_ADMIN_USER": "", "VSKR_ADMIN_PASSWORD_HASH": ""}
+        result = {
+            "answer": "Vector là biểu diễn số [1].", "found": True, "cited": True,
+            "sources": [{"n": 1, "source_type": "video", "video_id": "shared-video",
+                         "title": "Đại số", "start": 12, "end": 24,
+                         "label": "0:12-0:24", "text": "Vector được biểu diễn bằng số.",
+                         "link": "https://www.youtube.com/watch?v=abc&t=12s", "cited": True}],
+        }
+        with mock.patch.dict(os.environ, env), mock.patch.object(handlers, "ask", return_value=result):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                headers = {"Origin": "http://localhost"}
+                learner_a = client.post("/api/user/auth/register", json={
+                    "username": "learner-a", "password": "a-long-test-password", "invite_code": "class-invite-2026",
+                }, headers=headers).json()
+                csrf_a = learner_a["csrf_token"]
+                answer = client.post("/api/ask", json={"question": "Vector là gì?"}, headers={
+                    **headers, "X-CSRF-Token": csrf_a,
+                })
+                self.assertEqual(answer.status_code, 200, answer.text)
+                conversation_id = answer.json()["conversation_id"]
+                saved = client.get(f"/api/conversations/{conversation_id}")
+                self.assertEqual(saved.status_code, 200)
+                self.assertEqual(saved.json()["turns"][0]["question"], "Vector là gì?")
+                self.assertEqual(saved.json()["turns"][0]["sources"][0]["video_id"], "shared-video")
+                self.assertEqual(client.post("/api/user/auth/logout", headers={
+                    **headers, "X-CSRF-Token": csrf_a,
+                }).status_code, 200)
+
+                learner_b = client.post("/api/user/auth/register", json={
+                    "username": "learner-b", "password": "a-long-test-password", "invite_code": "class-invite-2026",
+                }, headers=headers).json()
+                self.assertNotEqual(learner_a["user"]["user_id"], learner_b["user"]["user_id"])
+                self.assertEqual(client.get("/api/conversations").json(), [])
+                self.assertEqual(client.get(f"/api/conversations/{conversation_id}").status_code, 404)
+
     def test_learner_retrieval_only_receives_shared_and_owned_chunks(self):
         chunks = [
             {"chunk_id": "shared:1", "video_id": "shared", "text": "shared topic"},

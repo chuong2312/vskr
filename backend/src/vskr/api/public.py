@@ -22,6 +22,7 @@ router = APIRouter()
 
 class PublicAskRequest(BaseModel):
     question: str
+    conversation_id: str | None = Field(default=None, max_length=64)
 
 
 class LoginRequest(BaseModel):
@@ -180,12 +181,12 @@ def admin_login_asset(asset_path: str):
 
 @router.get("/api/videos")
 def public_videos(user=Depends(accounts.require_learner_or_admin)):
-    return handlers.public_videos(owner_id=user["user_id"])
+    return handlers.public_videos(owner_id=user.get("user_id"))
 
 
 @router.get("/api/catalog")
 def public_catalog(user=Depends(accounts.require_learner_or_admin)):
-    return handlers.public_catalog(owner_id=user["user_id"])
+    return handlers.public_catalog(owner_id=user.get("user_id"))
 
 
 @router.post("/api/ingest", status_code=202)
@@ -231,6 +232,22 @@ def public_status(user=Depends(accounts.require_learner_or_admin)):
     return {"ready": handlers.state["service"] is not None}
 
 
+@router.get("/api/conversations")
+def list_conversations(user=Depends(accounts.require_user)):
+    return accounts.list_conversations(user["user_id"])
+
+
+@router.get("/api/conversations/{conversation_id}")
+def get_conversation(conversation_id: str, user=Depends(accounts.require_user)):
+    return accounts.get_conversation(user["user_id"], conversation_id)
+
+
+@router.delete("/api/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str, user=Depends(accounts.require_user)):
+    accounts.delete_conversation(user["user_id"], conversation_id)
+    return {"deleted": True}
+
+
 @router.post("/api/ask")
 def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.require_learner_or_admin)):
     question = payload.question
@@ -251,7 +268,12 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.requi
             }
             item["link"] = _safe_source_link(source)
             sources.append(item)
-        return {"answer": result["answer"], "found": result["found"], "cited": result["cited"], "sources": sources}
+        response = {"answer": result["answer"], "found": result["found"], "cited": result["cited"], "sources": sources}
+        if not user.get("admin"):
+            response["conversation_id"] = accounts.save_exchange(
+                user["user_id"], payload.conversation_id, question, response
+            )
+        return response
     except HTTPException as exc:
         if exc.status_code == 503:
             raise

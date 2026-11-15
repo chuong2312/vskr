@@ -17,6 +17,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .layout { max-width: 1440px; min-height: calc(100vh - 68px); margin: 0 auto; padding: 1.5rem; display: grid; grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); gap: 1.5rem; }
 .library-panel { align-self: start; border: 1px solid var(--line); border-radius: 18px; padding: 1.2rem; background: var(--surface); }
 .library-panel section + section { margin-top: 1.6rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+.chat-history .conversation-list { display:grid; gap:4px; max-height:28vh; overflow:auto; margin-top:.55rem; }
+.conversation-row { display:flex; align-items:center; gap:3px; min-width:0; padding:2px; border-radius:10px; }
+.conversation-row.is-active { background:var(--soft); }
+.conversation-choice { flex:1; min-width:0; overflow:hidden; padding:9px 8px; border:0; border-radius:8px; background:transparent; color:var(--ink); text-align:left; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; font-size:.84rem; }
+.conversation-choice:hover { background:var(--soft); }
+.conversation-delete { width:30px; height:30px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:1.15rem; cursor:pointer; }
+.conversation-delete:hover { background:var(--soft); color:var(--danger); }
 .section-heading, .lecture-title-row, .timeline-heading, .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .eyebrow { margin: 0 0 .3rem; color: var(--brand); font-size: .67rem; letter-spacing: .12em; font-weight: 800; }
 h1, h2, h3, p { margin-top: 0; }

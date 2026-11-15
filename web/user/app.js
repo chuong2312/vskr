@@ -95,6 +95,36 @@ $("#user-document-form").addEventListener("submit", async (event) => {
   finally { button.disabled = false; }
 });
 
+const contentDialog = $("#content-dialog");
+const libraryDialog = $("#library-dialog");
+function openContentDialog() {
+  contentDialog.showModal();
+  $("#content-video-url").focus();
+}
+function renderLibraryDialog() {
+  const list = $("#library-dialog-list");
+  list.replaceChildren();
+  for (const video of state.videos) {
+    const item = make("div", "library-item");
+    item.innerHTML = `<span class="library-item-icon" aria-hidden="true">▶</span><span><strong class="library-item-title"></strong><small class="library-item-meta"></small></span>`;
+    item.querySelector(".library-item-title").textContent = video.title || "Bài giảng";
+    item.querySelector(".library-item-meta").textContent = `${formatTime(video.duration || 0)}  ·  Riêng tư`;
+    const button = make("button", "small-button", "Xem");
+    button.type = "button";
+    button.addEventListener("click", () => { libraryDialog.close(); selectVideo(video); });
+    item.append(button);
+    list.append(item);
+  }
+  for (const documentItem of state.documents) {
+    const item = make("div", "library-item");
+    item.innerHTML = `<span class="library-item-icon" aria-hidden="true">▤</span><span><strong class="library-item-title"></strong><small class="library-item-meta"></small></span>`;
+    item.querySelector(".library-item-title").textContent = documentItem.title || "Tài liệu";
+    item.querySelector(".library-item-meta").textContent = "Tài liệu  ·  Riêng tư";
+    list.append(item);
+  }
+  if (!list.children.length) list.append(make("p", "muted", "Chưa có nội dung trong thư viện."));
+}
+
 function clearRetry() {
   if (state.retryInterval) clearInterval(state.retryInterval);
   state.retryInterval = null;
@@ -915,7 +945,7 @@ document.querySelectorAll(".welcome-suggestions button").forEach((button) => {
 $("#new-conversation").addEventListener("click", () => startNewConversation());
 $("#new-conversation-sidebar").addEventListener("click", () => startNewConversation());
 $("#sidebar-add-content").addEventListener("click", () => {
-  $("#add-video-toggle").click();
+  openContentDialog();
   closeDrawer({ restoreFocus: false });
 });
 $("#sidebar-collapse").addEventListener("click", () => closeDrawer({ restoreFocus: false }));
@@ -930,8 +960,47 @@ $("#sidebar-logout").addEventListener("click", () => {
   $("#user-logout").click();
 });
 $("#sidebar-library").addEventListener("click", () => {
-  $("#video-list").scrollIntoView({ block: "nearest" });
+  renderLibraryDialog();
+  libraryDialog.showModal();
   closeDrawer({ restoreFocus: false });
+});
+$("#close-content-dialog").addEventListener("click", () => contentDialog.close());
+$("#close-library-dialog").addEventListener("click", () => libraryDialog.close());
+for (const dialog of [contentDialog, libraryDialog]) {
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+}
+document.querySelectorAll(".content-tab[data-content-tab]").forEach((tab) => tab.addEventListener("click", () => {
+  const selected = tab.dataset.contentTab;
+  document.querySelectorAll(".content-tab[data-content-tab]").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
+  $("#content-link-form").hidden = selected !== "link";
+  $("#content-upload-form").hidden = selected !== "upload";
+  $("#content-document-form").hidden = selected !== "document";
+}));
+$("#content-link-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  $("#user-video-url").value = $("#content-video-url").value.trim();
+  $("#user-video-file").value = "";
+  contentDialog.close();
+  $("#user-video-form").requestSubmit();
+});
+$("#content-upload-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!$("#content-video-file").files.length) return;
+  const transfer = new DataTransfer();
+  transfer.items.add($("#content-video-file").files[0]);
+  $("#user-video-file").files = transfer.files;
+  $("#user-video-url").value = "";
+  contentDialog.close();
+  $("#user-video-form").requestSubmit();
+});
+$("#content-document-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!$("#content-document-file").files.length) return;
+  const transfer = new DataTransfer();
+  transfer.items.add($("#content-document-file").files[0]);
+  $("#user-document-file").files = transfer.files;
+  contentDialog.close();
+  $("#user-document-form").requestSubmit();
 });
 $("#close-lecture").addEventListener("click", closeLecture);
 

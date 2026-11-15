@@ -186,6 +186,48 @@
     </form>
   </dialog>
 
+  <dialog id="content-dialog" class="content-dialog" aria-labelledby="content-dialog-title">
+    <div class="dialog-heading">
+      <h2 id="content-dialog-title">Thêm nội dung</h2>
+      <button id="close-content-dialog" class="icon-button" type="button" aria-label="Đóng">×</button>
+    </div>
+    <div class="content-tabs" role="tablist">
+      <button class="content-tab" type="button" aria-selected="true" data-content-tab="link">Liên kết video</button>
+      <button class="content-tab" type="button" aria-selected="false" data-content-tab="upload">Tải video lên</button>
+      <button class="content-tab" type="button" aria-selected="false" data-content-tab="document">Tài liệu</button>
+    </div>
+    <p class="content-quota">Tài khoản của bạn: video tối đa 1024 MB và 120 phút, tối đa 2 tác vụ cùng lúc.</p>
+    <form id="content-link-form" class="content-form">
+      <label for="content-video-url">Liên kết video (YouTube…)</label>
+      <input id="content-video-url" type="url" placeholder="https://www.youtube.com/watch?v=…" required>
+      <p>Nội dung bạn thêm mặc định là <strong>riêng tư</strong>; chỉ mình bạn hỏi đáp được trên đó.</p>
+      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+    </form>
+    <form id="content-upload-form" class="content-form" hidden>
+      <label for="content-video-file">Chọn video từ máy</label>
+      <input id="content-video-file" type="file" accept="video/*" required>
+      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+    </form>
+    <form id="content-document-form" class="content-form" hidden>
+      <label for="content-document-file">Chọn tài liệu</label>
+      <input id="content-document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx" required>
+      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+    </form>
+    <div class="content-jobs"><h3>Đang xử lý</h3><div id="content-job-list"></div></div>
+  </dialog>
+
+  <dialog id="library-dialog" class="library-dialog" aria-labelledby="library-dialog-title">
+    <div class="dialog-heading">
+      <h2 id="library-dialog-title">Thư viện</h2>
+      <button id="close-library-dialog" class="icon-button" type="button" aria-label="Đóng">×</button>
+    </div>
+    <div class="content-tabs" role="tablist">
+      <button class="library-tab content-tab" type="button" aria-selected="true" data-library-tab="mine">Của tôi</button>
+      <button class="library-tab content-tab" type="button" aria-selected="false" data-library-tab="public">Công khai</button>
+    </div>
+    <div id="library-dialog-list" class="library-dialog-list"></div>
+  </dialog>
+
   <dialog id="account-dialog" class="account-dialog" aria-labelledby="account-dialog-title">
     <div class="dialog-heading">
       <h2 id="account-dialog-title">Đăng nhập</h2>

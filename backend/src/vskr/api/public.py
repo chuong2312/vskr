@@ -250,13 +250,13 @@ def admin_login_asset(asset_path: str):
 @router.get("/api/videos")
 def public_videos(user=Depends(accounts.optional_learner_or_admin)):
     return handlers.public_videos(owner_id=user.get("owner") or user.get("user_id"),
-                                  shared_only=False)
+                                  shared_only=bool(user.get("guest")))
 
 
 @router.get("/api/catalog")
 def public_catalog(user=Depends(accounts.optional_learner_or_admin)):
     return handlers.public_catalog(owner_id=user.get("owner") or user.get("user_id"),
-                                   shared_only=False)
+                                   shared_only=bool(user.get("guest")))
 
 
 @router.post("/api/ingest", status_code=202)

@@ -47,6 +47,13 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual([item["video_id"] for item in result["videos"]], ["shared-video"])
         self.assertEqual([item["document_id"] for item in result["documents"]], ["shared-doc"])
 
+    def test_guest_catalog_enforces_shared_only_scope_at_route(self):
+        with mock.patch("vskr.api.public.handlers.public_catalog", return_value={"videos": [], "documents": []}) as catalog:
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                response = client.get("/api/catalog")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(catalog.call_args.kwargs["shared_only"])
+
     def test_video_catalog_includes_only_indexed_ready_metadata(self):
         service = SimpleNamespace(
             meta={

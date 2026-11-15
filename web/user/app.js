@@ -693,6 +693,13 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
   const signedIn = Boolean(session?.user_id);
   const lostSession = state.signedIn && !signedIn;
   state.signedIn = signedIn;
+  if (lostSession) {
+    state.videos = [];
+    state.documents = [];
+    renderVideos();
+    renderDocuments();
+    loadLibrary();
+  }
   $("#user-login").hidden = signedIn;
   $("#user-register").hidden = signedIn;
   $("#user-name").hidden = !signedIn;

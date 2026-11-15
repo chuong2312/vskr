@@ -430,3 +430,22 @@ body { background:var(--canvas); }
   .question-composer { border-radius:18px; }
   .lecture-card { inset:60px 0 0; }
 }
+
+@media (prefers-color-scheme: dark) {
+  body { background:#0b1516; }
+  .library-panel { background:#081213; border-color:#203536; }
+  .study-panel, .thread { background:#0b1516; }
+  .chat-toolbar { background:#0b1516; border-color:#203536; }
+  .sidebar-nav button:first-child { background:#102526; border-color:#1d3a3b; }
+  .sidebar-nav button:hover, .conversation-choice:hover { background:#12292a; }
+  #history-section .history-search-wrap { background:#102021; border-color:#294344; }
+  .conversation-row.is-active { background:#1c3b3b; }
+  .guest-account-panel { background:#102021; border-color:#294344 !important; }
+  .signed-in-account { border-color:#203536 !important; }
+  .question-composer { background:#102021; border-color:#294344; box-shadow:0 10px 30px #0008; }
+  .welcome-suggestions button { background:#102021; border-color:#294344; }
+  .content-dialog, .library-dialog, .account-dialog, .document-dialog { background:#102021; }
+  .content-tabs { background:#1b3435; }
+  .content-tab[aria-selected="true"], .account-tabs button[aria-selected="true"] { background:#e9f1ef; color:#102021; }
+  .library-item { border-color:#294344; }
+}

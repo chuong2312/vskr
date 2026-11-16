@@ -79,6 +79,24 @@ class TestPipeline(unittest.TestCase):
         r.cfg = dict(r.cfg, min_vector_score=0.99)
         self.assertEqual(r.search("câu hỏi lạc đề hoàn toàn", mode="vector"), [])
 
+    def test_vector_scope_excludes_unauthorized_chunks(self):
+        from vskr.bm25 import BM25, tokenize
+        from vskr.retriever import Retriever
+
+        idx = mock.Mock()
+        idx.chunks = [
+            {"chunk_id": "allowed", "video_id": "a", "text": "topic"},
+            {"chunk_id": "blocked", "video_id": "b", "text": "topic"},
+            {"chunk_id": "other", "video_id": "c", "text": "topic"},
+        ]
+        idx.vectors = np.asarray([[1., 0.], [.9, .1], [.8, .2]])
+        idx.bm25 = BM25([tokenize("topic")] * 3)
+        retriever = Retriever(idx, mock.Mock(), {"top_k": 3})
+        retriever.embedder.encode_query.return_value = np.asarray([1., 0.])
+        hits = retriever.search("topic", mode="vector", allowed_sources={"a"})
+        self.assertEqual([hit["chunk"]["chunk_id"] for hit in hits], ["allowed"])
+        self.assertEqual(retriever.search("topic", mode="vector", allowed_sources=set()), [])
+
     def test_service_maps_ids_to_timestamps(self):
         from vskr.service import Service
 

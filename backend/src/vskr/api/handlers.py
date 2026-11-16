@@ -609,7 +609,7 @@ def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project
         item_project = meta.get("project_id")
         if not item_project and item_owner:
             item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
-        if project_id and item_project != project_id:
+        if project_id and item_owner and item_project != project_id:
             continue
         video_id = meta.get("video_id")
         owners = video_owners.get(video_id, set())
@@ -664,7 +664,7 @@ def public_catalog(owner_id=None, *, shared_only=False, owned_only=False, projec
         item_project = item.get("project_id")
         if not item_project and item_owner:
             item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
-        if project_id and item_project != project_id:
+        if project_id and item_owner and item_project != project_id:
             continue
         owners = document_owners.get(document_id, set())
         if owned_only and (not owner_id or not owners or

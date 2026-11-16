@@ -15,6 +15,19 @@ from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def test_project_filter_keeps_shared_material(self):
+        service = SimpleNamespace(
+            meta={
+                "shared": {"video_id": "shared", "title": "Chung", "url": "https://youtu.be/shared"},
+                "owned": {"video_id": "owned", "title": "Riêng", "owner_id": "u1", "project_id": "p1",
+                          "url": "https://youtu.be/owned"},
+            },
+            index=SimpleNamespace(chunks=[{"video_id": "shared"}, {"video_id": "owned", "owner_id": "u1"}]),
+        )
+        with mock.patch.dict(handlers.state, {"service": service}):
+            videos = handlers.public_videos(owner_id="u1", project_id="p1")
+        self.assertEqual({item["video_id"] for item in videos}, {"shared", "owned"})
+
     def test_guest_can_poll_own_job_but_not_another_guests_job(self):
         job = {"job_id": "job-a", "owner_id": "g:guest-a", "status": "running",
                "phase": "download", "message": "Đang tải", "title": "Bài học"}

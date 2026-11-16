@@ -54,6 +54,12 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(catalog.call_args.kwargs["shared_only"])
 
+    def test_guest_private_library_scope_is_empty(self):
+        with ASGITestClient(app, authenticated_learner=False) as client:
+            response = client.get("/api/catalog?scope=mine")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"videos": [], "documents": []})
+
     def test_video_catalog_includes_only_indexed_ready_metadata(self):
         service = SimpleNamespace(
             meta={

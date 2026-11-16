@@ -114,32 +114,41 @@ $("#user-document-form").addEventListener("submit", async (event) => {
 
 const contentDialog = $("#content-dialog");
 const libraryDialog = $("#library-dialog");
+let libraryDialogScope = "mine";
 function openContentDialog() {
   contentDialog.showModal();
   $("#content-video-url").focus();
 }
-function renderLibraryDialog() {
+async function renderLibraryDialog(scope = libraryDialogScope) {
+  libraryDialogScope = scope;
   const list = $("#library-dialog-list");
   list.replaceChildren();
-  for (const video of state.videos) {
+  list.append(make("p", "muted", "Đang tải thư viện…"));
+  try {
+    const catalog = await request(`/api/catalog?scope=${encodeURIComponent(scope)}`);
+    list.replaceChildren();
+    for (const video of catalog.videos || []) {
     const item = make("div", "library-item");
     item.innerHTML = `<span class="library-item-icon" aria-hidden="true">▶</span><span><strong class="library-item-title"></strong><small class="library-item-meta"></small></span>`;
     item.querySelector(".library-item-title").textContent = video.title || "Bài giảng";
-    item.querySelector(".library-item-meta").textContent = `${formatTime(video.duration || 0)}  ·  Riêng tư`;
+    item.querySelector(".library-item-meta").textContent = `${formatTime(video.duration || 0)}  ·  ${scope === "mine" ? "Riêng tư" : "Công khai"}`;
     const button = make("button", "small-button", "Xem");
     button.type = "button";
     button.addEventListener("click", () => { libraryDialog.close(); beginConversationWithSource(video); });
     item.append(button);
-    list.append(item);
-  }
-  for (const documentItem of state.documents) {
+      list.append(item);
+    }
+    for (const documentItem of catalog.documents || []) {
     const item = make("div", "library-item");
     item.innerHTML = `<span class="library-item-icon" aria-hidden="true">▤</span><span><strong class="library-item-title"></strong><small class="library-item-meta"></small></span>`;
     item.querySelector(".library-item-title").textContent = documentItem.title || "Tài liệu";
-    item.querySelector(".library-item-meta").textContent = "Tài liệu  ·  Riêng tư";
-    list.append(item);
+    item.querySelector(".library-item-meta").textContent = `Tài liệu  ·  ${scope === "mine" ? "Riêng tư" : "Công khai"}`;
+      list.append(item);
+    }
+    if (!list.children.length) list.append(make("p", "muted", "Chưa có nội dung trong thư viện."));
+  } catch (error) {
+    list.replaceChildren(make("p", "request-status error", error.message || "Không tải được thư viện."));
   }
-  if (!list.children.length) list.append(make("p", "muted", "Chưa có nội dung trong thư viện."));
 }
 
 function clearRetry() {
@@ -1098,10 +1107,16 @@ $("#sidebar-logout").addEventListener("click", () => {
   $("#user-logout").click();
 });
 $("#sidebar-library").addEventListener("click", () => {
-  renderLibraryDialog();
   libraryDialog.showModal();
+  renderLibraryDialog("mine");
   closeDrawer({ restoreFocus: false });
 });
+document.querySelectorAll(".library-tab[data-library-tab]").forEach((tab) => tab.addEventListener("click", () => {
+  const scope = tab.dataset.libraryTab;
+  document.querySelectorAll(".library-tab[data-library-tab]").forEach((item) =>
+    item.setAttribute("aria-selected", String(item === tab)));
+  renderLibraryDialog(scope);
+}));
 $("#close-content-dialog").addEventListener("click", () => contentDialog.close());
 $("#close-library-dialog").addEventListener("click", () => libraryDialog.close());
 $("#close-conversation-source").addEventListener("click", () => $("#conversation-source-dialog").close());

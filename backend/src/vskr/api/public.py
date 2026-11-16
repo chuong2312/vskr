@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -254,7 +254,15 @@ def public_videos(user=Depends(accounts.optional_learner_or_admin)):
 
 
 @router.get("/api/catalog")
-def public_catalog(user=Depends(accounts.optional_learner_or_admin)):
+def public_catalog(scope: str | None = Query(default=None), user=Depends(accounts.optional_learner_or_admin)):
+    if scope == "mine":
+        if not user.get("user_id"):
+            return {"videos": [], "documents": []}
+        return handlers.public_catalog(owner_id=user["user_id"], owned_only=True)
+    if scope == "public":
+        return handlers.public_catalog(owner_id=user.get("owner") or user.get("user_id"), shared_only=True)
+    if scope is not None:
+        raise HTTPException(422, "Phạm vi thư viện không hợp lệ.")
     return handlers.public_catalog(owner_id=user.get("owner") or user.get("user_id"),
                                    shared_only=bool(user.get("guest")))
 

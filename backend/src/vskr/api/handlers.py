@@ -586,7 +586,7 @@ def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *,
                 and _indexed_document(source_id, owner_id, shared_only=shared_only))
 
 
-def public_videos(owner_id=None, *, shared_only=False):
+def public_videos(owner_id=None, *, shared_only=False, owned_only=False):
     if state["service"] is None:
         _init_service()
     service = state["service"]
@@ -603,6 +603,9 @@ def public_videos(owner_id=None, *, shared_only=False):
             continue
         video_id = meta.get("video_id")
         owners = video_owners.get(video_id, set())
+        if owned_only and (not owner_id or not owners or
+                           any(item_owner not in {owner_id, f"u:{owner_id}"} for item_owner in owners)):
+            continue
         if not owners or any(not _owner_is_visible(item_owner_id, owner_id, shared_only=shared_only)
                              for item_owner_id in owners):
             continue
@@ -628,8 +631,8 @@ def public_videos(owner_id=None, *, shared_only=False):
     return result
 
 
-def public_catalog(owner_id=None, *, shared_only=False):
-    videos = public_videos(owner_id=owner_id, shared_only=shared_only)
+def public_catalog(owner_id=None, *, shared_only=False, owned_only=False):
+    videos = public_videos(owner_id=owner_id, shared_only=shared_only, owned_only=owned_only)
     cfg = load_config()
     from ..documents import list_documents
 
@@ -646,6 +649,9 @@ def public_catalog(owner_id=None, *, shared_only=False):
             continue
         document_id = item.get("document_id")
         owners = document_owners.get(document_id, set())
+        if owned_only and (not owner_id or not owners or
+                           any(item_owner not in {owner_id, f"u:{owner_id}"} for item_owner in owners)):
+            continue
         if not owners or any(not _owner_is_visible(item_owner_id, owner_id, shared_only=shared_only)
                              for item_owner_id in owners):
             continue

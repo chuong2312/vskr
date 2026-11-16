@@ -15,6 +15,18 @@ from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def test_index_reload_can_bypass_initialization_backoff(self):
+        fake_service = SimpleNamespace(meta={}, document_meta={})
+        with mock.patch.dict(handlers.state, {"service": None, "failed_at": 1.0, "error": "old"}), \
+                mock.patch("time.time", return_value=2.0), \
+                mock.patch("vskr.api.handlers.load_config", return_value={}), \
+                mock.patch("vskr.service.Service", return_value=fake_service) as service_ctor:
+            handlers._init_service()
+            self.assertIsNone(handlers.state["service"])
+            handlers._init_service(force=True)
+            self.assertEqual(service_ctor.call_count, 1)
+            self.assertIs(handlers.state["service"], fake_service)
+
     def test_approved_owned_content_is_visible_to_other_learners_and_guests(self):
         service = SimpleNamespace(
             meta={"public-video": {

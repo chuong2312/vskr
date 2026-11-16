@@ -190,11 +190,12 @@ def _release_service(service):
         _close_service(service)
 
 
-def _init_service():
+def _init_service(*, force=False):
     """Nạp chỉ mục + embedder. Có thể gọi lại: nhờ vậy chạy `index` xong là dùng được ngay,
     không cần khởi động lại server (quan trọng khi `serve` và `index` chạy ở hai container khác nhau)."""
     with _lock:
-        if state["service"] is None and state.get("failed_at", 0) and time.time() - state["failed_at"] < 30:
+        if (not force and state["service"] is None and state.get("failed_at", 0)
+                and time.time() - state["failed_at"] < 30):
             return
         try:
             from ..service import Service
@@ -306,7 +307,7 @@ def _rebuild_or_clear():
         if "Không có nội dung để lập chỉ mục" not in str(exc):
             raise
         shutil.rmtree(index_dir(load_config()), ignore_errors=True)
-    _init_service()
+    _init_service(force=True)
 
 
 def _forget_jobs(kind, item_id):
@@ -752,7 +753,7 @@ def _process_ingest_job(job_id, source):
         _update_job(job_id, phase="index", message="Đang chia đoạn và lập chỉ mục…")
         _rebuild_index(cfg, job_id=job_id)
         _update_job(job_id, phase="reload", message="Đang nạp lại chỉ mục…")
-        _init_service()
+        _init_service(force=True)
         if state["service"] is None:
             raise RuntimeError(state["error"] or "Không nạp được chỉ mục mới.")
         message = "Nội dung đã sẵn sàng để hỏi đáp."
@@ -995,7 +996,7 @@ def retry_job(job_id: str):
 
 def reload_index():
     """Nạp lại chỉ mục sau khi chạy lại `index` (đổi chunk/embedding) mà không cần khởi động lại server."""
-    _init_service()
+    _init_service(force=True)
     return admin_status()
 
 

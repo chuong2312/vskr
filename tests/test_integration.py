@@ -150,6 +150,15 @@ class TestPipeline(unittest.TestCase):
         kinds = {source["source_type"] for source in result["sources"]}
         self.assertEqual(kinds, {"video", "document"})
 
+    def test_vlm_captions_are_included_in_searchable_chunks(self):
+        captions = [{"start": 4, "end": 6, "text": "Biểu đồ thể hiện đường cong sigmoid.", "type": "caption"}]
+        write_json(video_dir(self.cfg, "vid1") / "captions.json", captions)
+        index_mod.build(self.cfg, self.emb)
+        chunks = index_mod.load(self.cfg).chunks
+        matching = [chunk for chunk in chunks if "đường cong sigmoid" in chunk["text"]]
+        self.assertTrue(matching)
+        self.assertIn("caption", matching[0]["source_types"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 from .config import video_dir
-from .util import write_json
+from .util import safe_video_id, write_json
 
 
 def probe_duration(path):
@@ -11,10 +11,12 @@ def probe_duration(path):
     proc = subprocess.run(
         [
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            "-of", "default=noprint_wrappers=1:nokey=1", "-protocol_whitelist", "file,pipe",
+            str(path),
         ],
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"Không đọc được thời lượng video:\n{proc.stderr[-800:]}")
@@ -37,9 +39,11 @@ def check_duration(duration, cfg):
 def _extract_audio(src, vdir):
     audio_path = Path(vdir) / "audio.wav"
     proc = subprocess.run(
-        ["ffmpeg", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", str(audio_path)],
+        ["ffmpeg", "-y", "-protocol_whitelist", "file,pipe", "-i", str(src),
+         "-vn", "-ac", "1", "-ar", "16000", str(audio_path)],
         capture_output=True,
         text=True,
+        timeout=1800,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg lỗi khi tách audio:\n{proc.stderr[-800:]}")
@@ -84,13 +88,15 @@ def resolve_source(vdir, meta):
     return q if q.exists() else None
 
 
-def ingest(url, cfg, with_video=False):
+def ingest(url, cfg, with_video=False, video_id=None):
     import yt_dlp
 
     with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
         info = ydl.extract_info(url, download=False)
     check_duration(info.get("duration"), cfg)
-    vid = info["id"]
+    youtube_id = str(info["id"])
+    vid = video_id or youtube_id
+    vid = safe_video_id(vid)
     vdir = video_dir(cfg, vid)
     vdir.mkdir(parents=True, exist_ok=True)
 
@@ -112,6 +118,7 @@ def ingest(url, cfg, with_video=False):
     _extract_audio(src, vdir)
     meta = {
         "video_id": vid,
+        "youtube_id": youtube_id,
         "title": info.get("title"),
         "uploader": info.get("uploader"),
         "duration": duration,

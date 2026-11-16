@@ -4,25 +4,27 @@ from __future__ import annotations
 
 import threading
 import time
+import itertools
 from collections import OrderedDict, deque
 
 from fastapi import HTTPException
 
 _lock = threading.Lock()
-_ask_attempts: OrderedDict[str, deque[float]] = OrderedDict()
+_ask_attempts: OrderedDict[str, deque[tuple[int, float]]] = OrderedDict()
+_attempt_ids = itertools.count(1)
 _ask_slots = threading.BoundedSemaphore(3)
 
 
-def check_ask_rate(ip: str, now: float | None = None) -> None:
+def check_ask_rate(ip: str, now: float | None = None) -> int:
     now = time.time() if now is None else now
     limits = ((60.0, 10), (3600.0, 100))
     with _lock:
         attempts = _ask_attempts.setdefault(ip, deque())
         _ask_attempts.move_to_end(ip)
-        while attempts and now - attempts[0] >= 3600:
+        while attempts and now - attempts[0][1] >= 3600:
             attempts.popleft()
         for window, maximum in limits:
-            recent = [stamp for stamp in attempts if now - stamp < window]
+            recent = [stamp for _attempt_id, stamp in attempts if now - stamp < window]
             if len(recent) >= maximum:
                 retry_after = max(1, int(recent[0] + window - now + 0.999))
                 raise HTTPException(
@@ -30,17 +32,35 @@ def check_ask_rate(ip: str, now: float | None = None) -> None:
                     "Bạn đã gửi quá nhiều câu hỏi. Vui lòng thử lại sau.",
                     headers={"Retry-After": str(retry_after)},
                 )
-        attempts.append(now)
+        attempt_id = next(_attempt_ids)
+        attempts.append((attempt_id, now))
         if len(_ask_attempts) > 10_000:
             while len(_ask_attempts) > 10_000:
                 _ask_attempts.popitem(last=False)
+        return attempt_id
+
+
+def rollback_ask_rate(ip: str, attempt_id: int | None) -> None:
+    """Do not charge a request that could not be answered due to a server failure."""
+    if attempt_id is None:
+        return
+    with _lock:
+        attempts = _ask_attempts.get(ip)
+        if not attempts:
+            return
+        for attempt in tuple(attempts):
+            if attempt[0] == attempt_id:
+                attempts.remove(attempt)
+                break
+        if not attempts:
+            _ask_attempts.pop(ip, None)
 
 
 def enter_ask_slot() -> None:
     if not _ask_slots.acquire(blocking=False):
         raise HTTPException(
             503,
-            "Hệ thống đang cập nhật học liệu, thử lại sau ít phút",
+            "Hệ thống đang xử lý nhiều câu hỏi cùng lúc, bạn thử lại sau vài giây.",
             headers={"Retry-After": "10"},
         )
 

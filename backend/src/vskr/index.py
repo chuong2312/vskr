@@ -1,6 +1,7 @@
 """Xây và nạp chỉ mục: chunks.json + vectors.npy (numpy, tích vô hướng trên vector đã chuẩn hóa)."""
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -83,32 +84,55 @@ def build(cfg, embedder, progress=None, output_dir=None):
     chunks = []
     for vid in list_video_ids(cfg):
         vdir = video_dir(cfg, vid)
+        video_meta = read_json(vdir / "meta.json")
+        owner_id = video_meta.get("owner_id")
+        project_id = video_meta.get("project_id")
         tp = vdir / "transcript.json"
         if not tp.exists():
             print(f"[index] bỏ qua {vid}: chưa có transcript.json")
             continue
         segs = read_json(tp)["segments"]
-        extras = None
-        sp = vdir / "screen_text.json"
-        if ch.get("use_screen_text", True) and sp.exists():
-            extras = read_json(sp)
+        extras = []
+        if ch.get("use_screen_text", True):
+            for artifact_name in ("screen_text.json", "captions.json"):
+                artifact_path = vdir / artifact_name
+                if artifact_path.is_file():
+                    extras.extend(read_json(artifact_path))
+        if not extras:
+            extras = None
         scene_file = vdir / "scenes.json"
         frame_file = vdir / "frames.json"
         scene_starts = (read_json(scene_file).get("scene_starts", []) if scene_file.exists()
                         else read_json(frame_file).get("scene_starts", []) if frame_file.exists() else [])
         if scene_starts:
-            chunks += make_scene_chunks(
+            video_chunks = make_scene_chunks(
                 vid, segs, scene_starts, ch["window_s"], ch["overlap_s"],
                 ch.get("min_chars", 20), extras,
             )
         else:
-            chunks += make_chunks(
+            video_chunks = make_chunks(
                 vid, segs, ch["window_s"], ch["overlap_s"], ch.get("min_chars", 20), extras
             )
+        for chunk in video_chunks:
+            if owner_id:
+                chunk["owner_id"] = owner_id
+            if project_id:
+                chunk["project_id"] = project_id
+        chunks += video_chunks
     document_root = data_dir(cfg) / "documents"
     if document_root.exists():
         for section_file in sorted(document_root.glob("*/sections.json")):
-            chunks.extend(read_json(section_file).get("chunks", []))
+            document_chunks = read_json(section_file).get("chunks", [])
+            meta_path = section_file.parent / "meta.json"
+            document_meta = read_json(meta_path) if meta_path.is_file() else {}
+            owner_id = document_meta.get("owner_id")
+            project_id = document_meta.get("project_id")
+            for chunk in document_chunks:
+                if owner_id:
+                    chunk["owner_id"] = owner_id
+                if project_id:
+                    chunk["project_id"] = project_id
+            chunks.extend(document_chunks)
     if not chunks:
         raise RuntimeError("Không có nội dung để lập chỉ mục. Hãy thêm video và chạy ASR, hoặc nhập tài liệu.")
     t0 = time.time()
@@ -129,6 +153,9 @@ def build(cfg, embedder, progress=None, output_dir=None):
     write_json(idir / "chunks.json", chunks)
     write_json(idir / "knowledge_graph.json", graph)
     info = {
+        "version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "chunk_count": len(chunks),
         "n_chunks": len(chunks),
         "embedding": cfg["embedding"],
         "chunk": ch,

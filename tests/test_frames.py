@@ -1,11 +1,43 @@
 import tempfile
 import unittest
+import json
+from unittest import mock
 from pathlib import Path
 
 from vskr.frames import candidate_times, cap_evenly, dedupe_hashes, dhash, hamming
 
 
 class TestFrames(unittest.TestCase):
+    def test_scene_detection_uses_pyav_backend(self):
+        scene = (mock.Mock(get_seconds=mock.Mock(return_value=0.0)), mock.Mock())
+        manager = mock.Mock()
+        manager.get_scene_list.return_value = [scene]
+        with mock.patch("scenedetect.open_video", return_value=object()) as open_video, \
+             mock.patch("scenedetect.SceneManager", return_value=manager), \
+             mock.patch("scenedetect.ContentDetector"):
+            from vskr.frames import detect_scene_starts
+
+            self.assertEqual(detect_scene_starts("lecture.mp4"), [0.0])
+        open_video.assert_called_once_with("lecture.mp4", backend="pyav")
+
+    def test_ingest_scene_detection_failure_falls_back_to_transcript_indexing(self):
+        from vskr.frames import detect_scenes_only
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_dir = Path(temp_dir) / "videos" / "vid1"
+            video_dir.mkdir(parents=True)
+            (video_dir / "source.mp4").write_bytes(b"video")
+            (video_dir / "meta.json").write_text(json.dumps({"source_file": "source.mp4"}), encoding="utf-8")
+            cfg = {"paths": {"data_dir": temp_dir}, "frames": {"frame_skip": 4}}
+            with mock.patch("vskr.frames.detect_scene_starts", side_effect=RuntimeError("decoder failed")):
+                result = detect_scenes_only(cfg, "vid1")
+
+            self.assertEqual(result["scene_starts"], [])
+            self.assertEqual(result["scene_count"], 0)
+            self.assertEqual(result["detection_status"], "fallback")
+            persisted = json.loads((video_dir / "scenes.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["error_type"], "RuntimeError")
+
     def test_interval_only(self):
         c = candidate_times(30, [], interval_s=10)
         self.assertEqual([t for t, _ in c], [0.0, 10.0, 20.0])

@@ -8,9 +8,13 @@ export class ApiError extends Error {
 }
 
 export async function request(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const csrf = sessionStorage.getItem("vskr-user-csrf");
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
+  if (csrf && !["GET", "HEAD", "OPTIONS"].includes(method)) headers["X-CSRF-Token"] = csrf;
   const response = await fetch(path, {
     ...options,
-    headers: { Accept: "application/json", ...(options.headers || {}) },
+    headers,
     credentials: "same-origin",
   });
   let body = null;

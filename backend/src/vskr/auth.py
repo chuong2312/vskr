@@ -19,6 +19,7 @@ ABSOLUTE_TTL = 8 * 60 * 60
 IDLE_TTL = 60 * 60
 LOGIN_WINDOW = 15 * 60
 LOGIN_FAILURES = 5
+LOGIN_IP_FAILURES = 30
 _sessions: dict[str, dict] = {}
 _sessions_lock = threading.RLock()
 _failures: OrderedDict[tuple[str, str], deque[float]] = OrderedDict()
@@ -158,15 +159,23 @@ def _prune_failures(now: float) -> None:
 
 
 def _login_keys(ip: str, username: str):
-    return ("ip", ip), ("username", username.strip().casefold())
+    normalized_username = username.strip().casefold()
+    return ("pair", f"{ip}\0{normalized_username}"), ("ip", ip)
+
+
+def _login_failure_limit(key: tuple[str, str]) -> int:
+    return LOGIN_IP_FAILURES if key[0] == "ip" else LOGIN_FAILURES
 
 
 def login_retry_after(ip: str, username: str, now: float | None = None) -> int | None:
     now = time.time() if now is None else now
     with _failures_lock:
         _prune_failures(now)
-        attempts = [list(_failures.get(key, ())) for key in _login_keys(ip, username)]
-    retry = [values[0] + LOGIN_WINDOW - now for values in attempts if len(values) >= LOGIN_FAILURES]
+        attempts = [
+            (list(_failures.get(key, ())), _login_failure_limit(key))
+            for key in _login_keys(ip, username)
+        ]
+    retry = [values[0] + LOGIN_WINDOW - now for values, limit in attempts if len(values) >= limit]
     return max(1, int(max(retry) + 0.999)) if retry else None
 
 
@@ -182,8 +191,10 @@ def _record_login_failure(ip: str, username: str, now: float | None = None) -> N
 
 def _clear_login_failures(ip: str, username: str) -> None:
     with _failures_lock:
-        for key in _login_keys(ip, username):
-            _failures.pop(key, None)
+        # A successful login clears that account's pair-specific lock. Keep the
+        # IP-wide spray budget so repeated failures across usernames still count.
+        pair_key = _login_keys(ip, username)[0]
+        _failures.pop(pair_key, None)
 
 
 def verify_login(username: str, password: str) -> bool:

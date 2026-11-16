@@ -54,6 +54,9 @@ class TestAdminAuth(unittest.TestCase):
                 self.assertIn("path=/", cookie)
                 self.assertNotIn("secure", cookie)
                 self.assertEqual(client.get("/api/auth/me").json()["admin"], True)
+                admin_page = client.get("/admin")
+                self.assertEqual(admin_page.status_code, 200)
+                self.assertIn("VSKR · Quản trị", admin_page.text)
 
     def test_cookie_secure_defaults_to_true(self):
         env = {key: value for key, value in self.env.items() if key != "VSKR_COOKIE_SECURE"}
@@ -86,6 +89,20 @@ class TestAdminAuth(unittest.TestCase):
                 )
                 self.assertEqual(limited.status_code, 429)
                 self.assertGreater(int(limited.headers["retry-after"]), 0)
+
+    def test_login_failures_are_scoped_to_ip_and_username_pair(self):
+        for attempt in range(auth.LOGIN_FAILURES):
+            auth._record_login_failure("192.0.2.10", "test-admin", now=100 + attempt)
+
+        self.assertIsNotNone(auth.login_retry_after("192.0.2.10", "test-admin", now=105))
+        self.assertIsNone(auth.login_retry_after("192.0.2.11", "test-admin", now=105))
+        self.assertIsNone(auth.login_retry_after("192.0.2.10", "another-user", now=105))
+
+    def test_ip_wide_limit_still_catches_password_spraying(self):
+        for attempt in range(auth.LOGIN_IP_FAILURES):
+            auth._record_login_failure("192.0.2.10", f"user-{attempt}", now=100 + attempt)
+
+        self.assertIsNotNone(auth.login_retry_after("192.0.2.10", "new-user", now=130))
 
     def test_login_rotates_session_and_logout_revokes_it(self):
         with mock.patch.dict(os.environ, self.env):

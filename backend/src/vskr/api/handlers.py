@@ -1,6 +1,7 @@
-import mimetypes
+import hashlib
 import json
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -21,13 +22,41 @@ from ..config import data_dir, index_dir, load_config, video_dir, videos_dir
 from ..index import load_meta
 from ..ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
 from ..util import fmt_time, read_json, write_json
-from .. import audit
+from .. import audit, accounts
 from .ssrf import validate_ingest_url
 
 
 class AskRequest(BaseModel):
     question: str = Field(max_length=500)
     mode: Optional[str] = None
+
+
+_CONTEXT_REFERENCE = re.compile(
+    r"\b(?:hồi\s+nãy|vừa\s+rồi|ý\s+trên|câu\s+trước|ở\s+trên|như\s+trên|cái\s+đó|nó)\b",
+    re.IGNORECASE,
+)
+_SPECIFIC_TOPIC = re.compile(r"\bvề\s+([\w-]+)", re.IGNORECASE)
+_FOLLOWUP_FILLER = {
+    "cái", "đó", "nó", "ý", "là", "gì", "sao", "thế", "vậy", "ở", "trên",
+    "vừa", "rồi", "hồi", "nãy", "trước", "như", "cho", "mình", "tôi", "bạn",
+    "của", "về", "thì", "này", "giúp", "nói", "thầy", "cô", "em", "nghĩa",
+    "mốc", "thời", "gian",
+}
+_FOLLOWUP_FILLER_PHRASES = re.compile(r"\b(?:nghĩa\s+là\s+gì|mốc\s+thời\s+gian)\b", re.IGNORECASE)
+_GENERIC_TOPICS = {"cái", "đó", "nó", "này", "điều", "ý", "phần"}
+
+
+def _is_contextless_followup(question: str) -> bool:
+    normalized = re.sub(r"[^\w\s-]", " ", question.casefold())
+    if not _CONTEXT_REFERENCE.search(normalized):
+        return False
+    topic = _SPECIFIC_TOPIC.search(normalized)
+    if topic and topic.group(1) not in _GENERIC_TOPICS:
+        return False
+    remaining = _CONTEXT_REFERENCE.sub(" ", normalized)
+    remaining = _FOLLOWUP_FILLER_PHRASES.sub(" ", remaining)
+    words = [word for word in re.findall(r"\w+", remaining) if word not in _FOLLOWUP_FILLER]
+    return len(words) <= 3
 
 
 class RetrievalExperiment(BaseModel):
@@ -55,6 +84,11 @@ def _read_questions():
                 except json.JSONDecodeError as exc:
                     raise HTTPException(500, f"questions.jsonl lỗi ở dòng {number}: {exc.msg}") from exc
     return records
+
+
+def _questions_fingerprint(questions):
+    canonical = json.dumps(questions, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _validate_eval_question(raw):
@@ -95,10 +129,11 @@ def _validate_eval_question(raw):
     return {"id": item["id"], "question": item["question"], "type": item["type"], "relevant": clean_refs}
 
 
-state = {"service": None, "error": None}
+state = {"service": None, "error": None, "failed_at": 0.0}
 GPU_LOCK_TIMEOUT_S = 10
 _lock = threading.Lock()
 _service_use_lock = threading.RLock()
+_active_service_users = {}
 _gpu_model_lock = threading.Lock()
 _jobs_lock = threading.Lock()
 _index_build_lock = threading.RLock()
@@ -108,28 +143,68 @@ _jobs = {}
 _job_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vskr-pipeline")
 
 
+def _acquire_service():
+    """Lease the current service so reload can swap it without closing active readers."""
+    with _service_use_lock:
+        service = state["service"]
+        if service is not None:
+            service_id = id(service)
+            _active_service_users[service_id] = _active_service_users.get(service_id, 0) + 1
+        return service
+
+
+def _close_service(service):
+    embedder = getattr(service, "embedder", None)
+    close = getattr(embedder, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            logging.exception("Could not close retired VSKR embedder")
+
+
+def _replace_service(service, error=None):
+    close_previous = None
+    with _service_use_lock:
+        previous = state["service"]
+        state["service"] = service
+        state["error"] = error
+        if previous is not None and _active_service_users.get(id(previous), 0) == 0:
+            close_previous = previous
+    if close_previous is not None:
+        _close_service(close_previous)
+
+
+def _release_service(service):
+    close_retired = False
+    service_id = id(service)
+    with _service_use_lock:
+        active = _active_service_users.get(service_id, 0)
+        if active <= 1:
+            _active_service_users.pop(service_id, None)
+            close_retired = state["service"] is not service
+        else:
+            _active_service_users[service_id] = active - 1
+    if close_retired:
+        _close_service(service)
+
+
 def _init_service():
     """Nạp chỉ mục + embedder. Có thể gọi lại: nhờ vậy chạy `index` xong là dùng được ngay,
     không cần khởi động lại server (quan trọng khi `serve` và `index` chạy ở hai container khác nhau)."""
     with _lock:
+        if state["service"] is None and state.get("failed_at", 0) and time.time() - state["failed_at"] < 30:
+            return
         try:
             from ..service import Service
 
             replacement = Service(load_config())
-            with _service_use_lock:
-                previous = state["service"]
-                state["service"] = replacement
-                state["error"] = None
-                if previous is not None:
-                    previous.embedder.close()
+            _replace_service(replacement)
+            state["failed_at"] = 0.0
         except Exception as e:  # chưa có chỉ mục, thiếu thư viện...
             logging.exception("Could not initialize VSKR service")
-            previous = state["service"]
-            with _service_use_lock:
-                state["service"] = None
-                if previous is not None:
-                    previous.embedder.close()
-            state["error"] = f"{type(e).__name__}: {e}"
+            state["failed_at"] = time.time()
+            _replace_service(None, error=f"{type(e).__name__}: {e}")
 
 
 def videos():
@@ -249,7 +324,7 @@ def delete_video(video_id: str):
     cfg = load_config()
     root = videos_dir(cfg).resolve()
     target = video_dir(cfg, video_id).resolve()
-    if not target.is_relative_to(root):
+    if target == root or not target.is_relative_to(root):
         raise HTTPException(404, "Không tìm thấy video.")
     with _index_build_lock:
         if not target.is_dir():
@@ -277,7 +352,7 @@ def delete_document(document_id: str):
     cfg = load_config()
     root = (data_dir(cfg) / "documents").resolve()
     target = (root / document_id).resolve()
-    if not target.is_relative_to(root):
+    if target == root or not target.is_relative_to(root):
         raise HTTPException(404, "Không tìm thấy tài liệu.")
     with _index_build_lock:
         if not (target / "meta.json").is_file():
@@ -302,28 +377,68 @@ def delete_document(document_id: str):
 
 
 def delete_job(job_id: str):
-    with _jobs_lock:
-        job = _jobs.get(job_id)
-        if not job or job.get("status") in ("queued", "running"):
-            raise HTTPException(409, "Chỉ có thể xóa tác vụ đã hoàn tất hoặc bị lỗi.")
-        source = job.get("_source", {})
-        video_id = job.get("video_id")
-    if source.get("path"):
-        path = Path(source["path"])
-        if source.get("kind") == "upload" and path.parent.is_dir():
-            shutil.rmtree(path.parent, ignore_errors=True)
-        else:
-            path.unlink(missing_ok=True)
-    if source.get("document_id"):
-        shutil.rmtree(data_dir(load_config()) / "documents" / source["document_id"], ignore_errors=True)
-    if video_id:
-        shutil.rmtree(video_dir(load_config(), video_id), ignore_errors=True)
-    with _jobs_lock:
-        _jobs.pop(job_id, None)
+    cfg = load_config()
+    with _index_build_lock:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if not job or job.get("status") not in ("done", "error"):
+                raise HTTPException(409, "Chỉ có thể xóa tác vụ đã hoàn tất hoặc bị lỗi.")
+            previous_status = job["status"]
+            job["status"] = "deleting"
+            source = dict(job.get("_source") or {})
+            video_id = job.get("video_id") or source.get("video_id")
+            document_id = job.get("document_id") or source.get("document_id")
+
+        def is_indexed(kind, item_id):
+            if not item_id:
+                return False
+            service = state.get("service")
+            if service and any(chunk.get(f"{kind}_id") == item_id for chunk in service.index.chunks):
+                return True
+            chunks_path = index_dir(cfg) / "chunks.json"
+            if not chunks_path.is_file():
+                return False
+            try:
+                return any(chunk.get(f"{kind}_id") == item_id for chunk in read_json(chunks_path))
+            except (OSError, ValueError, TypeError):
+                # If the index cannot be inspected safely, preserve the source.
+                return True
+
+        try:
+            video_is_indexed = is_indexed("video", video_id)
+            document_is_indexed = is_indexed("document", document_id)
+
+            if video_id and not video_is_indexed:
+                root = videos_dir(cfg).resolve()
+                target = video_dir(cfg, video_id).resolve()
+                if target != root and target.is_relative_to(root):
+                    shutil.rmtree(target, ignore_errors=True)
+
+            document_root = (data_dir(cfg) / "documents").resolve()
+            if document_id and not document_is_indexed:
+                target = (document_root / document_id).resolve()
+                if target != document_root and target.is_relative_to(document_root):
+                    shutil.rmtree(target, ignore_errors=True)
+
+            source_path = source.get("path")
+            if source_path and source.get("kind") == "document":
+                upload_root = (document_root / ".uploads").resolve()
+                path = Path(source_path).resolve()
+                if path != upload_root and path.is_relative_to(upload_root) and path.is_file():
+                    path.unlink(missing_ok=True)
+
+            with _jobs_lock:
+                _jobs.pop(job_id, None)
+        except Exception:
+            with _jobs_lock:
+                current = _jobs.get(job_id)
+                if current and current.get("status") == "deleting":
+                    current["status"] = previous_status
+            raise
     return {"deleted": job_id}
 
 
-def document_section(document_id: str, section: int):
+def document_section(document_id: str, section: int, owner_id=None, *, shared_only=False):
     cfg = load_config()
     root = (data_dir(cfg) / "documents").resolve()
     doc_dir = (root / document_id).resolve()
@@ -333,6 +448,8 @@ def document_section(document_id: str, section: int):
     if not meta_path.is_file() or not sections_path.is_file():
         raise HTTPException(404, "Không tìm thấy tài liệu.")
     meta = read_json(meta_path)
+    if not _meta_is_visible(meta, owner_id, shared_only=shared_only):
+        raise HTTPException(404, "Không tìm thấy mục tài liệu.")
     chunks = read_json(sections_path).get("chunks", [])
     match = next((c for c in chunks if c.get("section") == section), None)
     if match is None:
@@ -340,7 +457,7 @@ def document_section(document_id: str, section: int):
     return {"document_id": document_id, "title": meta.get("title"), "section": section, "text": match["text"]}
 
 
-def uploaded_video_file(video_id: str):
+def uploaded_video_file(video_id: str, owner_id=None, *, shared_only=False):
     cfg = load_config()
     video_root = videos_dir(cfg).resolve()
     vdir = video_dir(cfg, video_id)
@@ -350,6 +467,8 @@ def uploaded_video_file(video_id: str):
     if not meta_path.is_file():
         raise HTTPException(404, "Không tìm thấy video.")
     meta = read_json(meta_path)
+    if not _meta_is_visible(meta, owner_id, shared_only=shared_only):
+        raise HTTPException(404, "Không tìm thấy video.")
     if meta.get("source_type") != "upload" or not meta.get("has_video_file"):
         raise HTTPException(404, "Video này không có file upload để phát trực tiếp.")
     source_path = resolve_source(vdir, meta)
@@ -389,10 +508,10 @@ def admin_status():
         info = service.index.info or {}
         index_info = {
             key: info[key]
-            for key in ("chunk_count", "created_at", "version")
+            for key in ("created_at", "version")
             if isinstance(info.get(key), (str, int, float))
         }
-        index_info.setdefault("chunk_count", len(service.index.chunks))
+        index_info["chunk_count"] = info.get("chunk_count", info.get("n_chunks", len(service.index.chunks)))
         documents_count = len({chunk.get("document_id") for chunk in service.index.chunks if chunk.get("document_id")})
         videos_count = len({chunk.get("video_id") for chunk in service.index.chunks if chunk.get("video_id")})
     now = time.monotonic()
@@ -417,27 +536,88 @@ def admin_status():
     return full
 
 
-def _indexed_video(video_id: str) -> bool:
+def _owner_is_visible(item_owner_id, owner_id=None, *, shared_only=False):
+    if shared_only:
+        return not item_owner_id
+    return owner_id is None or not item_owner_id or item_owner_id == owner_id
+
+
+def _meta_is_visible(meta, owner_id=None, *, shared_only=False):
+    owner = meta.get("owner") or meta.get("owner_id")
+    visibility = meta.get("visibility", "public" if not owner else "private")
+    if owner_id is None and not shared_only:
+        return True
+    if shared_only:
+        return visibility == "public" and not owner
+    return visibility == "public" or (owner is not None and owner in {owner_id, f"u:{owner_id}"})
+
+
+def _indexed_video(video_id: str, owner_id=None, *, shared_only=False) -> bool:
     service = state["service"]
-    return bool(service and any(chunk.get("video_id") == video_id for chunk in service.index.chunks))
+    return bool(service and any(
+        chunk.get("video_id") == video_id
+        and _owner_is_visible(chunk.get("owner_id"), owner_id, shared_only=shared_only)
+        for chunk in service.index.chunks
+    ))
 
 
-def _indexed_document(document_id: str) -> bool:
+def _indexed_document(document_id: str, owner_id=None, *, shared_only=False) -> bool:
     service = state["service"]
-    return bool(service and any(chunk.get("document_id") == document_id for chunk in service.index.chunks))
+    return bool(service and any(
+        chunk.get("document_id") == document_id
+        and _owner_is_visible(chunk.get("owner_id"), owner_id, shared_only=shared_only)
+        for chunk in service.index.chunks
+    ))
 
 
-def public_videos():
+def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *, shared_only=False) -> bool:
+    if source_type == "library":
+        return True
+    if not source_id or source_type not in {"video", "document"}:
+        return False
+    if source_type == "video":
+        meta = (state["service"].meta if state["service"] else {}).get(source_id)
+        return bool(meta and _meta_is_visible(meta, owner_id, shared_only=shared_only)
+                    and _indexed_video(source_id, owner_id, shared_only=shared_only))
+    from ..documents import list_documents
+    item = next((entry for entry in list_documents(load_config())
+                 if entry.get("document_id") == source_id), None)
+    return bool(item and _meta_is_visible(item, owner_id, shared_only=shared_only)
+                and _indexed_document(source_id, owner_id, shared_only=shared_only))
+
+
+def _project_owner(owner_id):
+    return owner_id[2:] if isinstance(owner_id, str) and owner_id.startswith("u:") else owner_id
+
+
+def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project_id=None):
     if state["service"] is None:
         _init_service()
     service = state["service"]
     if service is None:
         return []
-    indexed_video_ids = {chunk.get("video_id") for chunk in service.index.chunks if chunk.get("video_id")}
+    video_owners = {}
+    for chunk in service.index.chunks:
+        video_id = chunk.get("video_id")
+        if video_id:
+            video_owners.setdefault(video_id, set()).add(chunk.get("owner_id"))
     result = []
     for meta in service.meta.values():
+        if not _meta_is_visible(meta, owner_id, shared_only=shared_only):
+            continue
+        item_owner = meta.get("owner") or meta.get("owner_id")
+        item_project = meta.get("project_id")
+        if not item_project and item_owner:
+            item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
+        if project_id and item_project != project_id:
+            continue
         video_id = meta.get("video_id")
-        if not video_id or video_id not in indexed_video_ids:
+        owners = video_owners.get(video_id, set())
+        if owned_only and (not owner_id or not owners or
+                           any(item_owner not in {owner_id, f"u:{owner_id}"} for item_owner in owners)):
+            continue
+        if not owners or any(not _owner_is_visible(item_owner_id, owner_id, shared_only=shared_only)
+                             for item_owner_id in owners):
             continue
         is_upload = meta.get("source_type") == "upload" and bool(meta.get("has_video_file"))
         host = (urlsplit(meta.get("url") or "").hostname or "").lower()
@@ -449,7 +629,7 @@ def public_videos():
             or host == "youtube-nocookie.com"
             or host.endswith(".youtube-nocookie.com")
         ):
-            playback_url = f"https://www.youtube.com/watch?v={video_id}"
+            playback_url = f"https://www.youtube.com/watch?v={meta.get('youtube_id') or video_id}"
         if not playback_url:
             playback_url = _safe_source_url(meta.get("url"))
         result.append({
@@ -457,23 +637,41 @@ def public_videos():
             "title": meta.get("title") or video_id,
             "duration": meta.get("duration"),
             "playback_url": playback_url,
+            "project_id": item_project,
         })
     return result
 
 
-def public_catalog():
-    videos = public_videos()
+def public_catalog(owner_id=None, *, shared_only=False, owned_only=False, project_id=None):
+    videos = public_videos(owner_id=owner_id, shared_only=shared_only, owned_only=owned_only,
+                           project_id=project_id)
     cfg = load_config()
     from ..documents import list_documents
 
     documents = []
     service = state["service"]
-    indexed_document_ids = {
-        chunk.get("document_id") for chunk in service.index.chunks if chunk.get("document_id")
-    } if service else set()
+    document_owners = {}
+    if service:
+        for chunk in service.index.chunks:
+            document_id = chunk.get("document_id")
+            if document_id:
+                document_owners.setdefault(document_id, set()).add(chunk.get("owner_id"))
     for item in list_documents(cfg):
+        if not _meta_is_visible(item, owner_id, shared_only=shared_only):
+            continue
         document_id = item.get("document_id")
-        if not document_id or document_id not in indexed_document_ids:
+        item_owner = item.get("owner") or item.get("owner_id")
+        item_project = item.get("project_id")
+        if not item_project and item_owner:
+            item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
+        if project_id and item_project != project_id:
+            continue
+        owners = document_owners.get(document_id, set())
+        if owned_only and (not owner_id or not owners or
+                           any(item_owner not in {owner_id, f"u:{owner_id}"} for item_owner in owners)):
+            continue
+        if not owners or any(not _owner_is_visible(item_owner_id, owner_id, shared_only=shared_only)
+                             for item_owner_id in owners):
             continue
         section_file = data_dir(cfg) / "documents" / document_id / "sections.json"
         count = len(read_json(section_file).get("chunks", [])) if section_file.is_file() else 0
@@ -481,6 +679,7 @@ def public_catalog():
             "document_id": document_id,
             "title": item.get("title") or item.get("filename") or document_id,
             "sections": count,
+            "project_id": item_project,
         })
     return {"videos": videos, "documents": documents}
 
@@ -493,24 +692,37 @@ def _update_job(job_id, **changes):
 
 def _process_ingest_job(job_id, source):
     cfg = load_config()
+    warnings = []
     try:
         if source["kind"] == "document":
             _update_job(job_id, status="running", phase="document", message="Đang đọc và chia mục tài liệu…")
             from ..documents import ingest_document
 
             meta = ingest_document(source["path"], cfg, document_id=source["document_id"])
+            if source.get("owner_id"):
+                meta["owner_id"] = source["owner_id"]
+            if source.get("project_id"):
+                meta["project_id"] = source["project_id"]
+            write_json(data_dir(cfg) / "documents" / source["document_id"] / "meta.json", meta)
             _update_job(job_id, document_id=meta["document_id"], title=meta["title"])
         else:
             _update_job(job_id, status="running", phase="ingest", message="Đang tải/đọc video và tách audio…")
             if source["kind"] == "url":
-                meta = ingest(source["url"], cfg, with_video=True)
+                meta = ingest(source["url"], cfg, with_video=True, video_id=source.get("video_id"))
             else:
                 meta = ingest_file(source["path"], cfg, source["video_id"], title=source["title"])
             video_id = meta["video_id"]
-            _update_job(job_id, phase="scenes", message="Đang phát hiện phân cảnh trong video…")
+            if source.get("owner_id"):
+                meta["owner_id"] = source["owner_id"]
+            if source.get("project_id"):
+                meta["project_id"] = source["project_id"]
+            write_json(video_dir(cfg, video_id) / "meta.json", meta)
+            _update_job(job_id, phase="scenes", message="Đang quét phân cảnh; video dài có thể mất vài phút…")
             from ..frames import detect_scenes_only
 
-            detect_scenes_only(cfg, video_id)
+            scene_result = detect_scenes_only(cfg, video_id)
+            if scene_result.get("detection_status") == "fallback":
+                warnings.append("Không đọc được phân cảnh; đã tiếp tục lập chỉ mục bằng transcript.")
             _update_job(job_id, video_id=video_id, title=meta.get("title"), phase="asr", message="Đang nhận dạng lời nói…")
 
             from .. import asr
@@ -534,7 +746,10 @@ def _process_ingest_job(job_id, source):
         _init_service()
         if state["service"] is None:
             raise RuntimeError(state["error"] or "Không nạp được chỉ mục mới.")
-        _update_job(job_id, status="done", phase="done", message="Nội dung đã sẵn sàng để hỏi đáp.")
+        message = "Nội dung đã sẵn sàng để hỏi đáp."
+        if warnings:
+            message += " " + " ".join(warnings)
+        _update_job(job_id, status="done", phase="done", message=message)
         audit.write_event("ingest.complete", target_id=job_id, kind=source["kind"], result="success")
         if source["kind"] == "document":
             Path(source["path"]).unlink(missing_ok=True)
@@ -592,6 +807,8 @@ def _queue_job(source, title=None):
             "message": "Đang chờ các tác vụ xử lý trước hoàn tất…",
             "video_id": source.get("video_id"), "document_id": source.get("document_id"),
             "title": title or source.get("title"),
+            "owner_id": source.get("owner_id"),
+            "project_id": source.get("project_id"),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "_source": source,
         }
@@ -599,19 +816,36 @@ def _queue_job(source, title=None):
     return job_id
 
 
-async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFile] = File(None)):
+async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFile] = File(None),
+                       owner_id=None, project_id=None):
     """Queue one URL or local video upload; pipeline jobs are serialized to protect GPU VRAM."""
+    if not project_id:
+        raise HTTPException(422, "project_id là bắt buộc.")
     clean_url = (url or "").strip()
     if bool(clean_url) == bool(file):
         raise HTTPException(400, "Hãy nhập một URL hoặc chọn một file video, không chọn cả hai.")
 
     cfg = load_config()
     ingest_cfg = cfg.get("ingest", {})
-    max_bytes = int(ingest_cfg.get("max_upload_bytes", 1_073_741_824))
+    guest = str(owner_id or "").startswith("g:")
+    role_limits = cfg.get("limits", {}).get("guest" if guest else "user", {})
+    max_bytes = int(role_limits.get("max_upload_bytes", ingest_cfg.get("max_upload_bytes", 1_073_741_824)))
+    max_duration = int(role_limits.get("max_duration_s", ingest_cfg.get("max_duration_s", 7200)))
+    with _jobs_lock:
+        active = sum(1 for job in _jobs.values()
+                     if job.get("owner_id") == owner_id and job.get("status") in {"queued", "running"})
+        if active >= int(role_limits.get("max_active_jobs", 2)):
+            raise HTTPException(429, "Bạn đã đạt số tác vụ đang xử lý tối đa.")
+        if sum(1 for job in _jobs.values() if job.get("status") in {"queued", "running"}) >= int(ingest_cfg.get("max_queue_length", 20)):
+            raise HTTPException(503, "Hàng đợi xử lý đang đầy.", headers={"Retry-After": "30"})
+    cfg = dict(cfg)
+    cfg["ingest"] = dict(ingest_cfg, max_upload_bytes=max_bytes, max_duration_s=max_duration)
     source = None
     if clean_url:
         validate_ingest_url(clean_url)
-        source = {"kind": "url", "url": clean_url}
+        video_id = f"user-{owner_id[:10]}-{uuid.uuid4().hex[:12]}" if owner_id else None
+        source = {"kind": "url", "url": clean_url, "video_id": video_id,
+                  "owner_id": owner_id, "project_id": project_id}
     else:
         filename = Path(file.filename or "video").name
         suffix = Path(filename).suffix.lower()
@@ -654,19 +888,31 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
             "path": str(destination),
             "video_id": video_id,
             "title": Path(filename).stem or video_id,
+            "owner_id": owner_id,
+            "project_id": project_id,
         }
 
     job_id = _queue_job(source, source.get("title"))
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "project_id": project_id}
 
 
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), owner_id=None, project_id=None):
+    if not project_id:
+        await file.close()
+        raise HTTPException(422, "project_id là bắt buộc.")
     filename = Path(file.filename or "document.txt").name
     suffix = Path(filename).suffix.lower()
     if suffix not in {".txt", ".md", ".rst", ".pdf", ".docx"}:
         await file.close()
         raise HTTPException(415, "Định dạng chưa hỗ trợ. Hãy tải TXT, MD, PDF hoặc DOCX.")
     cfg = load_config()
+    guest = str(owner_id or "").startswith("g:")
+    role_limits = cfg.get("limits", {}).get("guest" if guest else "user", {})
+    with _jobs_lock:
+        active = sum(1 for job in _jobs.values()
+                     if job.get("owner_id") == owner_id and job.get("status") in {"queued", "running"})
+        if active >= int(role_limits.get("max_active_jobs", 2)):
+            raise HTTPException(429, "Bạn đã đạt số tác vụ đang xử lý tối đa.")
     upload_root = data_dir(cfg) / "documents" / ".uploads"
     upload_root.mkdir(parents=True, exist_ok=True)
     document_id = f"doc-{uuid.uuid4().hex[:12]}"
@@ -676,8 +922,9 @@ async def upload_document(file: UploadFile = File(...)):
         with path.open("wb") as out:
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
-                if size > 100 * 1024 * 1024:
-                    raise HTTPException(413, "Tài liệu vượt giới hạn 100 MB.")
+                document_limit = 20 * 1024 * 1024 if guest else 100 * 1024 * 1024
+                if size > document_limit:
+                    raise HTTPException(413, "Tài liệu vượt giới hạn cho phép.")
                 out.write(chunk)
     except HTTPException:
         path.unlink(missing_ok=True)
@@ -689,8 +936,10 @@ async def upload_document(file: UploadFile = File(...)):
     finally:
         await file.close()
     source = {"kind": "document", "path": str(path), "document_id": document_id, "title": Path(filename).stem}
+    source["owner_id"] = owner_id
+    source["project_id"] = project_id
     job_id = _queue_job(source, source["title"])
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "project_id": project_id}
 
 
 def get_job(job_id: str):
@@ -741,25 +990,37 @@ def reload_index():
     return admin_status()
 
 
-def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False):
+def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False, owner_id=None,
+        shared_only=False, allowed_sources=None, project_id=None):
     q = req.question.strip()
     if not q:
         raise HTTPException(400, "Câu hỏi trống")
     mode = req.mode if use_request_mode else mode_override
     if mode not in (None, "vector", "bm25", "hybrid", "graph", "hybrid_graph"):
         raise HTTPException(400, "mode phải là vector, bm25, hybrid, graph hoặc hybrid_graph")
+    if _is_contextless_followup(q):
+        return {
+            "answer": "Mình chưa thấy câu hỏi trước nên chưa biết bạn đang nhắc đến phần nào. Bạn hãy nêu rõ tên khái niệm hoặc nội dung cần hỏi, ví dụ: «Hàm sigmoid là gì?».",
+            "found": False, "cited": False, "sources": [],
+        }
     try:
-        if state["service"] is None:
+        service = _acquire_service()
+        if service is None:
             _init_service()
-        if state["service"] is None:
+            service = _acquire_service()
+        if service is None:
             logging.error("Question request rejected: VSKR service is not ready: %s", state["error"])
             raise HTTPException(
                 503,
                 "Hệ thống đang cập nhật học liệu, thử lại sau ít phút",
                 headers={"Retry-After": "10"},
             )
-        with _service_use_lock:
-            return state["service"].ask(q, mode=mode, llm_lock=_gpu_model_lock, lock_timeout=GPU_LOCK_TIMEOUT_S)
+        try:
+            return service.ask(q, mode=mode, llm_lock=_gpu_model_lock, lock_timeout=GPU_LOCK_TIMEOUT_S,
+                               owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources,
+                               project_id=project_id)
+        finally:
+            _release_service(service)
     except HTTPException:
         raise
     except RuntimeError as e:
@@ -768,7 +1029,7 @@ def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=Fal
         if isinstance(e, ModelBusyError):
             raise HTTPException(
                 503,
-                "Hệ thống đang cập nhật học liệu, thử lại sau ít phút",
+                "Mô hình đang bận xử lý tác vụ khác. Vui lòng thử lại sau ít phút.",
                 headers={"Retry-After": "10"},
             ) from e
         logging.exception("Question answering failed")
@@ -786,7 +1047,17 @@ def get_eval_questions():
 
 def get_eval_results():
     path = _eval_dir() / "results.json"
-    return read_json(path) if path.is_file() else None
+    if not path.is_file():
+        return None
+    result = read_json(path)
+    if not isinstance(result, dict):
+        return None
+    questions = _read_questions()
+    result["stale"] = (
+        result.get("question_fingerprint") != _questions_fingerprint(questions)
+        or result.get("question_count") != len(questions)
+    )
+    return result
 
 
 def save_eval_questions(payload: dict):
@@ -839,10 +1110,6 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
     questions = _read_questions()
     if not questions:
         raise HTTPException(409, "Chưa có câu hỏi đánh giá. Hãy thêm câu hỏi và nguồn đúng trước.")
-    if state["service"] is None:
-        _init_service()
-    if state["service"] is None:
-        raise HTTPException(503, "Dịch vụ chưa sẵn sàng. Hãy kiểm tra nhật ký máy chủ.")
     modes = ("vector", "bm25", "hybrid", "graph", "hybrid_graph")
     hits = {mode: {} for mode in modes}
     method_labels = {
@@ -874,8 +1141,13 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
     for key, label, _experiment in experiment_variants:
         method_labels[key] = label
         hits[key] = {}
-    with _service_use_lock:
-        service = state["service"]
+    service = _acquire_service()
+    if service is None:
+        _init_service()
+        service = _acquire_service()
+    if service is None:
+        raise HTTPException(503, "Dịch vụ chưa sẵn sàng. Hãy kiểm tra nhật ký máy chủ.")
+    try:
         try:
             for question in questions:
                 for mode in modes:
@@ -887,14 +1159,18 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
                     )
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from exc
+        retrieval_config = dict(service.cfg["retrieval"])
+    finally:
+        _release_service(service)
     from ..evaluation import score_results
 
     scored = score_results(questions, hits, k=5)
     result = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "question_count": len(questions),
+        "question_fingerprint": _questions_fingerprint(questions),
         "retrieval_config": {
-            **service.cfg["retrieval"], "modes": list(hits), "k": 5,
+            **retrieval_config, "modes": list(hits), "k": 5,
             "experiments": {**selected, "damping": options.damping, "seed_weight": options.seed_weight},
         },
         "method_labels": method_labels,
@@ -909,12 +1185,13 @@ def inspect_graph(query: str, adjacent: bool = False, idf_weighting: bool = Fals
                   damping: float = 0.5, seed_weight: float = 0.05):
     if not 0.0 <= damping <= 0.99 or not 0.0 <= seed_weight <= 1.0:
         raise HTTPException(422, "Tham số lan truyền graph phải nằm trong khoảng hợp lệ.")
-    if state["service"] is None:
+    service = _acquire_service()
+    if service is None:
         _init_service()
-    if state["service"] is None:
+        service = _acquire_service()
+    if service is None:
         raise HTTPException(503, "Dịch vụ chưa sẵn sàng. Hãy kiểm tra nhật ký máy chủ.")
-    with _service_use_lock:
-        service = state["service"]
+    try:
         graph = service.index.graph
         if not graph.get("nodes"):
             raise HTTPException(409, "Chỉ mục chưa có Đồ thị tri thức. Hãy chạy lại: vskr index")
@@ -923,6 +1200,9 @@ def inspect_graph(query: str, adjacent: bool = False, idf_weighting: bool = Fals
             "ppr": ppr, "damping": damping, "seed_weight": seed_weight,
         })
         chunks = service.index.chunks
+        video_meta = service.meta
+    finally:
+        _release_service(service)
     hit_by_id = {hit["chunk"]["chunk_id"]: hit for hit in hits}
     source_ids = {f"source:{chunk_id}" for chunk_id in hit_by_id}
     by_video = {}
@@ -963,7 +1243,7 @@ def inspect_graph(query: str, adjacent: bool = False, idf_weighting: bool = Fals
             item["title"] = item.get("title") or chunk.get("title")
             item["section"] = item.get("section") or chunk.get("section")
             if item.get("video_id"):
-                item["title"] = item.get("title") or service.meta.get(item["video_id"], {}).get("title")
+                item["title"] = item.get("title") or video_meta.get(item["video_id"], {}).get("title")
         nodes.append(item)
     edges = [edge for edge in graph.get("edges", []) if edge["from"] in selected_ids and edge["to"] in selected_ids]
     if adjacent:

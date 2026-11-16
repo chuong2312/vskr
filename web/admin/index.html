@@ -9,10 +9,11 @@
 </head>
 <body>
 <header class="admin-header">
+  <button id="admin-menu-toggle" class="admin-menu-toggle" type="button" aria-label="Mở menu" aria-expanded="false">☰</button>
   <div class="brand-mark" aria-hidden="true">V</div>
   <div class="brand-copy">
   <p class="eyebrow">Video Semantic Knowledge Retrieval</p>
-    <h1>VSKR · Trợ lý bài giảng</h1>
+    <h1>VSKR · Quản trị</h1>
     <p>Bảng điều khiển quản trị học liệu và tìm kiếm.</p>
   </div>
   <div class="session-actions"><span id="session-status">Admin</span><button class="small-action" id="logout-button" type="button">Đăng xuất</button></div>
@@ -21,12 +22,14 @@
 <nav class="app-nav" aria-label="Điều hướng chính">
   <button type="button" data-page="overview" aria-current="page">Tổng quan</button>
   <button type="button" data-page="library" aria-current="false">Học liệu</button>
+  <button type="button" data-page="users" aria-current="false">Tài khoản</button>
   <button type="button" data-page="tasks" aria-current="false">Tác vụ</button>
   <button type="button" data-page="qa" aria-current="false">Thử hỏi</button>
   <button type="button" data-page="evaluation" aria-current="false">Đánh giá</button>
   <button type="button" data-page="graph" aria-current="false">Sơ đồ</button>
   <button type="button" data-page="audit" aria-current="false">Nhật ký</button>
 </nav>
+<button id="admin-nav-backdrop" class="admin-nav-backdrop" type="button" aria-label="Đóng menu" hidden></button>
 
 <main class="library-main dashboard-main" id="overview-screen">
   <div class="row screen-heading-row"><div><h2 class="screen-title">Tổng quan hệ thống</h2><p class="hint">Trạng thái dịch vụ, bộ xử lý và nội dung đã sẵn sàng.</p></div><button class="small-action" id="refresh-dashboard" type="button">Làm mới</button></div>
@@ -40,6 +43,12 @@
     <article class="panel metric-card"><span class="metric-label">Chỉ mục</span><strong id="system-index" class="metric-value">—</strong><span class="hint">Số đoạn đã lập chỉ mục</span></article>
   </section>
   <section class="panel dashboard-details"><h3>Thông tin chỉ mục</h3><dl id="index-details" class="details-list"><dt>Ngày tạo</dt><dd>—</dd><dt>Phiên bản</dt><dd>—</dd></dl><p id="system-error" class="err" role="status"></p></section>
+</main>
+
+<main class="library-main" id="users-screen" hidden>
+  <div class="row screen-heading-row"><div><h2 class="screen-title">Tài khoản người học</h2><p class="hint">Người học tự đăng ký trên web. Tắt tài khoản sẽ thu hồi các phiên đăng nhập hiện có.</p></div><button class="small-action" id="refresh-users" type="button">Làm mới</button></div>
+  <p id="users-status" class="hint" role="status" aria-live="polite"></p>
+  <div class="panel audit-table-wrap"><table class="audit-table"><thead><tr><th>Tên tài khoản</th><th>Ngày tạo</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody id="users-list"><tr><td colspan="4">Đang tải…</td></tr></tbody></table></div>
 </main>
 
 <main class="library-main" id="tasks-screen" hidden>
@@ -97,40 +106,13 @@
 </main>
 
 <main class="library-main" id="library-screen" hidden>
-  <h2 class="screen-title">Học liệu</h2>
-  <p class="hint library-intro">Thêm video hoặc tài liệu tại đây. Khi trạng thái chuyển thành <b>Sẵn sàng để hỏi</b>, nội dung đã được chuẩn bị để tìm kiếm.</p>
-  <div class="library-grid">
-    <div class="library-forms">
-      <div class="panel">
-        <form id="library-video-form">
-          <strong>1. Thêm video bài giảng</strong>
-          <label for="library-video-url" class="hint">Dán đường dẫn video</label>
-          <input class="field" id="library-video-url" type="url" placeholder="https://…" autocomplete="url">
-          <label for="library-video-file" class="hint">Hoặc chọn một file video trên máy</label>
-          <input class="field" id="library-video-file" type="file" accept="video/*">
-          <p class="hint">VSKR phát hiện phân cảnh, tự chia âm thanh thành các phần 15 phút để nhận dạng và giữ mốc thời gian gốc. Video tối đa 2 giờ và 1 GB. Dùng link hoặc file, không điền cả hai. Hỗ trợ MP4, MOV, MKV, WebM, AVI.</p>
-          <button class="primary" type="submit">Thêm và xử lý video</button>
-          <span class="hint" id="library-video-status" role="status" aria-live="polite"></span>
-        </form>
-      </div>
-      <div class="panel">
-        <form id="library-doc-form">
-          <strong>2. Thêm tài liệu bài giảng</strong>
-          <label for="document-file" class="hint">Chọn tài liệu TXT, Markdown, PDF hoặc DOCX</label>
-          <input class="field" id="document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx" required>
-          <p class="hint">VSKR trích văn bản, chia thành các mục và kết hợp chúng với video khi tìm. Hình, bảng và công thức trong PDF có thể chưa được đọc đầy đủ.</p>
-          <button class="primary" type="submit">Thêm và xử lý tài liệu</button>
-          <span class="hint" id="library-doc-status" role="status" aria-live="polite"></span>
-        </form>
-      </div>
-    </div>
-    <section class="panel" aria-labelledby="library-heading">
-      <div class="row" style="justify-content:space-between"><h2 id="library-heading">Nội dung đã thêm</h2><button class="small-action" id="refresh-library" type="button">Làm mới</button></div>
-      <p class="hint">Chỉ nội dung có trạng thái <b>Sẵn sàng để hỏi</b> mới được dùng cho câu hỏi mới. Nếu tác vụ lỗi, bấm Thử lại.</p>
-      <div class="library-list" id="library-list" aria-live="polite"><p class="hint">Đang tải thư viện…</p></div>
-      <div class="timing" id="pipeline-status" role="status" aria-live="polite"></div>
-    </section>
-  </div>
+  <div class="row screen-heading-row"><div><h2 id="library-heading" class="screen-title">Kiểm duyệt học liệu</h2><p class="hint library-intro">Duyệt, từ chối hoặc xoá nội dung do người dùng gửi.</p></div><button class="small-action" id="refresh-library" type="button">Làm mới</button></div>
+  <section class="panel library-manager" aria-labelledby="library-heading">
+    <div class="library-tabs" role="tablist" aria-label="Lọc loại học liệu"><button id="library-tab-all" type="button" role="tab" data-kind="all" aria-selected="true" aria-controls="library-list" tabindex="0">Tất cả <span id="count-all">0</span></button><button id="library-tab-video" type="button" role="tab" data-kind="video" aria-selected="false" aria-controls="library-list" tabindex="-1">Video <span id="count-video">0</span></button><button id="library-tab-document" type="button" role="tab" data-kind="document" aria-selected="false" aria-controls="library-list" tabindex="-1">Tài liệu <span id="count-document">0</span></button></div>
+    <div class="library-filters"><label>Tiêu đề<input id="library-filter-title" class="field" type="search" placeholder="Tìm theo tên học liệu"></label><label>Trạng thái<select id="library-filter-status" class="field"><option value="all">Tất cả</option><option value="processing">Đang xử lý</option><option value="ready">Đã sẵn sàng</option><option value="error">Lỗi</option></select></label><button class="small-action" id="apply-library-filter" type="button">Tìm</button></div>
+    <div class="library-table-wrap"><div class="library-list" id="library-list" role="tabpanel" tabindex="0" aria-labelledby="library-tab-all" aria-live="polite"><p class="hint">Đang tải thư viện…</p></div></div>
+    <div class="timing" id="pipeline-status" role="status" aria-live="polite"></div>
+  </section>
 </main>
 
 <main class="library-main" id="evaluation-screen" hidden>

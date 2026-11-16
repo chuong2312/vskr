@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#174a52"><link rel="stylesheet" href="/shared/tokens.css">
+  <link rel="stylesheet" href="/user/assets/styles.css"><title>Tài khoản — VSKR</title>
+</head>
+<body class="auth-page">
+  <main class="auth-card" aria-labelledby="auth-title">
+    <a class="brand" href="/" aria-label="VSKR, quay lại hỏi đáp"><span class="brand-mark">V</span><span><strong>VSKR</strong><small>Hỏi đáp bài giảng</small></span></a>
+    <h1 id="auth-title">Đăng nhập để xem lịch sử</h1>
+    <p id="auth-description">Bạn vẫn có thể dùng VSKR mà không cần tài khoản. Đăng nhập để lưu và xem lại các cuộc trò chuyện.</p>
+    <div class="auth-tabs" role="tablist" aria-label="Chọn thao tác tài khoản">
+      <button id="login-tab" class="auth-tab" type="button" role="tab" aria-selected="true">Đăng nhập</button>
+      <button id="register-tab" class="auth-tab" type="button" role="tab" aria-selected="false">Tạo tài khoản</button>
+    </div>
+    <form id="auth-form">
+      <label for="username">Tên tài khoản</label><input id="username" name="username" minlength="3" maxlength="64" autocomplete="username" required>
+      <label for="password">Mật khẩu</label><input id="password" name="password" type="password" minlength="10" maxlength="1024" autocomplete="current-password" required>
+      <button class="primary-button" id="submit-button" type="submit">Đăng nhập</button><p id="auth-status" role="status" aria-live="polite"></p>
+    </form>
+    <div class="auth-footer"><a href="/">← Tiếp tục dùng VSKR không cần tài khoản</a></div>
+  </main>
+  <script type="module" src="/user/assets/login.js"></script>
+</body>
+</html>

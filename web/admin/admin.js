@@ -15,21 +15,19 @@ let authReady = nativeFetch("/api/auth/me", { credentials: "same-origin" })
     throw error;
   });
 
-window.fetch = (input, init = {}) => {
+async function adminFetch(input, init = {}) {
   const url = new URL(typeof input === "string" ? input : input.url, location.href);
   if (!url.pathname.startsWith("/api/") || url.pathname === "/api/auth/me" || url.pathname === "/api/auth/login") {
     return nativeFetch(input, init);
   }
-  return authReady.then(() => {
-    const method = String(init.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
-    const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
-    if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-CSRF-Token", adminCsrf);
-    return nativeFetch(input, { ...init, headers, credentials: "same-origin" }).then((response) => {
-      if (response.status === 401) location.replace("/admin/login?expired=1");
-      return response;
-    });
-  });
-};
+  await authReady;
+  const method = String(init.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+  const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-CSRF-Token", adminCsrf);
+  const response = await nativeFetch(input, { ...init, headers, credentials: "same-origin" });
+  if (response.status === 401) location.replace("/admin/login?expired=1");
+  return response;
+}
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -37,12 +35,44 @@ const fmt = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 36
 
 let player = null, videos = [], current = null, lastSources = [], lastQuestion = "", lastGraphData = null, pendingJump = null, ytApiReady = false, qaInitialized = false;
 
+const adminNav = document.querySelector(".app-nav");
+const adminMenuToggle = $("#admin-menu-toggle");
+const adminNavBackdrop = $("#admin-nav-backdrop");
+const mobileAdminNav = window.matchMedia("(max-width: 900px)");
+function setAdminNavOpen(open, { restoreFocus = false } = {}) {
+  adminNav.classList.toggle("open", open);
+  adminMenuToggle.setAttribute("aria-expanded", String(open));
+  adminMenuToggle.setAttribute("aria-label", open ? "Đóng menu" : "Mở menu");
+  adminNavBackdrop.hidden = !open || !mobileAdminNav.matches;
+  adminNav.inert = mobileAdminNav.matches && !open;
+  if (open && mobileAdminNav.matches) adminNav.querySelector("button")?.focus();
+  else if (restoreFocus) adminMenuToggle.focus();
+}
+setAdminNavOpen(false);
+adminMenuToggle.addEventListener("click", () => setAdminNavOpen(!adminNav.classList.contains("open")));
+adminNavBackdrop.addEventListener("click", () => setAdminNavOpen(false, { restoreFocus: true }));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && adminNav.classList.contains("open") && mobileAdminNav.matches) {
+    setAdminNavOpen(false, { restoreFocus: true });
+  }
+});
+document.addEventListener("click", (event) => {
+  if (mobileAdminNav.matches && adminNav.classList.contains("open")
+      && event.target instanceof Node && !adminNav.contains(event.target)
+      && !adminMenuToggle.contains(event.target) && !adminNavBackdrop.contains(event.target)) {
+    setAdminNavOpen(false);
+  }
+});
+mobileAdminNav.addEventListener("change", () => setAdminNavOpen(false));
 document.querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => {
+  const wasOpen = adminNav.classList.contains("open") && mobileAdminNav.matches;
+  setAdminNavOpen(false, { restoreFocus: wasOpen });
   const target = `${button.dataset.page}-screen`;
   document.querySelectorAll("main").forEach((el) => { el.hidden = el.id !== target; });
   document.querySelectorAll("[data-page]").forEach((el) => el.setAttribute("aria-current", el === button ? "page" : "false"));
   if (button.dataset.page === "overview") loadDashboard();
   if (button.dataset.page === "library") loadLibrary();
+  if (button.dataset.page === "users") loadUsers();
   if (button.dataset.page === "tasks") loadTasks();
   if (button.dataset.page === "qa" && !qaInitialized) init();
   if (button.dataset.page === "evaluation") loadEvaluation();
@@ -59,7 +89,7 @@ async function loadDashboard() {
   const status = $("#dashboard-status");
   status.textContent = "Đang tải trạng thái hệ thống…";
   try {
-    const [statusResponse, libraryResponse] = await Promise.all([fetch("/api/admin/status"), fetch("/api/library")]);
+    const [statusResponse, libraryResponse] = await Promise.all([adminFetch("/api/admin/status"), adminFetch("/api/library")]);
     const system = await statusResponse.json();
     const library = await libraryResponse.json();
     if (!statusResponse.ok) throw new Error(system.detail || statusResponse.statusText);
@@ -86,7 +116,7 @@ async function loadTasks() {
   const status = $("#tasks-status");
   status.textContent = "Đang tải tác vụ…";
   try {
-    const response = await fetch("/api/admin/jobs");
+    const response = await adminFetch("/api/admin/jobs");
     const jobs = await response.json();
     if (!response.ok) throw new Error(jobs.detail || response.statusText);
     if (!jobs.length) {
@@ -113,7 +143,7 @@ async function loadAudit() {
   const status = $("#audit-status");
   status.textContent = "Đang tải nhật ký…";
   try {
-    const response = await fetch("/api/audit");
+    const response = await adminFetch("/api/audit");
     const events = await response.json();
     if (!response.ok) throw new Error(events.detail || response.statusText);
     if (!events.length) {
@@ -137,7 +167,7 @@ $("#tasks-list").addEventListener("click", async (event) => {
   button.disabled = true;
   $("#tasks-status").textContent = "Đang đưa lại tác vụ vào hàng đợi…";
   try {
-    const response = await fetch(`/api/jobs/${encodeURIComponent(button.dataset.taskRetry)}/retry`, { method: "POST" });
+    const response = await adminFetch(`/api/jobs/${encodeURIComponent(button.dataset.taskRetry)}/retry`, { method: "POST" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || response.statusText);
     await loadTasks();
@@ -147,11 +177,40 @@ $("#tasks-list").addEventListener("click", async (event) => {
   }
 });
 
+async function loadUsers() {
+  const status = $("#users-status"), tbody = $("#users-list");
+  status.textContent = "Đang tải tài khoản…";
+  try {
+    const users = await adminFetch("/api/admin/users").then(async (r) => { if (!r.ok) throw new Error("Không tải được tài khoản."); return r.json(); });
+    tbody.replaceChildren();
+    for (const user of users) {
+      const row = document.createElement("tr");
+      const createdAt = Number(user.created_at);
+      row.innerHTML = `<td><strong>${esc(user.display_name || user.username || user.email || "Tài khoản")}</strong><br><span class="hint">${esc(user.email || "")}</span></td><td>${Number.isFinite(createdAt) ? new Date(createdAt * 1000).toLocaleDateString("vi-VN") : esc(user.created_at || "—")}</td><td>${user.disabled ? "Đã tắt" : "Đang hoạt động"}</td><td><button class="small-action" data-user-action="${user.disabled ? "enable" : "disable"}" data-user-id="${esc(user.user_id ?? user.id)}">${user.disabled ? "Mở lại" : "Tắt tài khoản"}</button></td>`;
+      tbody.append(row);
+    }
+    if (!users.length) tbody.innerHTML = '<tr><td colspan="4">Chưa có tài khoản nào.</td></tr>';
+    status.textContent = `${users.length} tài khoản`;
+  } catch (error) { status.textContent = error.message; }
+}
+
+$("#refresh-users")?.addEventListener("click", loadUsers);
+$("#users-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-user-action]");
+  if (!button) return;
+  button.disabled = true;
+  try {
+    const response = await adminFetch(`/api/admin/users/${encodeURIComponent(button.dataset.userId)}/${button.dataset.userAction}`, { method: "POST" });
+    if (!response.ok) throw new Error("Không cập nhật được tài khoản.");
+    await loadUsers();
+  } catch (error) { $("#users-status").textContent = error.message; button.disabled = false; }
+});
+
 $("#logout-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   button.disabled = true;
   try {
-    const response = await fetch("/api/auth/logout", { method: "POST" });
+    const response = await adminFetch("/api/auth/logout", { method: "POST" });
     if (!response.ok) throw new Error("Phiên không hợp lệ hoặc đã hết hạn.");
     location.replace("/admin/login?logged_out=1");
   } catch (error) {
@@ -222,7 +281,7 @@ async function init() {
   if (qaInitialized) return;
   qaInitialized = true;
   try {
-    const r = await fetch("/api/library");
+    const r = await adminFetch("/api/library");
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     videos = (await r.json()).filter((item) => item.kind === "video" && item.status?.state === "ready").map((item) => ({
       video_id: item.id, title: item.title, duration: item.duration,
@@ -390,7 +449,7 @@ $("#result").addEventListener("click", (e) => {
 });
 
 async function refreshVideos(selectVideoId = null) {
-  const r = await fetch("/api/library");
+  const r = await adminFetch("/api/library");
   if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
   videos = (await r.json()).filter((item) => item.kind === "video" && item.status?.state === "ready").map((item) => ({
     video_id: item.id, title: item.title, duration: item.duration,
@@ -412,7 +471,7 @@ async function refreshVideos(selectVideoId = null) {
 
 async function waitForIngest(jobId) {
   while (true) {
-    const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+    const r = await adminFetch(`/api/jobs/${encodeURIComponent(jobId)}`);
     const job = await r.json();
     if (!r.ok) throw new Error(job.detail || r.statusText);
     $("#pipeline-status").textContent = `${job.phase || ""}: ${job.message || "Đang xử lý…"}`;
@@ -430,7 +489,7 @@ async function waitForIngest(jobId) {
 
 async function showDocumentSection(source) {
   try {
-    const r = await fetch(source.link);
+    const r = await adminFetch(source.link);
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || r.statusText);
     $("#doc-viewer-title").textContent = `${data.title} · Mục ${data.section}`;
@@ -439,27 +498,61 @@ async function showDocumentSection(source) {
   } catch (err) { $("#pipeline-status").textContent = `Không mở được mục tài liệu: ${err.message}`; }
 }
 
+let libraryItems = [];
+let libraryKindFilter = "all";
+function renderLibraryTable() {
+  const title = $("#library-filter-title")?.value.trim().toLocaleLowerCase("vi") || "";
+  const statusFilter = $("#library-filter-status")?.value || "all";
+  const counts = { all: libraryItems.length, video: libraryItems.filter((x) => x.kind === "video").length, document: libraryItems.filter((x) => x.kind === "document").length };
+  Object.entries(counts).forEach(([key, value]) => { const node = $(`#count-${key}`); if (node) node.textContent = String(value); });
+  const filtered = libraryItems.filter((item) => {
+    const state = item.status?.state || "processing";
+    return (libraryKindFilter === "all" || item.kind === libraryKindFilter)
+      && (statusFilter === "all" || state === statusFilter)
+      && (!title || String(item.title || "").toLocaleLowerCase("vi").includes(title));
+  });
+  const list = $("#library-list");
+  if (!filtered.length) { list.innerHTML = `<p class="library-empty">${libraryItems.length ? "Không có học liệu phù hợp với bộ lọc." : "Chưa có video hoặc tài liệu. Hãy chọn Thêm học liệu để bắt đầu."}</p>`; return; }
+  const rows = filtered.map((item) => {
+    const jobId = item.job_id || (String(item.id).startsWith("job:") ? item.id.slice(4) : "");
+    const status = item.status || {};
+    const extra = item.kind === "document" ? (item.sections ? `${item.sections} mục` : "—") : item.duration ? fmt(item.duration) : "—";
+    const rawStatus = item.visibility ? ({
+      pending: "Chờ duyệt",
+      public: "Công khai",
+      private: "Riêng tư",
+    }[item.visibility] || item.visibility) : (status.label || status.state || "Chưa rõ");
+    const statusText = status.state === "ready" || rawStatus === "Đã chia mục" ? "Sẵn sàng để hỏi" : rawStatus.includes("lập chỉ mục") ? rawStatus.replace("lập chỉ mục", "chuẩn bị nội dung để tìm") : rawStatus;
+    const stateClass = status.state === "ready" || rawStatus === "Đã chia mục" ? "ready" : status.state === "error" ? "error" : "processing";
+    const actions = [];
+    const isJobOnly = String(item.id).startsWith("job:");
+    if (status.state === "error" && jobId) actions.push(`<button class="small-action" data-retry="${esc(jobId)}" type="button">Thử lại</button>`);
+    if (isJobOnly) {
+      if (status.state === "error") actions.push(`<button class="small-action danger" data-delete-job="${esc(jobId)}" type="button">Xóa tác vụ</button>`);
+      else actions.push(`<span class="hint">Đang xử lý</span>`);
+    } else {
+      if (item.visibility === "pending") actions.push(`<button class="small-action" data-visibility="${esc(item.kind)}:${esc(item.id)}:public" type="button">Duyệt công khai</button>`);
+      if (item.visibility !== "private") actions.push(`<button class="small-action" data-visibility="${esc(item.kind)}:${esc(item.id)}:private" type="button">Từ chối</button>`);
+      actions.push(`<button class="small-action danger" data-delete="${esc(item.kind)}:${esc(item.id)}" type="button">Xóa</button>`);
+    }
+    return `<article class="library-item"><div class="library-title-cell"><span class="library-thumb" aria-hidden="true">${item.kind === "document" ? "▤" : "▶"}</span><span class="item-title">${esc(item.title || "Học liệu chưa có tên")}</span></div><span>${item.kind === "document" ? "Tài liệu" : "Video"}</span><span class="state ${stateClass}">${esc(statusText)}</span><span>${esc(extra)}</span><span class="library-actions">${actions.join("")}</span></article>`;
+  }).join("");
+  list.innerHTML = `<div class="library-table-head" aria-hidden="true"><span>Tiêu đề</span><span>Loại</span><span>Trạng thái</span><span>Thời lượng / Số mục</span><span>Thao tác</span></div>${rows}`;
+}
 async function loadLibrary(showLoading = true) {
   const list = $("#library-list");
   if (showLoading) list.innerHTML = `<p class="hint">Đang tải thư viện…</p>`;
   try {
-    const r = await fetch("/api/library");
+    const r = await adminFetch("/api/admin/content");
     const items = await r.json();
     if (!r.ok) throw new Error(items.detail || r.statusText);
-    $("#welcome-guide").hidden = items.some((item) => item.status?.state === "ready" || item.status?.label === "Đã chia mục");
-    if (!items.length) { list.innerHTML = `<p class="hint">Chưa có video hoặc tài liệu. Thêm nội dung bằng các biểu mẫu bên trái.</p>`; return; }
-    list.innerHTML = items.map((item) => {
-      const jobId = item.job_id || (item.id.startsWith("job:") ? item.id.slice(4) : "");
-      const status = item.status || {};
-      const actions = [];
-      if (status.state === "error" && jobId) actions.push(`<button class="small-action" data-retry="${esc(jobId)}">Thử lại</button>`);
-      if (item.id.startsWith("job:") && status.state === "error") actions.push(`<button class="small-action danger" data-delete-job="${esc(jobId)}">Xóa</button>`);
-      else actions.push(`<button class="small-action danger" data-delete="${esc(item.kind)}:${esc(item.id)}">Xóa</button>`);
-      const extra = item.kind === "document" ? (item.sections ? `${item.sections} mục` : "—") : item.duration ? fmt(item.duration) : "—";
-      const rawStatus = status.label || status.state || "Chưa rõ";
-      const statusText = status.state === "ready" ? "Sẵn sàng để hỏi" : rawStatus === "Đã chia mục" ? "Sẵn sàng để hỏi" : rawStatus.includes("lập chỉ mục") ? rawStatus.replace("lập chỉ mục", "chuẩn bị nội dung để tìm") : rawStatus;
-      return `<article class="library-item"><span class="tag">${item.kind === "document" ? "Tài liệu" : "Video"}</span><span class="item-title">${esc(item.title)}</span><span class="hint">${esc(extra)}</span><span class="state ${status.state === "ready" ? "ready" : status.state === "error" ? "error" : ""}">${esc(statusText)}</span>${actions.join("")}</article>`;
-    }).join("");
+    libraryItems = (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      id: item.id || item.video_id || item.document_id,
+      status: item.status || { state: "ready", label: item.visibility || "ready" },
+    }));
+    $("#welcome-guide").hidden = libraryItems.some((item) => item.status?.state === "ready" || item.status?.label === "Đã chia mục");
+    renderLibraryTable();
   } catch (err) { list.innerHTML = `<p class="err">Không tải được thư viện: ${esc(err.message)}</p>`; }
 }
 
@@ -467,7 +560,8 @@ $("#library-list").addEventListener("click", async (e) => {
   const retry = e.target.closest("[data-retry]");
   const removeJob = e.target.closest("[data-delete-job]");
   const remove = e.target.closest("[data-delete]");
-  const action = retry || removeJob || remove;
+  const visibility = e.target.closest("[data-visibility]");
+  const action = retry || removeJob || remove || visibility;
   if (action?.disabled) return;
   if (remove) {
     const [kind] = remove.dataset.delete.split(":");
@@ -479,15 +573,23 @@ $("#library-list").addEventListener("click", async (e) => {
   if (action) action.disabled = true;
   try {
     let r;
-    if (retry) r = await fetch(`/api/jobs/${encodeURIComponent(retry.dataset.retry)}/retry`, { method: "POST" });
-    else if (removeJob) r = await fetch(`/api/jobs/${encodeURIComponent(removeJob.dataset.deleteJob)}`, { method: "DELETE" });
-    else if (remove) {
+    if (retry) r = await adminFetch(`/api/jobs/${encodeURIComponent(retry.dataset.retry)}/retry`, { method: "POST" });
+    else if (removeJob) r = await adminFetch(`/api/jobs/${encodeURIComponent(removeJob.dataset.deleteJob)}`, { method: "DELETE" });
+    else if (visibility) {
+      const [kind, id, nextVisibility] = visibility.dataset.visibility.split(":");
+      r = await adminFetch(`/api/admin/content/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/visibility`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: nextVisibility }),
+      });
+    } else if (remove) {
       const [kind, id] = remove.dataset.delete.split(":");
-      r = await fetch(`/api/${kind === "document" ? "documents" : "videos"}/${encodeURIComponent(id)}`, { method: "DELETE" });
+      r = await adminFetch(`/api/${kind === "document" ? "documents" : "videos"}/${encodeURIComponent(id)}`, { method: "DELETE" });
     } else return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || r.statusText);
     if (retry) await waitForIngest(data.job_id);
+    else if (visibility) $("#pipeline-status").textContent = "Đã cập nhật trạng thái kiểm duyệt.";
     else $("#pipeline-status").textContent = "Đã xóa nội dung.";
     await loadLibrary();
     await refreshVideos();
@@ -501,61 +603,29 @@ $("#library-list").addEventListener("click", async (e) => {
 });
 
 $("#refresh-library").addEventListener("click", () => loadLibrary());
-
-$("#library-video-url").addEventListener("input", () => { if ($("#library-video-url").value.trim()) $("#library-video-file").value = ""; });
-$("#library-video-file").addEventListener("change", () => { if ($("#library-video-file").files.length) $("#library-video-url").value = ""; });
-
-$("#library-video-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const url = $("#library-video-url").value.trim();
-  const file = $("#library-video-file").files[0];
-  if (Boolean(url) === Boolean(file)) {
-    $("#library-video-status").textContent = "Hãy nhập một link hoặc chọn một file video.";
-    return;
-  }
-  if (file && file.size > 1024 ** 3) {
-    $("#library-video-status").textContent = "File vượt giới hạn 1 GB.";
-    return;
-  }
-  const button = e.submitter;
-  button.disabled = true;
-  $("#library-video-status").textContent = "Đang gửi video vào hàng đợi…";
-  const payload = new FormData();
-  if (url) payload.append("url", url);
-  else payload.append("file", file);
-  try {
-    const r = await fetch("/api/ingest", { method: "POST", body: payload });
-    const result = await r.json();
-    if (!r.ok) throw new Error(result.detail || r.statusText);
-    await waitForIngest(result.job_id);
-    $("#library-video-status").textContent = "Đã xử lý video.";
-    $("#library-video-form").reset();
-  } catch (error) {
-    $("#library-video-status").textContent = error.message;
-  } finally {
-    button.disabled = false;
-  }
+$("#apply-library-filter").addEventListener("click", renderLibraryTable);
+$("#library-filter-title").addEventListener("input", renderLibraryTable);
+$("#library-filter-status").addEventListener("change", renderLibraryTable);
+document.querySelectorAll("[data-kind]").forEach((button) => button.addEventListener("click", () => {
+  libraryKindFilter = button.dataset.kind;
+  document.querySelectorAll("[data-kind]").forEach((tab) => {
+    const selected = tab === button;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  $("#library-list").setAttribute("aria-labelledby", button.id);
+  renderLibraryTable();
+}));
+document.querySelector(".library-tabs").addEventListener("keydown", (event) => {
+  const tabs = [...document.querySelectorAll("[role=tab][data-kind]")];
+  const currentIndex = tabs.indexOf(document.activeElement);
+  if (currentIndex < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : (currentIndex + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length;
+  tabs[nextIndex].focus();
+  tabs[nextIndex].click();
 });
-
-$("#library-doc-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const file = $("#document-file").files[0];
-  if (!file) return;
-  const button = e.submitter;
-  button.disabled = true;
-  $("#library-doc-status").textContent = "Đang tải tài liệu…";
-  try {
-    const payload = new FormData(); payload.append("file", file);
-    const r = await fetch("/api/documents", { method: "POST", body: payload });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || r.statusText);
-    await waitForIngest(data.job_id);
-    $("#library-doc-status").textContent = "Tài liệu đã sẵn sàng để hỏi đáp.";
-    $("#library-doc-form").reset();
-  } catch (err) { $("#library-doc-status").textContent = err.message; }
-  finally { button.disabled = false; }
-});
-
 $("#form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const q = $("#q").value.trim();
@@ -568,12 +638,12 @@ $("#form").addEventListener("submit", async (e) => {
   box.innerHTML = `<p class="hint">Đang tìm trong video và soạn câu trả lời…</p>`;
   const busyWatch = setInterval(async () => {
     try {
-      const status = await (await fetch("/api/admin/status")).json();
+      const status = await (await adminFetch("/api/admin/status")).json();
       if (status.gpu_busy) box.innerHTML = `<p class="hint">${status.phase === "asr" ? "Nhận dạng lời nói (ASR) đang dùng bộ xử lý đồ họa (GPU); câu hỏi đang chờ tới lượt tạo câu trả lời. Bước tìm nguồn vẫn chạy bình thường." : "Mô hình ngôn ngữ (LLM) đang bận; đang chờ để tạo câu trả lời…"}</p>`;
     } catch { /* Giữ trạng thái chờ hiện tại nếu tạm thời không đọc được trạng thái. */ }
   }, 900);
   try {
-    const r = await fetch("/api/admin/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, mode: $("#mode").value || null }) });
+    const r = await adminFetch("/api/admin/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, mode: $("#mode").value || null }) });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || r.statusText);
     renderResult(d);
@@ -601,6 +671,7 @@ function renderEvalResults(result) {
   if (!result || !result.summary) {
     body.innerHTML = `<tr><td>Chưa có dữ liệu</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`;
     $("#eval-results-meta").textContent = "Chưa có kết quả đánh giá.";
+    $("#eval-results-meta").classList.remove("eval-stale");
     return;
   }
   const rawLabels = result.method_labels || {
@@ -625,7 +696,9 @@ function renderEvalResults(result) {
     : "";
   const count = Number(result.question_count || 0);
   const sampleNote = count < 20 ? " Chạy thử: nên có ít nhất 20 câu để so sánh đáng tin hơn." : "";
-  $("#eval-results-meta").textContent = `Số câu: ${result.question_count ?? "—"} · Thời điểm: ${result.created_at ? new Date(result.created_at).toLocaleString("vi-VN") : "—"}${experimentLabel} · Chỉ đo tìm nguồn, không chấm câu trả lời.${sampleNote}`;
+  const staleNote = result.stale ? " ⚠ Bộ câu hỏi đã đổi sau lần chạy này; hãy chạy đánh giá lại trước khi dùng các số liệu." : "";
+  $("#eval-results-meta").classList.toggle("eval-stale", Boolean(result.stale));
+  $("#eval-results-meta").textContent = `${staleNote} Số câu: ${result.question_count ?? "—"} · Thời điểm: ${result.created_at ? new Date(result.created_at).toLocaleString("vi-VN") : "—"}${experimentLabel} · Chỉ đo tìm nguồn, không chấm câu trả lời.${sampleNote}`;
 }
 
 function evalExperimentOptions() {
@@ -687,7 +760,7 @@ function renderEvalQuestions(items) {
 
 async function loadEvaluation() {
   try {
-    const [questionsResponse, resultsResponse] = await Promise.all([fetch("/api/eval/questions"), fetch("/api/eval/results")]);
+    const [questionsResponse, resultsResponse] = await Promise.all([adminFetch("/api/eval/questions"), adminFetch("/api/eval/results")]);
     const questions = await questionsResponse.json();
     const results = await resultsResponse.json();
     if (!questionsResponse.ok) throw new Error(questions.detail || questionsResponse.statusText);
@@ -706,7 +779,7 @@ $("#eval-question-form").addEventListener("submit", async (e) => {
     const relevant = JSON.parse($("#eval-relevant").value);
     if (!Array.isArray(relevant)) throw new Error("Các mục đúng cần là một mảng JSON.");
     const payload = { question: $("#eval-question").value, type: $("#eval-type").value, relevant };
-    const response = await fetch("/api/eval/questions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const response = await adminFetch("/api/eval/questions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || response.statusText);
     $("#eval-question-form").reset();
@@ -722,7 +795,7 @@ $("#eval-import-button").addEventListener("click", async () => {
   if (!file) { status.textContent = "Chọn tệp JSONL trước."; return; }
   const payload = new FormData(); payload.append("file", file);
   try {
-    const response = await fetch("/api/eval/questions/import", { method: "POST", body: payload });
+    const response = await adminFetch("/api/eval/questions/import", { method: "POST", body: payload });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || response.statusText);
     renderEvalQuestions(data);
@@ -736,7 +809,7 @@ $("#eval-question-list").addEventListener("click", async (e) => {
   const button = e.target.closest("[data-eval-delete]");
   if (!button) return;
   try {
-    const response = await fetch(`/api/eval/questions/${encodeURIComponent(button.dataset.evalDelete)}`, { method: "DELETE" });
+    const response = await adminFetch(`/api/eval/questions/${encodeURIComponent(button.dataset.evalDelete)}`, { method: "DELETE" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || response.statusText);
     await loadEvaluation();
@@ -751,7 +824,7 @@ $("#eval-run").addEventListener("click", async (e) => {
   try {
     const options = evalExperimentOptions();
     validateExperimentOptions(options);
-    const response = await fetch("/api/eval/run", {
+    const response = await adminFetch("/api/eval/run", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(options),
     });
@@ -948,7 +1021,7 @@ $("#graph-form").addEventListener("submit", async (e) => {
       semantic_expansion: String($("#graph-semantic").checked),
       ppr: String(options.ppr), damping: String(options.damping), seed_weight: String(options.seed_weight),
     });
-    const response = await fetch(`/api/graph?${params}`);
+    const response = await adminFetch(`/api/graph?${params}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || response.statusText);
     renderGraph(data);

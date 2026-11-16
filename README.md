@@ -1,14 +1,14 @@
 # VSKR — hỏi đáp bài giảng và quản trị học liệu
 
-VSKR chuyển video bài giảng thành transcript có timestamp, lập chỉ mục để hỏi đáp tiếng Việt và trả lời kèm nguồn. App Người dùng công khai ở `/`; bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. OCR, VLM, SQLite và frontend SvelteKit chưa thuộc luồng MVP hiện tại.
+VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp tiếng Việt có trích dẫn. Khách mở app Người học ở `/` và hỏi trên thư viện chung mà không cần tài khoản; đăng nhập để lưu và xem lịch sử, hoặc thêm học liệu riêng. Bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. SQLite lưu tài khoản, phiên đăng nhập và lịch sử hội thoại; học liệu, job và index vẫn nằm trên filesystem. OCR/VLM là bước tùy chọn, chưa chạy tự động trong luồng MVP; frontend dùng HTML/CSS/JavaScript thuần.
 
 ## Thành phần đang dùng
 
 - `backend/src/vskr`: package Python của ứng dụng. Môi trường venv dùng Python 3.12, FFmpeg, yt-dlp, faster-whisper, PySceneDetect, E5-small, BM25/RRF và FastAPI. Embedding chạy CPU; ASR dùng GPU qua CTranslate2.
 - QA gọi Ollama API tại `localhost:11434`; cần cài/chạy Ollama riêng. VSKR chạy trực tiếp trong venv.
 - Dữ liệu nằm trong `./data`, model/download cache trong `./cache`.
-- Hỏi đáp mặc định kết hợp **vector E5 + BM25 + truy xuất đồ thị**, rồi hợp nhất thứ hạng bằng RRF. App Người dùng dùng mode mặc định; admin có thể chọn `hybrid`, `vector`, `bm25` hoặc `graph` để so sánh. Lệnh CLI `vskr ask` cũng nhận cờ `--mode`. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
-- Knowledge Graph hỗ trợ node phân cảnh có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn tối đa ba bước. Trong giao diện và lệnh `vskr ingest`, video URL mặc định tải cả hình 720p để tự phát hiện cảnh; dùng `--audio-only` nếu không cần scene graph. Chạy `vskr index` để dựng lại đồ thị sau khi thay đổi học liệu/cấu hình. Liên kết video–tài liệu tự động dựa trên cosine và khái niệm chung (hoặc cosine rất cao), chưa có bước người duyệt.
+- Admin và CLI mặc định kết hợp **vector E5 + BM25 + truy xuất đồ thị**, rồi hợp nhất thứ hạng bằng RRF. App Người học lọc dữ liệu theo quyền tài khoản và dùng hybrid vector + BM25; admin có thể so sánh `hybrid`, `vector`, `bm25` và `graph`. Lệnh CLI `vskr ask` cũng nhận cờ `--mode`. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
+- Knowledge Graph hỗ trợ node phân cảnh có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn tối đa ba bước. Trong giao diện và lệnh `vskr ingest`, video URL mặc định tải cả hình 720p để phát hiện cảnh; cấu hình mặc định bỏ qua 4 frame giữa các lần phân tích để giảm thời gian quét. Nếu bộ giải mã không đọc được cảnh, hệ thống vẫn tiếp tục lập chỉ mục từ transcript. Dùng `--audio-only` nếu không cần scene graph. Chạy `vskr index` để dựng lại sau khi đổi học liệu/cấu hình. Liên kết video–tài liệu dựa trên cosine và khái niệm chung (hoặc cosine rất cao), chưa có bước người duyệt.
 - Quan hệ có kiểu như `DEPENDS_ON`, `PART_OF`, `CAUSES` được trích từ transcript/tài liệu bằng Ollama trên tối đa 24 đoạn mỗi lần dựng index. Quan hệ chỉ được lưu nếu chủ thể, đối tượng và câu bằng chứng xuất hiện trong nguồn. Nếu Ollama không sẵn sàng, index vẫn tạo graph khái niệm và liên kết video–tài liệu.
 
 PySceneDetect được cài dưới tên package `scenedetect-headless` và import trong Python là `scenedetect`. Nó tìm điểm đổi cảnh; FFmpeg trích frame. Đây không phải package `pyscenecut`.
@@ -60,17 +60,19 @@ vskr ask "câu hỏi về video" --mode graph    # chỉ truy xuất đồ thị
 vskr serve --host 127.0.0.1
 ```
 
-Thêm tài liệu TXT, MD, RST, PDF hoặc DOCX bằng `vskr doc <đường_dẫn_tệp>` hoặc tại màn **Học liệu** của giao diện Quản trị. Tài liệu được chia mục, lập chỉ mục và có thể truy xuất cùng video. Giao diện cũng cho phép xóa nội dung và thử lại tác vụ lỗi.
+Thêm tài liệu TXT, MD, RST, PDF hoặc DOCX bằng `vskr doc <đường_dẫn_tệp>` hoặc thư viện Người học. Khách và người học có thể thêm video/tài liệu qua giao diện; nội dung mới mặc định là `private`, chủ sở hữu có thể đề xuất `pending`, rồi admin duyệt thành `public`. Admin không thêm nội dung qua API ingest; màn **Kiểm duyệt học liệu** chỉ dùng để duyệt, từ chối hoặc xóa. Tài liệu được chia mục, lập chỉ mục và có thể truy xuất cùng video.
 
-Màn **Đánh giá** nhận bộ câu hỏi thật qua giao diện hoặc `data/eval/questions.jsonl`; mỗi dòng có dạng `{"id":"...","question":"...","type":"fact","relevant":[{"video_id":"...","start":12,"end":28}]}` hoặc dùng `document_id` và `section`. `multihop` có thể có nhiều mục đúng. Recall@5 tính một câu fact là tìm thấy nếu có ít nhất một mục đúng; với multihop là tỷ lệ mục đúng được phủ. MRR là trung bình nghịch đảo thứ hạng của kết quả đúng đầu tiên. Đánh giá chỉ chạy retrieval, không gọi LLM. Repo không kèm câu hỏi hay kết quả mẫu; số liệu chỉ xuất hiện sau khi bạn thêm bộ dữ liệu.
+Màn **Đánh giá** nhận bộ câu hỏi qua giao diện hoặc `data/eval/questions.jsonl`; mỗi dòng có dạng `{"id":"...","question":"...","type":"fact","relevant":[{"video_id":"...","start":12,"end":28}]}` hoặc dùng `document_id` và `section`. `multihop` có thể có nhiều mục đúng. Recall@5 tính một câu fact là tìm thấy nếu có ít nhất một mục đúng; với multihop là tỷ lệ mục đúng được phủ. MRR là trung bình nghịch đảo thứ hạng của kết quả đúng đầu tiên. Đánh giá chỉ chạy retrieval, không gọi LLM. Bộ câu hỏi và kết quả lưu trong `data/`, vốn bị Git bỏ qua; khi checkout mới cần nhập hoặc tạo bộ câu hỏi. Nếu bộ câu hỏi thay đổi, giao diện sẽ đánh dấu kết quả cũ; admin cần chạy lại để có số liệu khớp. Kết quả mới được lưu tại `data/eval/results.json`.
 
 Trong giao diện, các thử nghiệm IDF, mở rộng khái niệm từ những đoạn gần nghĩa theo embedding E5 và Personalized PageRank (PPR) chạy trên cùng bộ câu hỏi với baseline. Mỗi lựa chọn được đo riêng; nếu bật nhiều lựa chọn, giao diện cũng đo tổ hợp của chúng. Các điều khiển ở trang graph áp dụng ngay cho truy vấn đang xem và đồng bộ với cấu hình đánh giá. PPR dùng `damping` để điều khiển mức lan truyền và `seed_weight` để phân bổ điểm ban đầu cho các nguồn khớp trực tiếp.
 
-Mở `http://localhost:8000` để dùng app Người dùng. Admin mở `/admin`; đăng nhập bằng tài khoản cấu hình trong `.env`. Người dùng ẩn danh chỉ thấy nội dung đã lập chỉ mục và dùng mode retrieval mặc định. Giao diện Quản trị có Học liệu, Tác vụ, Thử hỏi, Đánh giá, Sơ đồ và Nhật ký. App Người dùng có thể cài như PWA; khi ngoại tuyến chỉ khung giao diện được cache, không cache API hay video. `Ctrl+C` dừng server.
+Mở `http://localhost:8000/` để dùng ngay, không cần đăng nhập: khách xem thư viện chung, hỏi bài và thêm nội dung trong hạn mức khách; khách không có lịch sử lưu lâu dài. Người học tự tạo tài khoản từ nút **Đăng ký** trên web, không cần admin duyệt hoặc mã mời; giới hạn số lần đăng ký theo địa chỉ IP. Đăng nhập để lưu và xem lại lịch sử, đồng thời nhận hạn mức cao hơn. Nội dung mới chỉ chủ sở hữu thấy cho đến khi admin duyệt công khai; học liệu legacy không có owner là thư viện chung. Câu hỏi tìm trong phần công khai và phần riêng của danh tính hiện tại, không giới hạn ở video đang mở. Truy xuất phía người học dùng hybrid vector + BM25 trên dữ liệu đã lọc theo quyền; graph vẫn sẵn trong khu admin để thử nghiệm. Giao diện đặt hội thoại cạnh video; trên màn nhỏ, video nằm phía trên. Nút thư viện mở danh sách bài giảng/tài liệu, ô tìm nhanh lọc theo tên. **Cuộc hỏi mới** bắt đầu hội thoại khác nhưng không xóa lịch sử cũ. Mỗi câu được truy xuất độc lập, không dựa vào câu trước; câu như “ý trên là gì?” cần nêu rõ khái niệm. Thẻ nguồn dài được thu gọn và có nút **Xem thêm**. Bấm nguồn video khác sẽ chuyển sang video đó; bấm nguồn tài liệu sẽ mở đúng mục.
+Ô hỏi giới hạn 500 ký tự; khi chạm giới hạn, dòng gợi ý báo phần dài hơn sẽ bị bỏ. Câu rỗng và câu quá dài nhận thông báo tiếng Việt. Khi hết chỗ xử lý cùng lúc, app báo đang xử lý nhiều câu hỏi và cho thử lại; khi đang cập nhật học liệu, thông báo riêng vẫn được giữ.
+Admin mở `/admin` (chưa đăng nhập sẽ chuyển tới `/admin/login`) bằng tài khoản cấu hình trong `.env`. Màn **Tài khoản** cho admin xem, tắt và mở lại tài khoản người học. Admin chuẩn bị nội dung dùng chung, quản lý backend và thử nghiệm retrieval/graph; người học tự thêm nội dung cá nhân sau khi đăng nhập. PWA lưu trang đăng nhập và tài nguyên tĩnh; không cache API, video hoặc tài liệu. Cần mạng để tải thư viện và gửi câu hỏi. `Ctrl+C` dừng server.
 
-Trong giao diện Quản trị có thể dán URL được yt-dlp hỗ trợ hoặc upload MP4/MOV/MKV/WebM/AVI; mỗi video tối đa 2 giờ và 1 GB. Video URL được tải ở mức tối đa 720p để phát hiện phân cảnh; video tải lên cũng được phân tích cảnh tự động. Audio tự chia thành các phần 15 phút để nhận dạng, transcript giữ mốc thời gian gốc, rồi index tạo scene graph và liên kết video với tài liệu bằng embedding. Quan hệ có kiểu kèm bằng chứng được Ollama trích trên tối đa 24 đoạn/mục mỗi lần dựng index; nếu Ollama không sẵn sàng, index vẫn dựng khái niệm và liên kết nguồn. Job ingest → phát hiện cảnh → ASR → index chạy tuần tự, giao diện cập nhật tiến độ từng phần. YouTube có player nhúng; video upload phát bằng HTML5 player; nền tảng khác mở URL gốc để đối chiếu.
+Khách có thể dán link YouTube hoặc upload video tối đa 100 MB/15 phút, tối đa 1 job đang chạy và 3 job/ngày; người học có hạn mức 1 GB/2 giờ, 2 job đang chạy và 20 job/ngày. Tài liệu khách tối đa 20 MB. Request bị giới hạn tổng body ở tầng ứng dụng; tệp JSONL đánh giá tối đa 5 MB. URL video được tải ở mức tối đa 720p để phát hiện phân cảnh; audio tự chia thành các phần 15 phút để nhận dạng và giữ timestamp gốc. Khi có scene boundary, index tạo scene graph và liên kết video–tài liệu bằng embedding. Caption VLM chỉ được thêm vào tìm kiếm nếu admin đã chạy bước VLM riêng; OCR cũng là bước tùy chọn. Quan hệ có kiểu kèm bằng chứng được Ollama trích trên tối đa 24 đoạn/mục mỗi lần dựng index. Job ingest → phát hiện cảnh → ASR → index chạy lần lượt; nếu phát hiện cảnh lỗi, index tiếp tục bằng transcript. YouTube có player nhúng; video upload phát bằng HTML5 player; nền tảng khác mở URL gốc để đối chiếu.
 
-URL ingest được kiểm tra scheme, DNS và IP trước khi tải. yt-dlp có thể đi theo redirect sau bước kiểm tra ban đầu; chỉ cho admin đáng tin cậy dùng chức năng ingest URL và đặt server sau reverse proxy/firewall phù hợp.
+URL ingest được kiểm tra scheme, DNS, IP và domain allowlist trước khi tải. Vì `yt-dlp` có thể đi theo redirect, vẫn nên chặn egress tới `127.0.0.0/8`, `169.254.0.0/16` và các dải private ở firewall.
 
 Nếu Ollama đang chạy bằng service Windows/WSL, để Ollama phục vụ `localhost:11434`. Nếu cài native Ollama, pull model một lần bằng `ollama pull qwen3.5:4b`; không cài/chạy hai Ollama cùng lúc trên một cổng.
 
@@ -101,7 +103,7 @@ Script so sánh model ASR hiện tại với `vinai/PhoWhisper-medium`, báo WER
 
 ## Cấu hình
 
-Sửa `configs/models.yaml`; venv đọc file này trực tiếp mỗi lần chạy lệnh. Nếu đổi `embedding.model`, tiền tố embedding hoặc tham số chunk, hãy chạy lại `vskr index`. Có thể ghi đè cấu hình bằng biến môi trường, ví dụ `VSKR__ASR__DEVICE=cpu` hoặc `VSKR__RETRIEVAL__MODE=hybrid`. Ứng dụng cũng nạp `.env` ở thư mục gốc; biến đã export trong môi trường tiến trình được ưu tiên hơn nội dung `.env`.
+Sửa `configs/models.yaml`; venv đọc file này trực tiếp mỗi lần chạy lệnh. Nếu đổi `embedding.model`, tiền tố embedding hoặc tham số chunk, hãy chạy lại `vskr index`. Có thể ghi đè cấu hình bằng biến môi trường, ví dụ `VSKR__ASR__DEVICE=cpu`, `VSKR__FRAMES__FRAME_SKIP=4` hoặc `VSKR__RETRIEVAL__MODE=hybrid`. Ứng dụng cũng nạp `.env` ở thư mục gốc; biến đã export trong môi trường tiến trình được ưu tiên hơn nội dung `.env`.
 
 ### Tài khoản quản trị
 
@@ -114,6 +116,8 @@ vskr admin hash-password
 ```
 
 Đặt `VSKR_ADMIN_USER` và dán hash Argon2id được in vào `VSKR_ADMIN_PASSWORD_HASH` trong `.env`. Không đặt mật khẩu mặc định và không commit `.env`. Khi chưa có cả hai giá trị hợp lệ, các route quản trị bị tắt; login báo admin chưa được cấu hình. `VSKR_COOKIE_SECURE` mặc định là `true`. Chỉ đặt `false` cho phát triển qua `http://localhost`; ứng dụng từ chối cookie không Secure trên host bên ngoài. `VSKR_TRUSTED_PROXIES` nhận danh sách IP/CIDR, phân cách bằng dấu phẩy; nếu để trống, app bỏ qua `X-Forwarded-For`.
+
+Đăng ký người học mở trực tiếp trên `/register` hoặc từ nút **Đăng ký**; không cần quản trị viên tạo tài khoản, duyệt hoặc cấp mã mời. Mỗi IP bị giới hạn số lần tạo tài khoản trong một giờ. Tài khoản, phiên và lịch sử hội thoại được lưu trong `data/accounts.sqlite3`; chỉ tài khoản đã đăng nhập mới lưu, xem hoặc xóa được lịch sử của chính mình. Admin có thể thu hồi quyền vào bằng cách tắt tài khoản tại `/admin` → **Tài khoản**. Học liệu cũ chưa có `owner_id` được xem là thư viện dùng chung, còn nội dung mới của người học được giới hạn theo tài khoản.
 
 ## Triển khai
 
@@ -152,7 +156,7 @@ Không xóa `data/` hoặc `cache/` nếu còn cần video, transcript, index ha
 
 ## Phạm vi hiện tại
 
-Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect (cắt cảnh hình ảnh), không dùng LLM để sửa ranh giới theo mạch bài giảng; trích quan hệ có kiểu dùng Ollama với giới hạn số đoạn; liên kết video–tài liệu được kiểm tra bằng ngưỡng embedding và trùng khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; hãy đánh giá với bộ câu hỏi có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite project/job và frontend SvelteKit chưa được bật mặc định trong luồng MVP. Docker sẽ được cấu hình lại ở giai đoạn đóng gói cuối.
+Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect, không dùng LLM để sửa theo mạch bài giảng; trích quan hệ bằng Ollama có giới hạn số đoạn; liên kết video–tài liệu dựa trên embedding và khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; cần bộ câu hỏi đủ lớn, có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite cho job/index và frontend SvelteKit chưa bật mặc định. Docker sẽ được cấu hình ở giai đoạn đóng gói.
 
 ## Cấu trúc dự án
 
@@ -165,6 +169,7 @@ vskr/
 ├── configs/models.yaml    # cấu hình model và pipeline
 ├── scripts/               # tiện ích phát triển local (venv)
 ├── tests/                 # unit/integration tests
+├── docs/                  # ma trận quyền truy cập
 ├── web/                   # giao diện demo MVP
 ├── data/                  # video, transcript, index (local, không commit)
 ├── cache/                 # model/download cache (local, không commit)

@@ -4,6 +4,7 @@ from . import index as index_mod
 from .embedder import Embedder
 from .qa import answer_question
 from .retriever import Retriever
+from .bm25 import BM25, tokenize
 from .util import fmt_time, source_link
 
 
@@ -34,6 +35,8 @@ class Service:
             raise RuntimeError("Cấu hình chia đoạn đã đổi so với chỉ mục. Chạy lại: vskr index")
         self.embedder = Embedder(cfg["embedding"])
         self.retriever = Retriever(self.index, self.embedder, cfg["retrieval"])
+        self.indexed_video_ids = {c.get("video_id") for c in self.index.chunks if c.get("video_id")}
+        self.indexed_document_ids = {c.get("document_id") for c in self.index.chunks if c.get("document_id")}
 
     def videos(self):
         return [
@@ -52,9 +55,26 @@ class Service:
             for m in self.meta.values()
         ]
 
-    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10):
+    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, owner_id=None,
+            shared_only=False, allowed_sources=None, project_id=None):
         t0 = time.time()
-        hits = self.retriever.search(question, mode=mode)
+        retriever = self.retriever
+        if retriever is None:
+            retriever = Retriever(self.index, self.embedder, self.cfg["retrieval"])
+        if project_id:
+            allowed_sources = {
+                chunk.get("video_id") or chunk.get("document_id")
+                for chunk in self.index.chunks if chunk.get("project_id") == project_id
+            }
+        elif allowed_sources is None and (owner_id is not None or shared_only):
+            allowed_sources = {
+                chunk.get("video_id") or chunk.get("document_id")
+                for chunk in self.index.chunks
+                if ((not chunk.get("owner_id") or chunk.get("owner_id") == owner_id)
+                    if shared_only else
+                    (not chunk.get("owner_id") or chunk.get("owner_id") in {owner_id, f"u:{owner_id}"}))
+            }
+        hits = retriever.search(question, mode=mode, allowed_sources=allowed_sources)
         t1 = time.time()
         if llm_lock is not None and not llm_lock.acquire(timeout=lock_timeout):
             raise ModelBusyError("Shared GPU slot did not become available before the request deadline.")
@@ -77,6 +97,7 @@ class Service:
                     "chunk_id": c["chunk_id"],
                     "source_type": "document" if is_document else "video",
                     "video_id": c.get("video_id"),
+                    "youtube_id": m.get("youtube_id"),
                     "document_id": document_id,
                     "section": section,
                     "title": m.get("title") or c.get("title"),
@@ -98,6 +119,7 @@ class Service:
             "answer": res["answer"],
             "found": res["found"],
             "cited": res["cited"],
+            "no_sources": res.get("no_sources", not res["found"]),
             "sources": sources,
             "matched_concepts": sorted({term for hit in hits for term in hit.get("matched_concepts", [])}),
             "mode": mode or self.cfg["retrieval"].get("mode", "hybrid_graph"),

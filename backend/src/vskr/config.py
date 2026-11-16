@@ -19,6 +19,7 @@ def load_local_environment(root=None):
 load_local_environment()
 
 ENV_PREFIX = "VSKR__"
+_config_cache = {}
 
 
 def _apply_env_overrides(cfg):
@@ -38,6 +39,12 @@ def _apply_env_overrides(cfg):
 
 def load_config(path=None):
     p = Path(path or os.environ.get("VSKR_CONFIG") or ROOT / "configs" / "models.yaml")
+    env_values = tuple(sorted((k, v) for k, v in os.environ.items() if k.startswith(ENV_PREFIX)))
+    signature = (str(p), p.stat().st_mtime_ns, hash(env_values))
+    cached = _config_cache.get(signature)
+    if cached is not None:
+        import copy
+        return copy.deepcopy(cached)
     with open(p, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     _apply_env_overrides(cfg)
@@ -45,6 +52,8 @@ def load_config(path=None):
     if not d.is_absolute():
         d = ROOT / d
     cfg["paths"]["data_dir"] = str(d)
+    _config_cache.clear()
+    _config_cache[signature] = cfg
     return cfg
 
 

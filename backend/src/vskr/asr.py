@@ -28,11 +28,12 @@ def _audio_parts(audio_path, duration, part_duration, temp_root):
             proc = subprocess.run(
                 [
                     "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                    "-ss", f"{start:.3f}", "-i", str(audio_path), "-t", f"{length:.3f}",
+                    "-protocol_whitelist", "file,pipe", "-ss", f"{start:.3f}", "-i", str(audio_path), "-t", f"{length:.3f}",
                     "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(part_path),
                 ],
                 capture_output=True,
                 text=True,
+                timeout=1800,
             )
             if proc.returncode != 0 or not part_path.is_file():
                 raise RuntimeError(f"ffmpeg không thể cắt audio phần {part_number + 1}: {proc.stderr[-800:]}")

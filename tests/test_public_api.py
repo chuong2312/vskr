@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -7,12 +8,77 @@ from types import SimpleNamespace
 from unittest import mock
 
 from vskr.api import app, handlers
+from vskr import accounts
 from vskr.api.public import _safe_source_link
 
 from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def test_guest_projects_are_isolated_and_catalog_accepts_project(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                created = client.post("/api/projects", json={"name": "Guest project"})
+                self.assertEqual(created.status_code, 200, created.text)
+                project = created.json()
+                listed = client.get("/api/projects")
+                catalog = client.get(f"/api/catalog?project_id={project['project_id']}")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()[0]["project_id"], project["project_id"])
+        self.assertEqual(catalog.status_code, 200)
+
+    def test_project_upload_requires_project_id(self):
+        with self.assertRaises(Exception) as raised:
+            asyncio.run(handlers.start_ingest(url="https://example.com/video", owner_id="g:test"))
+        self.assertEqual(raised.exception.status_code, 422)
+        with self.assertRaises(Exception) as raised:
+            file = mock.Mock()
+            file.close = mock.AsyncMock()
+            asyncio.run(handlers.upload_document(file=file, owner_id="g:test"))
+        self.assertEqual(raised.exception.status_code, 422)
+
+    def test_projects_are_isolated_by_owner(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}):
+            first = accounts.create_project("g:first", "First")
+            second = accounts.create_project("g:second", "Second")
+            self.assertEqual(accounts.get_project("g:first", first["project_id"])["name"], "First")
+            with self.assertRaises(Exception) as raised:
+                accounts.get_project("g:second", first["project_id"])
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertNotEqual(first["project_id"], second["project_id"])
+
+    def test_conversation_history_can_be_scoped_to_a_project(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                registered = client.post("/api/user/auth/register", json={
+                    "username": "project-history",
+                    "password": "a-long-test-password",
+                }, headers={"Origin": "http://localhost"})
+                self.assertEqual(registered.status_code, 200, registered.text)
+                headers = {
+                    "Origin": "http://localhost",
+                    "X-CSRF-Token": registered.json()["csrf_token"],
+                }
+                first_response = client.post("/api/projects", json={"name": "First"}, headers=headers)
+                second_response = client.post("/api/projects", json={"name": "Second"}, headers=headers)
+                self.assertEqual(first_response.status_code, 200, first_response.text)
+                self.assertEqual(second_response.status_code, 200, second_response.text)
+                first = first_response.json()
+                second = second_response.json()
+                for title, project in (("First", first), ("Second", second)):
+                    created = client.post("/api/conversations", json={
+                        "title": title,
+                        "source_type": "library",
+                        "project_id": project["project_id"],
+                    }, headers=headers)
+                    self.assertEqual(created.status_code, 200, created.text)
+                scoped = client.get(f"/api/conversations?project_id={first['project_id']}")
+                self.assertEqual(scoped.status_code, 200)
+                self.assertEqual([item["title"] for item in scoped.json()], ["First"])
+
     def test_guest_catalog_contains_shared_but_not_account_owned_material(self):
         service = SimpleNamespace(
             meta={
@@ -78,6 +144,7 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(result, [{
             "video_id": "video-ready", "title": "Bài giảng", "duration": 180,
             "playback_url": "https://lectures.example/watch",
+            "project_id": None,
         }])
 
     def test_catalog_only_lists_documents_present_in_ready_index(self):
@@ -99,7 +166,8 @@ class TestPublicCatalog(unittest.TestCase):
                 result = handlers.public_catalog()
         self.assertEqual(result, {
             "videos": [],
-            "documents": [{"document_id": "doc-ready", "title": "doc-ready", "sections": 2}],
+            "documents": [{"document_id": "doc-ready", "title": "doc-ready", "sections": 2,
+                           "project_id": None}],
         })
 
     def test_public_ask_ignores_client_mode_and_sanitizes_sources(self):

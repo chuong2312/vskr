@@ -26,12 +26,16 @@ class PublicAskRequest(BaseModel):
     conversation_id: str | None = Field(default=None, max_length=64)
     source_id: str | None = Field(default=None, max_length=256)
     source_type: str = Field(default="library", max_length=16)
+    scope_type: str | None = Field(default=None, max_length=16)
+    project_id: str | None = Field(default=None, max_length=64)
 
 
 class CreateConversationRequest(BaseModel):
     title: str = Field(default="Cuộc trò chuyện mới", max_length=72)
     source_id: str | None = Field(default=None, max_length=256)
     source_type: str = Field(default="library", max_length=16)
+    scope_type: str | None = Field(default=None, max_length=16)
+    project_id: str | None = Field(default=None, max_length=64)
 
 
 class RenameConversationRequest(BaseModel):
@@ -40,6 +44,10 @@ class RenameConversationRequest(BaseModel):
 
 class VisibilityPayload(BaseModel):
     visibility: str
+
+
+class CreateProjectRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
 
 
 class LoginRequest(BaseModel):
@@ -253,23 +261,48 @@ def public_videos(user=Depends(accounts.optional_learner_or_admin)):
                                   shared_only=bool(user.get("guest")))
 
 
+@router.get("/api/projects")
+def list_projects(user=Depends(accounts.require_learner_or_guest)):
+    owner_id = user.get("owner") or user.get("user_id")
+    result = accounts.list_projects(owner_id) or [accounts.get_or_create_default_project(owner_id)]
+    response = JSONResponse(result)
+    if user.get("guest_token"):
+        accounts.set_guest_cookie(response, user["guest_token"])
+    return response
+
+
+@router.post("/api/projects")
+def create_project(payload: CreateProjectRequest, user=Depends(accounts.require_learner_or_guest)):
+    response = JSONResponse(accounts.create_project(user.get("owner") or user.get("user_id"), payload.name))
+    if user.get("guest_token"):
+        accounts.set_guest_cookie(response, user["guest_token"])
+    return response
+
+
 @router.get("/api/catalog")
-def public_catalog(scope: str | None = Query(default=None), user=Depends(accounts.optional_learner_or_admin)):
+def public_catalog(scope: str | None = Query(default=None),
+                   project_id: str | None = Query(default=None, max_length=64),
+                   user=Depends(accounts.optional_learner_or_admin)):
+    owner_id = user.get("owner") or user.get("user_id")
+    if project_id:
+        accounts.get_project(owner_id, project_id)
     if scope == "mine":
         if not user.get("user_id"):
             return {"videos": [], "documents": []}
-        return handlers.public_catalog(owner_id=user["user_id"], owned_only=True)
+        return handlers.public_catalog(owner_id=user["user_id"], owned_only=True, project_id=project_id)
     if scope == "public":
-        return handlers.public_catalog(owner_id=user.get("owner") or user.get("user_id"), shared_only=True)
+        return handlers.public_catalog(owner_id=owner_id, shared_only=True, project_id=project_id)
     if scope is not None:
         raise HTTPException(422, "Phạm vi thư viện không hợp lệ.")
-    return handlers.public_catalog(owner_id=user.get("owner") or user.get("user_id"),
-                                   shared_only=bool(user.get("guest")))
+    return handlers.public_catalog(owner_id=owner_id, shared_only=bool(user.get("guest")),
+                                   project_id=project_id)
 
 
 @router.post("/api/ingest", status_code=202)
 async def public_ingest(request: Request, user=Depends(accounts.require_learner_or_guest)):
-    async with request.form(max_files=1, max_fields=1, max_part_size=64 * 1024) as form:
+    owner_id = user.get("owner") or user.get("user_id")
+    async with request.form(max_files=1, max_fields=2, max_part_size=64 * 1024) as form:
+        project = accounts.get_project(owner_id, form.get("project_id"))
         file = _form_upload(form, "file")
         url = form.get("url")
         if url is not None and not isinstance(url, str):
@@ -277,7 +310,7 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
         if url:
             url = validate_learner_ingest_url(url)
         result = await handlers.start_ingest(url=url, file=file,
-                                             owner_id=user.get("owner") or user.get("user_id"))
+                                             owner_id=owner_id, project_id=project["project_id"])
     audit.write_event("ingest.start", target_id=result.get("job_id"), kind="upload" if file else "url")
     response = JSONResponse(result, status_code=202)
     if user.get("guest_token"):
@@ -287,10 +320,12 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
 
 @router.post("/api/documents", status_code=202)
 async def public_upload_document(request: Request, user=Depends(accounts.require_learner_or_guest)):
-    async with request.form(max_files=1, max_fields=0, max_part_size=64 * 1024) as form:
+    owner_id = user.get("owner") or user.get("user_id")
+    async with request.form(max_files=1, max_fields=2, max_part_size=64 * 1024) as form:
+        project = accounts.get_project(owner_id, form.get("project_id"))
         file = _form_upload(form, "file", required=True)
         result = await handlers.upload_document(file=file,
-                                                owner_id=user.get("owner") or user.get("user_id"))
+                                                owner_id=owner_id, project_id=project["project_id"])
     audit.write_event("document.upload", target_id=result.get("job_id"), kind="document")
     response = JSONResponse(result, status_code=202)
     if user.get("guest_token"):
@@ -332,24 +367,35 @@ def public_status(user=Depends(accounts.optional_learner_or_admin)):
 
 
 @router.get("/api/conversations")
-def list_conversations(user=Depends(accounts.require_user)):
-    return accounts.list_conversations(user["user_id"])
+def list_conversations(project_id: str | None = Query(default=None, max_length=64),
+                        user=Depends(accounts.require_user)):
+    if project_id:
+        accounts.get_project(user["user_id"], project_id)
+    return accounts.list_conversations(user["user_id"], project_id)
 
 
 @router.post("/api/conversations")
 def create_conversation(payload: CreateConversationRequest, user=Depends(accounts.require_user)):
+    scope_type = payload.scope_type or ("library" if payload.source_type == "library" else "source")
+    if scope_type not in {"source", "library"}:
+        raise HTTPException(422, "Phạm vi cuộc trò chuyện không hợp lệ.")
     if payload.source_type not in {"video", "document", "library"}:
         raise HTTPException(422, "Loại nguồn không hợp lệ.")
-    if not handlers.source_is_visible(payload.source_type, payload.source_id, user["user_id"]):
+    source_type = payload.source_type if scope_type == "source" else "library"
+    source_id = payload.source_id if scope_type == "source" else None
+    if scope_type == "source" and not handlers.source_is_visible(source_type, source_id, user["user_id"]):
         raise HTTPException(404, "Không tìm thấy nguồn.")
-    return accounts.create_conversation(user["user_id"], payload.title, payload.source_id, payload.source_type)
+    project = (accounts.get_project(user["user_id"], payload.project_id)
+               if payload.project_id else accounts.get_or_create_default_project(user["user_id"]))
+    return accounts.create_conversation(user["user_id"], payload.title, source_id,
+                                       source_type, project["project_id"], scope_type)
 
 
 @router.get("/api/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, user=Depends(accounts.require_user)):
     conversation = accounts.get_conversation(user["user_id"], conversation_id)
     conversation["source_deleted"] = (
-        conversation["source_type"] != "library"
+        conversation["scope_type"] == "source"
         and not handlers.source_is_visible(
             conversation["source_type"], conversation["source_id"], user["user_id"]
         )
@@ -428,17 +474,26 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
     attempt_id = None
     try:
         attempt_id = check_ask_rate(client_ip)
+        scope_type = payload.scope_type or ("library" if payload.source_type == "library" else "source")
         source_id = payload.source_id
         source_type = payload.source_type
         if payload.conversation_id and user.get("user_id"):
             conversation = accounts.get_conversation(user["user_id"], payload.conversation_id)
             source_id = conversation["source_id"]
             source_type = conversation["source_type"]
+            scope_type = conversation["scope_type"]
+            project_id = conversation["project_id"]
+        else:
+            project_id = payload.project_id
+        if project_id and user.get("user_id"):
+            accounts.get_project(user["user_id"], project_id)
+        if scope_type not in {"source", "library"}:
+            raise HTTPException(422, "Phạm vi cuộc trò chuyện không hợp lệ.")
         if source_type not in {"video", "document", "library"}:
             raise HTTPException(422, "Loại nguồn không hợp lệ.")
         owner_id = user.get("owner") or user.get("user_id")
         shared_only = bool(user.get("guest"))
-        if source_type != "library" and not handlers.source_is_visible(
+        if scope_type == "source" and not handlers.source_is_visible(
                 source_type, source_id, owner_id, shared_only=shared_only):
             if payload.conversation_id and user.get("user_id"):
                 raise HTTPException(410, detail={
@@ -446,7 +501,7 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
                     "source_deleted": True,
                 })
             raise HTTPException(404, "Không tìm thấy nguồn.")
-        if source_type != "library":
+        if scope_type == "source":
             allowed_sources = {source_id}
         elif shared_only:
             allowed_sources = None
@@ -455,6 +510,7 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
         result = handlers.ask(
             handlers.AskRequest(question=question), use_request_mode=False,
             owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources,
+            project_id=None,
         )
         sources = []
         for source in result.get("sources", []):
@@ -465,12 +521,19 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
             }
             item["link"] = _safe_source_link(source)
             sources.append(item)
-        response = {"answer": result["answer"], "found": result["found"], "cited": result["cited"], "sources": sources}
+        no_sources = result.get("no_sources")
+        response = {
+            "answer": "Nội dung này không có trong nguồn đang chọn" if no_sources else result["answer"],
+            "found": result["found"], "cited": False if no_sources else result["cited"],
+            "sources": [] if no_sources else sources,
+        }
+        if no_sources is not None:
+            response["no_sources"] = bool(no_sources)
         if user.get("user_id"):
             try:
                 response["conversation_id"] = accounts.save_exchange(
                     user["user_id"], payload.conversation_id, question, response,
-                    source_id=source_id, source_type=source_type,
+                    source_id=source_id, source_type=source_type, scope_type=scope_type, project_id=project_id,
                 )
                 response["history_saved"] = True
             except sqlite3.Error:

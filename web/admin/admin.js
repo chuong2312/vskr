@@ -185,7 +185,8 @@ async function loadUsers() {
     tbody.replaceChildren();
     for (const user of users) {
       const row = document.createElement("tr");
-      row.innerHTML = `<td>${esc(user.username)}</td><td>${new Date(user.created_at * 1000).toLocaleDateString("vi-VN")}</td><td>${user.disabled ? "Đã tắt" : "Đang hoạt động"}</td><td><button class="small-action" data-user-action="${user.disabled ? "enable" : "disable"}" data-user-id="${esc(user.user_id)}">${user.disabled ? "Mở lại" : "Tắt tài khoản"}</button></td>`;
+      const createdAt = Number(user.created_at);
+      row.innerHTML = `<td><strong>${esc(user.display_name || user.username || user.email || "Tài khoản")}</strong><br><span class="hint">${esc(user.email || "")}</span></td><td>${Number.isFinite(createdAt) ? new Date(createdAt * 1000).toLocaleDateString("vi-VN") : esc(user.created_at || "—")}</td><td>${user.disabled ? "Đã tắt" : "Đang hoạt động"}</td><td><button class="small-action" data-user-action="${user.disabled ? "enable" : "disable"}" data-user-id="${esc(user.user_id ?? user.id)}">${user.disabled ? "Mở lại" : "Tắt tài khoản"}</button></td>`;
       tbody.append(row);
     }
     if (!users.length) tbody.innerHTML = '<tr><td colspan="4">Chưa có tài khoản nào.</td></tr>';
@@ -516,7 +517,11 @@ function renderLibraryTable() {
     const jobId = item.job_id || (String(item.id).startsWith("job:") ? item.id.slice(4) : "");
     const status = item.status || {};
     const extra = item.kind === "document" ? (item.sections ? `${item.sections} mục` : "—") : item.duration ? fmt(item.duration) : "—";
-    const rawStatus = status.label || status.state || "Chưa rõ";
+    const rawStatus = item.visibility ? ({
+      pending: "Chờ duyệt",
+      public: "Công khai",
+      private: "Riêng tư",
+    }[item.visibility] || item.visibility) : (status.label || status.state || "Chưa rõ");
     const statusText = status.state === "ready" || rawStatus === "Đã chia mục" ? "Sẵn sàng để hỏi" : rawStatus.includes("lập chỉ mục") ? rawStatus.replace("lập chỉ mục", "chuẩn bị nội dung để tìm") : rawStatus;
     const stateClass = status.state === "ready" || rawStatus === "Đã chia mục" ? "ready" : status.state === "error" ? "error" : "processing";
     const actions = [];
@@ -526,6 +531,8 @@ function renderLibraryTable() {
       if (status.state === "error") actions.push(`<button class="small-action danger" data-delete-job="${esc(jobId)}" type="button">Xóa tác vụ</button>`);
       else actions.push(`<span class="hint">Đang xử lý</span>`);
     } else {
+      if (item.visibility === "pending") actions.push(`<button class="small-action" data-visibility="${esc(item.kind)}:${esc(item.id)}:public" type="button">Duyệt công khai</button>`);
+      if (item.visibility !== "private") actions.push(`<button class="small-action" data-visibility="${esc(item.kind)}:${esc(item.id)}:private" type="button">Từ chối</button>`);
       actions.push(`<button class="small-action danger" data-delete="${esc(item.kind)}:${esc(item.id)}" type="button">Xóa</button>`);
     }
     return `<article class="library-item"><div class="library-title-cell"><span class="library-thumb" aria-hidden="true">${item.kind === "document" ? "▤" : "▶"}</span><span class="item-title">${esc(item.title || "Học liệu chưa có tên")}</span></div><span>${item.kind === "document" ? "Tài liệu" : "Video"}</span><span class="state ${stateClass}">${esc(statusText)}</span><span>${esc(extra)}</span><span class="library-actions">${actions.join("")}</span></article>`;
@@ -536,10 +543,14 @@ async function loadLibrary(showLoading = true) {
   const list = $("#library-list");
   if (showLoading) list.innerHTML = `<p class="hint">Đang tải thư viện…</p>`;
   try {
-    const r = await adminFetch("/api/library");
+    const r = await adminFetch("/api/admin/content");
     const items = await r.json();
     if (!r.ok) throw new Error(items.detail || r.statusText);
-    libraryItems = Array.isArray(items) ? items : [];
+    libraryItems = (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      id: item.id || item.video_id || item.document_id,
+      status: item.status || { state: "ready", label: item.visibility || "ready" },
+    }));
     $("#welcome-guide").hidden = libraryItems.some((item) => item.status?.state === "ready" || item.status?.label === "Đã chia mục");
     renderLibraryTable();
   } catch (err) { list.innerHTML = `<p class="err">Không tải được thư viện: ${esc(err.message)}</p>`; }
@@ -549,7 +560,8 @@ $("#library-list").addEventListener("click", async (e) => {
   const retry = e.target.closest("[data-retry]");
   const removeJob = e.target.closest("[data-delete-job]");
   const remove = e.target.closest("[data-delete]");
-  const action = retry || removeJob || remove;
+  const visibility = e.target.closest("[data-visibility]");
+  const action = retry || removeJob || remove || visibility;
   if (action?.disabled) return;
   if (remove) {
     const [kind] = remove.dataset.delete.split(":");
@@ -563,13 +575,21 @@ $("#library-list").addEventListener("click", async (e) => {
     let r;
     if (retry) r = await adminFetch(`/api/jobs/${encodeURIComponent(retry.dataset.retry)}/retry`, { method: "POST" });
     else if (removeJob) r = await adminFetch(`/api/jobs/${encodeURIComponent(removeJob.dataset.deleteJob)}`, { method: "DELETE" });
-    else if (remove) {
+    else if (visibility) {
+      const [kind, id, nextVisibility] = visibility.dataset.visibility.split(":");
+      r = await adminFetch(`/api/admin/content/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/visibility`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: nextVisibility }),
+      });
+    } else if (remove) {
       const [kind, id] = remove.dataset.delete.split(":");
       r = await adminFetch(`/api/${kind === "document" ? "documents" : "videos"}/${encodeURIComponent(id)}`, { method: "DELETE" });
     } else return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || r.statusText);
     if (retry) await waitForIngest(data.job_id);
+    else if (visibility) $("#pipeline-status").textContent = "Đã cập nhật trạng thái kiểm duyệt.";
     else $("#pipeline-status").textContent = "Đã xóa nội dung.";
     await loadLibrary();
     await refreshVideos();
@@ -606,67 +626,6 @@ document.querySelector(".library-tabs").addEventListener("keydown", (event) => {
   tabs[nextIndex].focus();
   tabs[nextIndex].click();
 });
-const addLibraryDialog = $("#add-library-dialog");
-$("#open-add-library").addEventListener("click", () => addLibraryDialog.showModal());
-$("#close-add-library").addEventListener("click", () => addLibraryDialog.close());
-addLibraryDialog.addEventListener("click", (event) => { if (event.target === addLibraryDialog) addLibraryDialog.close(); });
-
-$("#library-video-url").addEventListener("input", () => { if ($("#library-video-url").value.trim()) $("#library-video-file").value = ""; });
-$("#library-video-file").addEventListener("change", () => { if ($("#library-video-file").files.length) $("#library-video-url").value = ""; });
-
-$("#library-video-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const url = $("#library-video-url").value.trim();
-  const file = $("#library-video-file").files[0];
-  if (Boolean(url) === Boolean(file)) {
-    $("#library-video-status").textContent = "Hãy nhập một link hoặc chọn một file video.";
-    return;
-  }
-  if (file && file.size > 1024 ** 3) {
-    $("#library-video-status").textContent = "File vượt giới hạn 1 GB.";
-    return;
-  }
-  const button = e.submitter;
-  button.disabled = true;
-  $("#library-video-status").textContent = "Đang gửi video vào hàng đợi…";
-  const payload = new FormData();
-  if (url) payload.append("url", url);
-  else payload.append("file", file);
-  try {
-    const r = await adminFetch("/api/ingest", { method: "POST", body: payload });
-    const result = await r.json();
-    if (!r.ok) throw new Error(result.detail || r.statusText);
-    await waitForIngest(result.job_id);
-    $("#library-video-status").textContent = "Đã xử lý video.";
-    $("#library-video-form").reset();
-    addLibraryDialog.close();
-  } catch (error) {
-    $("#library-video-status").textContent = error.message;
-  } finally {
-    button.disabled = false;
-  }
-});
-
-$("#library-doc-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const file = $("#document-file").files[0];
-  if (!file) return;
-  const button = e.submitter;
-  button.disabled = true;
-  $("#library-doc-status").textContent = "Đang tải tài liệu…";
-  try {
-    const payload = new FormData(); payload.append("file", file);
-    const r = await adminFetch("/api/documents", { method: "POST", body: payload });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || r.statusText);
-    await waitForIngest(data.job_id);
-    $("#library-doc-status").textContent = "Tài liệu đã sẵn sàng để hỏi đáp.";
-    $("#library-doc-form").reset();
-    addLibraryDialog.close();
-  } catch (err) { $("#library-doc-status").textContent = err.message; }
-  finally { button.disabled = false; }
-});
-
 $("#form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const q = $("#q").value.trim();

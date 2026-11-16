@@ -71,6 +71,18 @@ def _connect():
             connection.execute("ALTER TABLE conversations ADD COLUMN source_id TEXT")
         if "source_type" not in columns:
             connection.execute("ALTER TABLE conversations ADD COLUMN source_type TEXT NOT NULL DEFAULT 'library'")
+        if "project_id" not in columns:
+            connection.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT")
+        if "scope_type" not in columns:
+            connection.execute("ALTER TABLE conversations ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'library'")
+        connection.execute("""UPDATE conversations
+                              SET scope_type = CASE
+                                WHEN source_id IS NULL OR source_type = 'library' THEN 'library'
+                                ELSE 'source'
+                              END
+                              WHERE scope_type IS NULL OR scope_type = ''
+                                 OR (source_id IS NOT NULL AND source_type != 'library'
+                                     AND scope_type = 'library')""")
         connection.execute("""CREATE TABLE IF NOT EXISTS conversation_turns (
             turn_id TEXT PRIMARY KEY,
             conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
@@ -79,6 +91,12 @@ def _connect():
             found INTEGER NOT NULL,
             cited INTEGER NOT NULL,
             sources_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS projects (
+            project_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
             created_at INTEGER NOT NULL
         )""")
         connection.commit()
@@ -174,6 +192,60 @@ def list_users():
         )]
 
 
+def _project_row(row):
+    return {"project_id": row["project_id"], "name": row["name"],
+            "owner_id": row["owner_id"], "created_at": row["created_at"]}
+
+
+def list_projects(owner_id: str):
+    with _connect() as db:
+        rows = db.execute(
+            "SELECT project_id, name, owner_id, created_at FROM projects "
+            "WHERE owner_id = ? ORDER BY created_at, project_id", (owner_id,)
+        ).fetchall()
+    return [_project_row(row) for row in rows]
+
+
+def create_project(owner_id: str, name: str):
+    name = " ".join(str(name or "").split())
+    if not name or len(name) > 120:
+        raise HTTPException(422, "Tên project cần từ 1 đến 120 ký tự.")
+    project = {"project_id": uuid.uuid4().hex, "owner_id": owner_id,
+               "name": name, "created_at": int(time.time())}
+    with _connect() as db:
+        db.execute("INSERT INTO projects(project_id, owner_id, name, created_at) VALUES (?, ?, ?, ?)",
+                   tuple(project.values()))
+    return project
+
+
+def get_project(owner_id: str, project_id: str | None):
+    if not project_id:
+        raise HTTPException(422, "project_id là bắt buộc.")
+    with _connect() as db:
+        row = db.execute(
+            "SELECT project_id, name, owner_id, created_at FROM projects "
+            "WHERE project_id = ? AND owner_id = ?", (project_id, owner_id)
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "Không tìm thấy project.")
+    return _project_row(row)
+
+
+def get_or_create_default_project(owner_id: str):
+    with _connect() as db:
+        row = db.execute(
+            "SELECT project_id, name, owner_id, created_at FROM projects "
+            "WHERE owner_id = ? ORDER BY created_at, project_id LIMIT 1", (owner_id,)
+        ).fetchone()
+        if row:
+            return _project_row(row)
+        project = {"project_id": uuid.uuid4().hex, "owner_id": owner_id,
+                   "name": "Mặc định", "created_at": int(time.time())}
+        db.execute("INSERT INTO projects(project_id, owner_id, name, created_at) VALUES (?, ?, ?, ?)",
+                   tuple(project.values()))
+        return project
+
+
 def set_user_disabled(user_id: str, disabled: bool):
     with _connect() as db:
         cursor = db.execute("UPDATE users SET disabled = ? WHERE user_id = ?", (int(disabled), user_id))
@@ -183,40 +255,56 @@ def set_user_disabled(user_id: str, disabled: bool):
             db.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
 
 
-def create_conversation(user_id: str, title: str, source_id: str | None, source_type: str):
+def _conversation_scope(source_id: str | None, source_type: str, scope_type: str | None = None):
+    scope_type = scope_type or ("library" if source_type == "library" else "source")
+    if scope_type not in {"source", "library"}:
+        raise HTTPException(422, "Phạm vi cuộc trò chuyện không hợp lệ.")
+    if scope_type == "library":
+        return scope_type, None
+    if not source_id or source_type == "library":
+        raise HTTPException(422, "Hội thoại theo nguồn cần source_id.")
+    return scope_type, source_id
+
+
+def create_conversation(user_id: str, title: str, source_id: str | None, source_type: str,
+                        project_id: str | None = None, scope_type: str | None = None):
     if source_type not in {"video", "document", "library"}:
         raise HTTPException(422, "Loại nguồn không hợp lệ.")
-    if source_type != "library" and not source_id:
-        raise HTTPException(422, "Hội thoại cần có nguồn.")
+    scope_type, source_id = _conversation_scope(source_id, source_type, scope_type)
     now = int(time.time())
     conversation_id = uuid.uuid4().hex
     title = " ".join(title.split())[:72] or "Cuộc trò chuyện mới"
     with _connect() as db:
         db.execute("""INSERT INTO conversations
-                   (conversation_id, user_id, title, created_at, updated_at, source_id, source_type)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                   (conversation_id, user_id, title, now, now, source_id, source_type))
-    return {"conversation_id": conversation_id, "title": title, "source_id": source_id, "source_type": source_type}
+                   (conversation_id, user_id, title, created_at, updated_at, source_id, source_type, scope_type, project_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (conversation_id, user_id, title, now, now, source_id, source_type, scope_type, project_id))
+    return {"conversation_id": conversation_id, "title": title, "source_id": source_id,
+            "source_type": source_type, "scope_type": scope_type, "project_id": project_id}
 
 
 def save_exchange(user_id: str, conversation_id: str | None, question: str, result: dict,
-                  *, source_id: str | None = None, source_type: str = "library"):
+                  *, source_id: str | None = None, source_type: str = "library",
+                  project_id: str | None = None, scope_type: str | None = None):
     now = int(time.time())
+    scope_type, source_id = _conversation_scope(source_id, source_type, scope_type)
     with _connect() as db:
         if conversation_id:
-            row = db.execute("SELECT source_id, source_type FROM conversations WHERE conversation_id = ? AND user_id = ?",
+            row = db.execute("SELECT source_id, source_type, scope_type, project_id FROM conversations WHERE conversation_id = ? AND user_id = ?",
                              (conversation_id, user_id)).fetchone()
             if not row:
                 raise HTTPException(404, "Không tìm thấy cuộc trò chuyện.")
-            if row["source_id"] != source_id or row["source_type"] != source_type:
+            if (row["source_id"] != source_id or row["source_type"] != source_type
+                    or row["scope_type"] != scope_type):
                 raise HTTPException(409, "Nguồn của cuộc trò chuyện không thể thay đổi.")
+            project_id = row["project_id"]
         else:
             conversation_id = uuid.uuid4().hex
             title = " ".join(question.split())[:72] or "Cuộc trò chuyện mới"
             db.execute("""INSERT INTO conversations
-                       (conversation_id, user_id, title, created_at, updated_at, source_id, source_type)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                       (conversation_id, user_id, title, now, now, source_id, source_type))
+                       (conversation_id, user_id, title, created_at, updated_at, source_id, source_type, scope_type, project_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (conversation_id, user_id, title, now, now, source_id, source_type, scope_type, project_id))
         db.execute("""INSERT INTO conversation_turns
                    (turn_id, conversation_id, question, answer, found, cited, sources_json, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -227,17 +315,23 @@ def save_exchange(user_id: str, conversation_id: str | None, question: str, resu
     return conversation_id
 
 
-def list_conversations(user_id: str):
+def list_conversations(user_id: str, project_id: str | None = None):
     with _connect() as db:
-        return [dict(row) for row in db.execute("""SELECT c.conversation_id, c.title, c.created_at,
-                   c.updated_at, c.source_id, c.source_type, COUNT(t.turn_id) AS turn_count
+        query = """SELECT c.conversation_id, c.title, c.created_at,
+                   c.updated_at, c.source_id, c.source_type, c.scope_type, c.project_id, COUNT(t.turn_id) AS turn_count
                    FROM conversations c LEFT JOIN conversation_turns t USING(conversation_id)
-                   WHERE c.user_id = ? GROUP BY c.conversation_id ORDER BY c.updated_at DESC""", (user_id,))]
+                   WHERE c.user_id = ?"""
+        params: list[str] = [user_id]
+        if project_id:
+            query += " AND c.project_id = ?"
+            params.append(project_id)
+        query += " GROUP BY c.conversation_id ORDER BY c.updated_at DESC"
+        return [dict(row) for row in db.execute(query, params)]
 
 
 def get_conversation(user_id: str, conversation_id: str):
     with _connect() as db:
-        conversation = db.execute("""SELECT conversation_id, title, created_at, updated_at, source_id, source_type
+        conversation = db.execute("""SELECT conversation_id, title, created_at, updated_at, source_id, source_type, scope_type, project_id
                                    FROM conversations
                                    WHERE conversation_id = ? AND user_id = ?""",
                                   (conversation_id, user_id)).fetchone()

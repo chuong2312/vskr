@@ -106,7 +106,7 @@ class TestUserBundle(unittest.TestCase):
             self.assertEqual(app_css.status_code, 200)
             self.assertEqual(app_css.headers.get("cache-control"), "no-cache")
             shell = worker.text.split("self.addEventListener(\"install\"", 1)[0]
-            self.assertIn('const CACHE_NAME = "vskr-user-shell-v16"', shell)
+            self.assertIn('const CACHE_NAME = "vskr-user-shell-v17"', shell)
             self.assertIn('"/user/assets/app.js?v=history-context-r2"', shell)
             self.assertIn('"/user/assets/styles.css?v=history-context-r2"', shell)
             self.assertIn('"/register"', shell)

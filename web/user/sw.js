@@ -1,4 +1,4 @@
-const CACHE_NAME = "vskr-user-shell-v16";
+const CACHE_NAME = "vskr-user-shell-v17";
 const AUTH_PAGES = new Set(["/login", "/register"]);
 const SHELL = [
   "/",

@@ -84,7 +84,9 @@ def build(cfg, embedder, progress=None, output_dir=None):
     chunks = []
     for vid in list_video_ids(cfg):
         vdir = video_dir(cfg, vid)
-        owner_id = read_json(vdir / "meta.json").get("owner_id")
+        video_meta = read_json(vdir / "meta.json")
+        owner_id = video_meta.get("owner_id")
+        project_id = video_meta.get("project_id")
         tp = vdir / "transcript.json"
         if not tp.exists():
             print(f"[index] bỏ qua {vid}: chưa có transcript.json")
@@ -114,16 +116,22 @@ def build(cfg, embedder, progress=None, output_dir=None):
         for chunk in video_chunks:
             if owner_id:
                 chunk["owner_id"] = owner_id
+            if project_id:
+                chunk["project_id"] = project_id
         chunks += video_chunks
     document_root = data_dir(cfg) / "documents"
     if document_root.exists():
         for section_file in sorted(document_root.glob("*/sections.json")):
             document_chunks = read_json(section_file).get("chunks", [])
             meta_path = section_file.parent / "meta.json"
-            owner_id = read_json(meta_path).get("owner_id") if meta_path.is_file() else None
+            document_meta = read_json(meta_path) if meta_path.is_file() else {}
+            owner_id = document_meta.get("owner_id")
+            project_id = document_meta.get("project_id")
             for chunk in document_chunks:
                 if owner_id:
                     chunk["owner_id"] = owner_id
+                if project_id:
+                    chunk["project_id"] = project_id
             chunks.extend(document_chunks)
     if not chunks:
         raise RuntimeError("Không có nội dung để lập chỉ mục. Hãy thêm video và chạy ASR, hoặc nhập tài liệu.")

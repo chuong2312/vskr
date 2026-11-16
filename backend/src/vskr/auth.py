@@ -160,7 +160,7 @@ def _prune_failures(now: float) -> None:
 
 def _login_keys(ip: str, username: str):
     normalized_username = username.strip().casefold()
-    return ("ip_username", f"{ip}\0{normalized_username}"), ("ip", ip)
+    return ("pair", f"{ip}\0{normalized_username}"), ("ip", ip)
 
 
 def _login_failure_limit(key: tuple[str, str]) -> int:

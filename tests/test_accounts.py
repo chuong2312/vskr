@@ -153,6 +153,27 @@ class TestLearnerAccounts(unittest.TestCase):
         self.assertFalse(response.json()["history_saved"])
         self.assertIn("lịch sử", response.json()["history_message"].lower())
 
+    def test_conversation_scope_is_persisted_and_immutable(self):
+        with mock.patch.dict(os.environ, self.env):
+            user = accounts.register("scope-user", "a-long-test-password")
+            user_id = user["user_id"]
+            source = accounts.create_conversation(
+                user_id, "Video A", "video-a", "video", scope_type="source"
+            )
+            library = accounts.create_conversation(
+                user_id, "Thư viện", None, "library", scope_type="library"
+            )
+            self.assertEqual(source["scope_type"], "source")
+            self.assertEqual(library["scope_type"], "library")
+            self.assertEqual(accounts.get_conversation(user_id, source["conversation_id"])["scope_type"], "source")
+            with self.assertRaises(HTTPException) as raised:
+                accounts.save_exchange(
+                    user_id, source["conversation_id"], "Câu hỏi",
+                    {"answer": "A", "found": True, "cited": False, "sources": []},
+                    source_id="video-b", source_type="video", scope_type="source",
+                )
+            self.assertEqual(raised.exception.status_code, 409)
+
     def test_learner_retrieval_only_receives_shared_and_owned_chunks(self):
         chunks = [
             {"chunk_id": "shared:1", "video_id": "shared", "text": "shared topic"},

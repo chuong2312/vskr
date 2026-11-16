@@ -35,6 +35,8 @@ class Service:
             raise RuntimeError("Cấu hình chia đoạn đã đổi so với chỉ mục. Chạy lại: vskr index")
         self.embedder = Embedder(cfg["embedding"])
         self.retriever = Retriever(self.index, self.embedder, cfg["retrieval"])
+        self.indexed_video_ids = {c.get("video_id") for c in self.index.chunks if c.get("video_id")}
+        self.indexed_document_ids = {c.get("document_id") for c in self.index.chunks if c.get("document_id")}
 
     def videos(self):
         return [
@@ -53,21 +55,26 @@ class Service:
             for m in self.meta.values()
         ]
 
-    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, owner_id=None, shared_only=False):
+    def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, owner_id=None,
+            shared_only=False, allowed_sources=None, project_id=None):
         t0 = time.time()
         retriever = self.retriever
-        if (owner_id is not None or shared_only) and hasattr(self, "index"):
-            allowed = [i for i, chunk in enumerate(self.index.chunks)
-                       if not chunk.get("owner_id") or (not shared_only and chunk.get("owner_id") == owner_id)]
-            chunks = [self.index.chunks[i] for i in allowed]
-            vectors = self.index.vectors[allowed]
-            scoped_index = index_mod.Index(
-                chunks, vectors, BM25([tokenize(chunk["text"]) for chunk in chunks]),
-                self.index.info, {"version": 1, "nodes": [], "edges": []},
-            )
-            retriever = Retriever(scoped_index, self.embedder, self.cfg["retrieval"])
-            mode = "hybrid" if mode in (None, "hybrid_graph", "graph") else mode
-        hits = retriever.search(question, mode=mode)
+        if retriever is None:
+            retriever = Retriever(self.index, self.embedder, self.cfg["retrieval"])
+        if project_id:
+            allowed_sources = {
+                chunk.get("video_id") or chunk.get("document_id")
+                for chunk in self.index.chunks if chunk.get("project_id") == project_id
+            }
+        elif allowed_sources is None and (owner_id is not None or shared_only):
+            allowed_sources = {
+                chunk.get("video_id") or chunk.get("document_id")
+                for chunk in self.index.chunks
+                if ((not chunk.get("owner_id") or chunk.get("owner_id") == owner_id)
+                    if shared_only else
+                    (not chunk.get("owner_id") or chunk.get("owner_id") in {owner_id, f"u:{owner_id}"}))
+            }
+        hits = retriever.search(question, mode=mode, allowed_sources=allowed_sources)
         t1 = time.time()
         if llm_lock is not None and not llm_lock.acquire(timeout=lock_timeout):
             raise ModelBusyError("Shared GPU slot did not become available before the request deadline.")
@@ -112,6 +119,7 @@ class Service:
             "answer": res["answer"],
             "found": res["found"],
             "cited": res["cited"],
+            "no_sources": res.get("no_sources", not res["found"]),
             "sources": sources,
             "matched_concepts": sorted({term for hit in hits for term in hit.get("matched_concepts", [])}),
             "mode": mode or self.cfg["retrieval"].get("mode", "hybrid_graph"),

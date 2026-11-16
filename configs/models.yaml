@@ -5,6 +5,20 @@ paths:
 ingest:
   max_duration_s: 7200      # tối đa 2 giờ; âm thanh tự chia đoạn để nhận dạng ổn định
   max_upload_bytes: 1073741824 # 1 GiB cho file upload và tải từ URL
+  max_queue_length: 20
+  allowed_domains: [youtube.com, youtu.be, youtube-nocookie.com]
+
+limits:
+  guest:
+    max_upload_bytes: 104857600
+    max_duration_s: 900
+    max_active_jobs: 1
+    max_jobs_per_day: 3
+  user:
+    max_upload_bytes: 1073741824
+    max_duration_s: 7200
+    max_active_jobs: 2
+    max_jobs_per_day: 20
 
 asr:
   engine: faster-whisper

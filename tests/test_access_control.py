@@ -28,7 +28,14 @@ PUBLIC_API_ROUTES = {
     ("POST", "/api/auth/logout"),
     ("POST", "/api/user/auth/register"),
     ("POST", "/api/user/auth/login"),
+    ("POST", "/api/user/register"),
+    ("POST", "/api/user/login"),
+    ("GET", "/api/user/me"),
     ("GET", "/api/user/auth/config"),
+    ("GET", "/api/my/jobs"),
+    ("GET", "/api/jobs/{job_id}"),
+    ("DELETE", "/api/my/content/{kind}/{item_id}"),
+    ("POST", "/api/my/content/{kind}/{item_id}/visibility"),
 }
 LEARNER_API_ROUTES = {
     ("GET", "/api/videos"), ("GET", "/api/catalog"), ("POST", "/api/ingest"),

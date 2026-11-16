@@ -23,8 +23,8 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 |---|---|---|---|
 | `GET` | `/api/videos` | Public guest, learner session hoặc admin session | Khách chỉ thấy video dùng chung; learner thấy nội dung dùng chung và của mình; admin thấy toàn bộ. Chỉ nội dung đã index sẵn sàng; bỏ job, lỗi, đường dẫn và metadata nội bộ. |
 | `GET` | `/api/catalog` *(mới)* | Public guest, learner session hoặc admin session | Khách chỉ thấy thư viện dùng chung; learner thấy nội dung dùng chung và của mình; admin thấy toàn bộ. Không trả filename nội bộ, đường dẫn, trạng thái hay job. |
-| `POST` | `/api/ingest` | Learner session + CSRF (hoặc admin session + CSRF) | Xác thực trước khi parse multipart; body bị giới hạn ở tầng ASGI, file tối đa 1 GB, video tối đa 2 giờ. Người học chỉ dán link YouTube hoặc upload file; admin có thể dùng URL yt-dlp khác. Nội dung người học gắn `owner_id`; admin/legacy không có chủ sở hữu vẫn dùng chung. URL được kiểm tra scheme/DNS/IP. |
-| `POST` | `/api/documents` | Learner session + CSRF (hoặc admin session + CSRF) | Xác thực trước khi parse multipart; body bị giới hạn ở tầng ASGI, tài liệu tối đa 100 MB. Tài liệu người học gắn `owner_id`; admin/legacy không có chủ sở hữu vẫn dùng chung. |
+| `POST` | `/api/ingest` | Guest hoặc learner session | Nội dung mới mặc định `private`; guest nhận diện bằng cookie riêng. Hạn mức theo vai trò, URL chỉ cho phép domain cấu hình và được kiểm tra scheme/DNS/IP. Admin không dùng route này. |
+| `POST` | `/api/documents` | Guest hoặc learner session | Tài liệu mới mặc định `private`; hạn mức theo vai trò. Admin không dùng route này. |
 | `GET` | `/api/jobs/{job_id}` | Chủ job (admin session xem đầy đủ) | Người học chỉ xem job do tài khoản mình tạo, response tối thiểu; admin dùng session quản trị để xem diagnostic. |
 | `GET` | `/api/videos/{video_id}/file` | Public guest, learner session hoặc admin session | Khách chỉ mở file video dùng chung; learner mở nội dung dùng chung và của mình; admin mở toàn bộ. Kiểm tra trạng thái index và vị trí file. |
 | `GET` | `/api/documents/{document_id}/sections/{section}` | Public guest, learner session hoặc admin session | Khách chỉ mở mục tài liệu dùng chung; learner mở nội dung dùng chung và của mình; admin mở toàn bộ. |
@@ -41,8 +41,14 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 | `POST` | `/api/user/auth/register` | Public + rate limit | Người học tự tạo tài khoản và đăng nhập ngay, không cần admin duyệt hoặc mã mời. Mật khẩu được băm Argon2id; không trả hash/session token. |
 | `POST` | `/api/user/auth/login` | Public + rate limit | Thông báo lỗi chung, cookie HttpOnly và CSRF token riêng; không trả session token. |
 | `GET` | `/api/user/auth/config` | Public | Cho biết đăng ký người học đang mở; không có quy trình cấp mã mời. |
+| `GET` | `/api/user/me` | Public hoặc learner session | Trả tài khoản hiện tại hoặc `null`, CSRF token và hạn mức hiệu lực. |
 | `GET` | `/api/user/auth/me` | Learner session | Tên tài khoản và CSRF token; không trả session token. |
 | `POST` | `/api/user/auth/logout` | Learner session + CSRF | Thu hồi phiên server-side và xóa cookie. |
+| `GET` | `/api/my/jobs`, `/api/jobs/{job_id}` | Chủ job hoặc guest cookie | Chỉ trả tác vụ do danh tính hiện tại tạo; admin dùng `/api/admin/jobs`. |
+| `POST` | `/api/my/content/{kind}/{id}/visibility` | Chủ nội dung | Chỉ chuyển `private` hoặc `pending`; admin duyệt sang `public`. |
+| `DELETE` | `/api/my/content/{kind}/{id}` | Chủ nội dung | Chỉ xóa nội dung do danh tính hiện tại tạo. |
+| `GET` | `/api/admin/content` | Admin session | Liệt kê nội dung theo visibility, ưu tiên nội dung chờ duyệt. |
+| `POST` | `/api/admin/content/{kind}/{id}/visibility` | Admin session + CSRF | Duyệt, từ chối hoặc thay đổi visibility; ghi audit. |
 | `GET` | `/api/library` | Admin session | Có job, trạng thái, URL nguồn, filename và thông tin quản lý; chỉ hiển thị cho admin. Loại đường dẫn filesystem, exception/stack trace và chuỗi lỗi thô. |
 | `POST` | `/api/jobs/{job_id}/retry` | Admin session + CSRF | Chỉ trả ID/trạng thái tác vụ mới; không trả nguồn hoặc đường dẫn trên đĩa. |
 | `DELETE` | `/api/jobs/{job_id}` | Admin session + CSRF | Kết quả xóa tối thiểu; không phản chiếu `_source` hoặc path. |

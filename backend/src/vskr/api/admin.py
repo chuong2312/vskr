@@ -1,6 +1,9 @@
 """Authenticated admin UI and management routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from ..config import data_dir, load_config
+from ..util import read_json, write_json
 from fastapi.responses import FileResponse, RedirectResponse
 
 from .. import audit, auth, accounts
@@ -9,6 +12,48 @@ from . import handlers
 
 auth_pages = APIRouter()
 router = APIRouter(dependencies=[Depends(auth.require_admin)])
+
+
+class VisibilityPayload(BaseModel):
+    visibility: str
+
+
+@router.get("/api/admin/content")
+def content():
+    cfg = load_config()
+    result = []
+    roots = (("video", data_dir(cfg) / "videos"), ("document", data_dir(cfg) / "documents"))
+    for kind, root in roots:
+        if not root.is_dir():
+            continue
+        for meta_path in root.glob("*/meta.json"):
+            try:
+                meta = read_json(meta_path)
+            except (OSError, ValueError):
+                continue
+            owner = meta.get("owner") or meta.get("owner_id")
+            result.append({"kind": kind, "id": meta.get("video_id") if kind == "video" else meta.get("document_id"),
+                           "title": meta.get("title"), "owner": ("guest" if str(owner).startswith("g:") else
+                           ("user:" + str(owner).split(":", 1)[-1] if owner else None)),
+                           "visibility": meta.get("visibility", "public" if not owner else "private"),
+                           "created_at": meta.get("created_at")})
+    return sorted(result, key=lambda item: item["visibility"] != "pending")
+
+
+@router.post("/api/admin/content/{kind}/{item_id}/visibility")
+def set_content_visibility(kind: str, item_id: str, payload: VisibilityPayload):
+    if kind not in {"video", "document"} or payload.visibility not in {"public", "private", "pending"}:
+        raise HTTPException(422, "Visibility không hợp lệ.")
+    cfg = load_config()
+    root = data_dir(cfg) / ("videos" if kind == "video" else "documents")
+    meta_path = root / item_id / "meta.json"
+    if not meta_path.is_file():
+        raise HTTPException(404, "Không tìm thấy nội dung.")
+    meta = read_json(meta_path)
+    meta["visibility"] = payload.visibility
+    write_json(meta_path, meta)
+    audit.write_event("content.visibility", target_id=item_id, kind=kind, visibility=payload.visibility)
+    return {"id": item_id, "visibility": payload.visibility}
 
 
 @router.get("/api/admin/users")

@@ -128,10 +128,12 @@ def detect_scenes_only(cfg, video_id, force=False):
 def grab_frame(video_path, t, out_path, max_width=1280):
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", str(video_path),
+            "ffmpeg", "-y", "-loglevel", "error", "-protocol_whitelist", "file,pipe",
+            "-ss", f"{t:.2f}", "-i", str(video_path),
             "-frames:v", "1", "-vf", f"scale='min({max_width},iw)':-2", "-q:v", "3", str(out_path),
         ],
         check=True,
+        timeout=1800,
     )
 
 

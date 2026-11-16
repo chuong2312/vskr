@@ -22,7 +22,7 @@ from ..config import data_dir, index_dir, load_config, video_dir, videos_dir
 from ..index import load_meta
 from ..ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
 from ..util import fmt_time, read_json, write_json
-from .. import audit
+from .. import audit, accounts
 from .ssrf import validate_ingest_url
 
 
@@ -586,7 +586,11 @@ def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *,
                 and _indexed_document(source_id, owner_id, shared_only=shared_only))
 
 
-def public_videos(owner_id=None, *, shared_only=False, owned_only=False):
+def _project_owner(owner_id):
+    return owner_id[2:] if isinstance(owner_id, str) and owner_id.startswith("u:") else owner_id
+
+
+def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project_id=None):
     if state["service"] is None:
         _init_service()
     service = state["service"]
@@ -600,6 +604,12 @@ def public_videos(owner_id=None, *, shared_only=False, owned_only=False):
     result = []
     for meta in service.meta.values():
         if not _meta_is_visible(meta, owner_id, shared_only=shared_only):
+            continue
+        item_owner = meta.get("owner") or meta.get("owner_id")
+        item_project = meta.get("project_id")
+        if not item_project and item_owner:
+            item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
+        if project_id and item_project != project_id:
             continue
         video_id = meta.get("video_id")
         owners = video_owners.get(video_id, set())
@@ -627,12 +637,14 @@ def public_videos(owner_id=None, *, shared_only=False, owned_only=False):
             "title": meta.get("title") or video_id,
             "duration": meta.get("duration"),
             "playback_url": playback_url,
+            "project_id": item_project,
         })
     return result
 
 
-def public_catalog(owner_id=None, *, shared_only=False, owned_only=False):
-    videos = public_videos(owner_id=owner_id, shared_only=shared_only, owned_only=owned_only)
+def public_catalog(owner_id=None, *, shared_only=False, owned_only=False, project_id=None):
+    videos = public_videos(owner_id=owner_id, shared_only=shared_only, owned_only=owned_only,
+                           project_id=project_id)
     cfg = load_config()
     from ..documents import list_documents
 
@@ -648,6 +660,12 @@ def public_catalog(owner_id=None, *, shared_only=False, owned_only=False):
         if not _meta_is_visible(item, owner_id, shared_only=shared_only):
             continue
         document_id = item.get("document_id")
+        item_owner = item.get("owner") or item.get("owner_id")
+        item_project = item.get("project_id")
+        if not item_project and item_owner:
+            item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
+        if project_id and item_project != project_id:
+            continue
         owners = document_owners.get(document_id, set())
         if owned_only and (not owner_id or not owners or
                            any(item_owner not in {owner_id, f"u:{owner_id}"} for item_owner in owners)):
@@ -661,6 +679,7 @@ def public_catalog(owner_id=None, *, shared_only=False, owned_only=False):
             "document_id": document_id,
             "title": item.get("title") or item.get("filename") or document_id,
             "sections": count,
+            "project_id": item_project,
         })
     return {"videos": videos, "documents": documents}
 
@@ -682,7 +701,9 @@ def _process_ingest_job(job_id, source):
             meta = ingest_document(source["path"], cfg, document_id=source["document_id"])
             if source.get("owner_id"):
                 meta["owner_id"] = source["owner_id"]
-                write_json(data_dir(cfg) / "documents" / source["document_id"] / "meta.json", meta)
+            if source.get("project_id"):
+                meta["project_id"] = source["project_id"]
+            write_json(data_dir(cfg) / "documents" / source["document_id"] / "meta.json", meta)
             _update_job(job_id, document_id=meta["document_id"], title=meta["title"])
         else:
             _update_job(job_id, status="running", phase="ingest", message="Đang tải/đọc video và tách audio…")
@@ -693,7 +714,9 @@ def _process_ingest_job(job_id, source):
             video_id = meta["video_id"]
             if source.get("owner_id"):
                 meta["owner_id"] = source["owner_id"]
-                write_json(video_dir(cfg, video_id) / "meta.json", meta)
+            if source.get("project_id"):
+                meta["project_id"] = source["project_id"]
+            write_json(video_dir(cfg, video_id) / "meta.json", meta)
             _update_job(job_id, phase="scenes", message="Đang quét phân cảnh; video dài có thể mất vài phút…")
             from ..frames import detect_scenes_only
 
@@ -785,6 +808,7 @@ def _queue_job(source, title=None):
             "video_id": source.get("video_id"), "document_id": source.get("document_id"),
             "title": title or source.get("title"),
             "owner_id": source.get("owner_id"),
+            "project_id": source.get("project_id"),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "_source": source,
         }
@@ -792,8 +816,11 @@ def _queue_job(source, title=None):
     return job_id
 
 
-async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFile] = File(None), owner_id=None):
+async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFile] = File(None),
+                       owner_id=None, project_id=None):
     """Queue one URL or local video upload; pipeline jobs are serialized to protect GPU VRAM."""
+    if not project_id:
+        raise HTTPException(422, "project_id là bắt buộc.")
     clean_url = (url or "").strip()
     if bool(clean_url) == bool(file):
         raise HTTPException(400, "Hãy nhập một URL hoặc chọn một file video, không chọn cả hai.")
@@ -817,7 +844,8 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
     if clean_url:
         validate_ingest_url(clean_url)
         video_id = f"user-{owner_id[:10]}-{uuid.uuid4().hex[:12]}" if owner_id else None
-        source = {"kind": "url", "url": clean_url, "video_id": video_id, "owner_id": owner_id}
+        source = {"kind": "url", "url": clean_url, "video_id": video_id,
+                  "owner_id": owner_id, "project_id": project_id}
     else:
         filename = Path(file.filename or "video").name
         suffix = Path(filename).suffix.lower()
@@ -861,13 +889,17 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
             "video_id": video_id,
             "title": Path(filename).stem or video_id,
             "owner_id": owner_id,
+            "project_id": project_id,
         }
 
     job_id = _queue_job(source, source.get("title"))
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "project_id": project_id}
 
 
-async def upload_document(file: UploadFile = File(...), owner_id=None):
+async def upload_document(file: UploadFile = File(...), owner_id=None, project_id=None):
+    if not project_id:
+        await file.close()
+        raise HTTPException(422, "project_id là bắt buộc.")
     filename = Path(file.filename or "document.txt").name
     suffix = Path(filename).suffix.lower()
     if suffix not in {".txt", ".md", ".rst", ".pdf", ".docx"}:
@@ -905,8 +937,9 @@ async def upload_document(file: UploadFile = File(...), owner_id=None):
         await file.close()
     source = {"kind": "document", "path": str(path), "document_id": document_id, "title": Path(filename).stem}
     source["owner_id"] = owner_id
+    source["project_id"] = project_id
     job_id = _queue_job(source, source["title"])
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "project_id": project_id}
 
 
 def get_job(job_id: str):
@@ -958,7 +991,7 @@ def reload_index():
 
 
 def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False, owner_id=None,
-        shared_only=False, allowed_sources=None):
+        shared_only=False, allowed_sources=None, project_id=None):
     q = req.question.strip()
     if not q:
         raise HTTPException(400, "Câu hỏi trống")
@@ -984,7 +1017,8 @@ def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=Fal
             )
         try:
             return service.ask(q, mode=mode, llm_lock=_gpu_model_lock, lock_timeout=GPU_LOCK_TIMEOUT_S,
-                               owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources)
+                               owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources,
+                               project_id=project_id)
         finally:
             _release_service(service)
     except HTTPException:

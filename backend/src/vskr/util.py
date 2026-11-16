@@ -1,6 +1,21 @@
+import hashlib
 import json
+import os
+import re
+import threading
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+_SAFE_VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_json_write_lock = threading.Lock()
+
+
+def safe_video_id(raw) -> str:
+    """Return a filesystem-safe stable id for an extractor-provided id."""
+    value = str(raw or "")
+    if _SAFE_VIDEO_ID.fullmatch(value):
+        return value
+    return "ext-" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
 def fmt_time(sec):
@@ -53,6 +68,14 @@ def read_json(path):
 
 
 def write_json(path, obj):
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Replace is atomic on the same filesystem and prevents truncated metadata
+    # when a worker is interrupted during a write.
+    with _json_write_lock:
+        temporary = target.with_name(target.name + ".tmp")
+        with open(temporary, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, target)

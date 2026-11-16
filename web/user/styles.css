@@ -223,7 +223,6 @@ body { background:var(--canvas); }
  .top-actions { gap:5px; }
  .top-actions .quiet-button { padding:.42rem .62rem; font-size:.75rem; }
 }
-
 /* Reference layout: fixed navigation rail, centered conversation, optional source stage. */
 .topbar { display:none; }
 .layout { height:100dvh; grid-template-columns:258px minmax(0,1fr); }
@@ -239,8 +238,12 @@ body { background:var(--canvas); }
 .sidebar-nav button:first-child { background:#fff; border:1px solid var(--line); }
 .sidebar-nav button:hover { background:#fff; }
 .sidebar-nav .count-badge { margin-left:auto; min-width:20px; height:20px; }
+.project-section { margin:0 0 16px; }
+.project-section .section-heading { margin-bottom:7px; }
+.project-section .icon-button { min-width:28px; min-height:28px; }
+.project-select { width:100%; min-height:38px; padding:7px 10px; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); font:inherit; }
 .library-panel > section { margin-top:14px; padding-top:0; border-top:0; }
-.library-panel > section:not(.chat-history):not(.signed-in-account) { display:none; }
+.library-panel > section:not(.chat-history):not(.signed-in-account):not(.project-section) { display:none; }
 .history-section, .chat-history { border-top:0 !important; }
 .chat-history .section-heading, .chat-history > .history-new-button, .chat-history > .muted, .chat-history > .conversation-list, .chat-history > .history-search { display:none; }
 #history-section { display:block; }
@@ -382,9 +385,9 @@ body { background:var(--canvas); }
 /* Final shell geometry: the rail is part of the page layout, not an overlay on desktop. */
 @media (min-width:900px) {
   :root { --video-panel-width:min(40vw,560px); }
-  .layout { grid-template-columns:248px minmax(0,1fr); height:100dvh; }
+  .layout { grid-template-columns:220px minmax(0,1fr); height:100dvh; }
   .study-panel { grid-column:2; width:100%; }
-  .library-panel { position:fixed; inset:0 auto 0 0; width:248px; }
+  .library-panel { position:fixed; inset:0 auto 0 0; width:220px; padding-left:10px; padding-right:10px; }
   .study-panel:has(#lecture-card:not([hidden])) { width:calc(100% - var(--video-panel-width)); }
   .lecture-card { position:fixed; inset:48px 0 0 auto; width:var(--video-panel-width); overflow:auto; }
   .lecture-card .player { margin-top:12px; }
@@ -459,4 +462,109 @@ body { background:var(--canvas); }
   .content-tabs { background:#1b3435; }
   .content-tab[aria-selected="true"], .account-tabs button[aria-selected="true"] { background:#e9f1ef; color:#102021; }
   .library-item { border-color:#294344; }
+}
+
+/* Claude-style shell: fixed rail, independently scrolling history, centered chat. */
+.library-panel {
+  width: 260px;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+.layout { grid-template-columns:260px minmax(0,1fr); }
+.project-section { display:none !important; }
+.library-panel > section:not(.chat-history):not(.signed-in-account):not(.project-section) {
+  display:none;
+}
+#history-section {
+  display:flex;
+  flex:1 1 auto;
+  flex-direction:column;
+  min-height:0;
+}
+#history-section .conversation-list {
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  scrollbar-gutter:stable;
+}
+.chat-history .conversation-choice {
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.signed-in-account,
+.guest-account-panel {
+  flex:none;
+  min-width:0;
+  margin-top:auto !important;
+}
+.signed-in-account > span:nth-child(2) {
+  min-width:0;
+  overflow:hidden;
+}
+.signed-in-account strong,
+.signed-in-account small {
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.question-composer {
+  width:min(700px, calc(100% - 32px));
+  margin-left:auto;
+  margin-right:auto;
+}
+.question-composer textarea {
+  overflow-y:hidden;
+  resize:none;
+}
+.composer-footer { display:none; }
+.privacy-note {
+  width:min(700px, calc(100% - 32px));
+  margin:7px auto 0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.thread:has(#welcome:not([hidden])) {
+  display:flex;
+  flex-direction:column;
+}
+.thread:has(#welcome:not([hidden])) #welcome {
+  margin-top:auto;
+  margin-bottom:auto;
+}
+.send-button {
+  display:grid;
+  place-items:center;
+  width:40px;
+  height:40px;
+  padding:0;
+  border-radius:50%;
+  font-size:1.35rem;
+  line-height:1;
+}
+.send-button:disabled { cursor:not-allowed; }
+
+@media (min-width:900px) {
+  .layout { grid-template-columns:260px minmax(0,1fr); }
+  .library-panel { width:260px; }
+  .study-panel { min-width:0; }
+  .thread { padding-left:24px; padding-right:24px; }
+}
+
+@media (max-width:899px) {
+  .library-panel {
+    width:min(320px, 88vw);
+    height:100dvh;
+    max-height:none;
+    overflow:auto;
+  }
+  .layout { height:100dvh; }
+  .question-composer {
+    width:calc(100% - 20px);
+    margin-left:10px;
+    margin-right:10px;
+  }
+  .privacy-note { width:calc(100% - 24px); }
 }

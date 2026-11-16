@@ -3,12 +3,13 @@ import { ApiError, request } from "/shared/api.js";
 const $ = (selector) => document.querySelector(selector);
 const state = {
   videos: [], documents: [], conversations: [], activeConversationId: null, currentVideo: null, sources: [], player: null,
+  projects: [], currentProjectId: null,
   signedIn: false,
   sourcesByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
-  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Cả thư viện" },
+  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Toàn bộ dự án" },
   segmentContext: null,
 };
 
@@ -28,13 +29,13 @@ function formatTime(value) {
   return hours ? `${hours}:${pad(minutes)}:${pad(remainder)}` : `${minutes}:${pad(remainder)}`;
 }
 
-function setConversationSource(source = { source_id: null, source_type: "library", title: "Cả thư viện" }) {
+function setConversationSource(source = { source_id: null, source_type: "library", title: "Toàn bộ dự án" }) {
   state.conversationSource = source;
   const chip = $("#conversation-source-chip");
-  chip.textContent = source.source_type === "library" ? "Cả thư viện" : source.title;
+  chip.textContent = source.source_type === "library" ? "Toàn bộ dự án" : source.title;
   chip.hidden = source.source_type === "library";
   $("#privacy-note").textContent = source.source_type === "library"
-    ? "Tìm trên toàn bộ thư viện."
+    ? "Tìm trên toàn bộ thư viện"
     : `Chỉ tìm trong: ${source.title}`;
 }
 
@@ -66,10 +67,26 @@ function setStatus(message = "", kind = "", status = $("#app-status")) {
   status.classList.toggle("error", kind === "error");
 }
 
-async function waitForPublicJob(jobId, statusNode) {
+function setContentDialogStatus(message = "", kind = "") {
+  setStatus(message, kind, $("#content-dialog-status"));
+}
+
+function currentProject() {
+  return state.projects.find((project) => project.project_id === state.currentProjectId) || null;
+}
+
+function updateProjectLabel() {
+  const label = $("#content-project-label");
+  if (!label) return;
+  label.textContent = "Nội dung sẽ được thêm vào thư viện của bạn.";
+}
+
+async function waitForPublicJob(jobId, statusNode, secondaryStatusNode = null) {
   while (true) {
     const job = await request(`/api/jobs/${encodeURIComponent(jobId)}`);
-    statusNode.textContent = `${job.phase || "Đang xử lý"}: ${job.message || "Vui lòng chờ…"}`;
+    const message = `${job.phase || "Đang xử lý"}: ${job.message || "Vui lòng chờ…"}`;
+    statusNode.textContent = message;
+    if (secondaryStatusNode) secondaryStatusNode.textContent = message;
     if (job.status === "error") throw new Error(job.error_detail || job.message || "Xử lý thất bại.");
     if (job.status === "done") return job;
     await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -89,26 +106,38 @@ $("#user-video-form").addEventListener("submit", async (event) => {
   if (Boolean(url) === Boolean(file)) { status.textContent = "Dán một link hoặc chọn một video."; return; }
   const payload = new FormData();
   if (url) payload.append("url", url); else payload.append("file", file);
+  if (state.currentProjectId) payload.append("project_id", state.currentProjectId);
   const button = event.submitter; button.disabled = true; status.textContent = "Đang tiếp nhận video…";
+  setContentDialogStatus("Đang tiếp nhận video…");
   try {
     const queued = await request("/api/ingest", { method: "POST", body: payload });
-    await waitForPublicJob(queued.job_id, status);
+    await waitForPublicJob(queued.job_id, status, $("#content-dialog-status"));
     await loadLibrary();
     status.textContent = "Video đã sẵn sàng. Bạn có thể hỏi ngay.";
-  } catch (error) { status.textContent = error.message || "Không thêm được video."; }
+    setContentDialogStatus("Video đã sẵn sàng. Bạn có thể hỏi ngay.");
+  } catch (error) {
+    status.textContent = error.message || "Không thêm được video.";
+    setContentDialogStatus(status.textContent, "error");
+  }
   finally { button.disabled = false; }
 });
 $("#user-document-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const status = $("#user-document-status"), file = $("#user-document-file").files[0];
-  if (!file) { status.textContent = "Chọn một tài liệu trước."; return; }
+  if (!file) { status.textContent = "Chọn một tài liệu trước."; setContentDialogStatus(status.textContent, "error"); return; }
   const payload = new FormData(); payload.append("file", file);
+  if (state.currentProjectId) payload.append("project_id", state.currentProjectId);
   const button = event.submitter; button.disabled = true; status.textContent = "Đang tiếp nhận tài liệu…";
+  setContentDialogStatus("Đang tiếp nhận tài liệu…");
   try {
     const queued = await request("/api/documents", { method: "POST", body: payload });
-    await waitForPublicJob(queued.job_id, status);
+    await waitForPublicJob(queued.job_id, status, $("#content-dialog-status"));
     await loadLibrary(); status.textContent = "Tài liệu đã sẵn sàng để hỏi.";
-  } catch (error) { status.textContent = error.message || "Không thêm được tài liệu."; }
+    setContentDialogStatus(status.textContent);
+  } catch (error) {
+    status.textContent = error.message || "Không thêm được tài liệu.";
+    setContentDialogStatus(status.textContent, "error");
+  }
   finally { button.disabled = false; }
 });
 
@@ -116,6 +145,11 @@ const contentDialog = $("#content-dialog");
 const libraryDialog = $("#library-dialog");
 let libraryDialogScope = "mine";
 function openContentDialog() {
+  if (!state.currentProjectId) {
+    setStatus("Hãy tạo hoặc chọn một dự án trước.", "error");
+    return;
+  }
+  updateProjectLabel();
   contentDialog.showModal();
   $("#content-video-url").focus();
 }
@@ -125,24 +159,33 @@ async function renderLibraryDialog(scope = libraryDialogScope) {
   list.replaceChildren();
   list.append(make("p", "muted", "Đang tải thư viện…"));
   try {
-    const catalog = await request(`/api/catalog?scope=${encodeURIComponent(scope)}`);
+    const catalog = await request(`/api/catalog?scope=${encodeURIComponent(scope)}&project_id=${encodeURIComponent(state.currentProjectId || "")}`);
     list.replaceChildren();
     for (const video of catalog.videos || []) {
     const item = make("div", "library-item");
-    item.innerHTML = `<span class="library-item-icon" aria-hidden="true">▶</span><span><strong class="library-item-title"></strong><small class="library-item-meta"></small></span>`;
-    item.querySelector(".library-item-title").textContent = video.title || "Bài giảng";
-    item.querySelector(".library-item-meta").textContent = `${formatTime(video.duration || 0)}  ·  ${scope === "mine" ? "Riêng tư" : "Công khai"}`;
+    const icon = make("span", "library-item-icon", "▶");
+    icon.setAttribute("aria-hidden", "true");
+    const details = make("span");
+    details.append(
+      make("strong", "library-item-title", video.title || "Bài giảng"),
+      make("small", "library-item-meta", `${formatTime(video.duration || 0)}  ·  ${scope === "mine" ? "Riêng tư" : "Công khai"}`),
+    );
     const button = make("button", "small-button", "Xem");
     button.type = "button";
     button.addEventListener("click", () => { libraryDialog.close(); beginConversationWithSource(video); });
-    item.append(button);
+    item.append(icon, details, button);
       list.append(item);
     }
     for (const documentItem of catalog.documents || []) {
     const item = make("div", "library-item");
-    item.innerHTML = `<span class="library-item-icon" aria-hidden="true">▤</span><span><strong class="library-item-title"></strong><small class="library-item-meta"></small></span>`;
-    item.querySelector(".library-item-title").textContent = documentItem.title || "Tài liệu";
-    item.querySelector(".library-item-meta").textContent = `Tài liệu  ·  ${scope === "mine" ? "Riêng tư" : "Công khai"}`;
+    const icon = make("span", "library-item-icon", "▤");
+    icon.setAttribute("aria-hidden", "true");
+    const details = make("span");
+    details.append(
+      make("strong", "library-item-title", documentItem.title || "Tài liệu"),
+      make("small", "library-item-meta", `Tài liệu  ·  ${scope === "mine" ? "Riêng tư" : "Công khai"}`),
+    );
+    item.append(icon, details);
       list.append(item);
     }
     if (!list.children.length) list.append(make("p", "muted", "Chưa có nội dung trong thư viện."));
@@ -607,6 +650,7 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
         conversation_id: state.activeConversationId,
         source_id: state.conversationSource.source_id,
         source_type: state.conversationSource.source_type,
+        project_id: state.currentProjectId,
       }),
     });
     if (result.conversation_id) {
@@ -654,7 +698,7 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     if (followThread) scrollThreadToEnd();
   } finally {
     state.asking = false;
-    $("#ask-button").disabled = false;
+    updateQuestionInput();
     $("#new-thread").disabled = false;
     if (state.retryButton) state.retryButton.disabled = state.retryUntil > Date.now();
   }
@@ -716,6 +760,8 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
   $("#history-section").hidden = !signedIn;
   $("#guest-history-cta").hidden = signedIn;
   $("#guest-add-notice").hidden = signedIn;
+  const projectSection = $("#project-section");
+  if (projectSection) projectSection.hidden = true;
   $("#user-video-form").hidden = !signedIn;
   $("#user-document-form").hidden = !signedIn;
   $("#signed-in-account").hidden = !signedIn;
@@ -727,6 +773,9 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
     $("#account-avatar").textContent = displayName.trim().charAt(0).toUpperCase() || "N";
   }
   if (!signedIn) {
+    state.projects = [];
+    state.currentProjectId = null;
+    $("#project-select").replaceChildren();
     state.conversations = [];
     state.activeConversationId = null;
     state.preferredConversationVideoId = null;
@@ -798,7 +847,8 @@ function conversationVideoId(conversation) {
 function renderConversations() {
   const list = $("#conversation-list");
   list.replaceChildren();
-  $("#conversation-count").textContent = String(state.conversations.length);
+  const conversationCount = $("#conversation-count");
+  if (conversationCount) conversationCount.textContent = String(state.conversations.length);
   $("#conversation-empty").hidden = state.conversations.length > 0;
   const query = $("#conversation-search").value.trim().toLocaleLowerCase("vi");
   const visible = state.conversations.filter((conversation) =>
@@ -852,9 +902,36 @@ function renderConversations() {
   }
 }
 
+async function loadProjects() {
+  try {
+    const projects = await request("/api/projects");
+    state.projects = Array.isArray(projects) ? projects : [];
+    if (!state.projects.length) {
+      state.currentProjectId = null;
+    } else if (!state.projects.some((project) => project.project_id === state.currentProjectId)) {
+      state.currentProjectId = state.projects[0].project_id;
+    }
+    const select = $("#project-select");
+    if (!select) return;
+    select.replaceChildren();
+    for (const project of state.projects) {
+      const option = new Option(project.name, project.project_id);
+      option.selected = project.project_id === state.currentProjectId;
+      select.append(option);
+    }
+    updateProjectLabel();
+    if (state.signedIn) await loadConversations();
+  } catch (error) {
+    setStatus(error.message || "Không tải được danh sách dự án.", "error");
+  }
+}
+
 async function loadConversations() {
   try {
-    state.conversations = await request("/api/conversations");
+    const query = state.currentProjectId
+      ? `?project_id=${encodeURIComponent(state.currentProjectId)}`
+      : "";
+    state.conversations = await request(`/api/conversations${query}`);
     renderConversations();
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
@@ -883,8 +960,13 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     setConversationSource({
       source_id: conversation.source_id || null,
       source_type: conversation.source_type || "library",
-      title: conversation.source_title || conversation.title || "Cả thư viện",
+      title: conversation.source_title || conversation.title || "Toàn bộ dự án",
     });
+    if (conversation.project_id && state.projects.some((project) => project.project_id === conversation.project_id)) {
+      state.currentProjectId = conversation.project_id;
+      $("#project-select").value = conversation.project_id;
+      await loadLibrary();
+    }
     setSourceDeleted(Boolean(conversation.source_deleted));
     state.preferredConversationVideoId = conversationVideoId(conversation);
     if (updateUrl) updateConversationUrl(conversation.conversation_id);
@@ -982,14 +1064,19 @@ async function beginConversationWithSource(source) {
   const normalized = {
     source_id: source.source_type === "library" ? null : source.source_id,
     source_type: source.source_type,
-    title: source.title || "Cả thư viện",
+    title: source.title || "Toàn bộ dự án",
   };
   if (state.signedIn) {
     try {
       const created = await request("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Cuộc trò chuyện mới", source_id: normalized.source_id, source_type: normalized.source_type }),
+        body: JSON.stringify({
+          title: "Cuộc trò chuyện mới",
+          source_id: normalized.source_id,
+          source_type: normalized.source_type,
+          project_id: state.currentProjectId,
+        }),
       });
       state.activeConversationId = created.conversation_id;
       updateConversationUrl(created.conversation_id);
@@ -1049,7 +1136,11 @@ $("#user-logout").addEventListener("click", async () => {
 
 async function loadLibrary() {
   try {
-    const [catalog, status] = await Promise.all([request("/api/catalog"), request("/api/status")]);
+    if (!state.projects.length) await loadProjects();
+    const projectQuery = state.currentProjectId
+      ? `?project_id=${encodeURIComponent(state.currentProjectId)}`
+      : "";
+    const [catalog, status] = await Promise.all([request(`/api/catalog${projectQuery}`), request("/api/status")]);
     state.videos = Array.isArray(catalog.videos) ? catalog.videos : [];
     state.documents = Array.isArray(catalog.documents) ? catalog.documents : [];
     $("#library-loading").hidden = true;
@@ -1091,6 +1182,48 @@ document.querySelectorAll(".welcome-suggestions button").forEach((button) => {
 });
 $("#new-conversation").addEventListener("click", () => startNewConversation());
 $("#new-conversation-sidebar").addEventListener("click", () => startNewConversation());
+$("#sidebar-search").addEventListener("click", () => {
+  const search = $("#conversation-search");
+  search?.focus();
+});
+$("#project-select").addEventListener("change", async (event) => {
+  state.currentProjectId = event.target.value || null;
+  updateProjectLabel();
+  if (state.signedIn) await loadConversations();
+  await loadLibrary();
+  resetConversationView({ focus: false });
+});
+const projectDialog = $("#project-dialog");
+$("#new-project").addEventListener("click", () => {
+  $("#project-name-input").value = "";
+  $("#project-form-status").textContent = "";
+  projectDialog.showModal();
+  $("#project-name-input").focus();
+});
+$("#close-project-dialog").addEventListener("click", () => projectDialog.close());
+$("#project-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const status = $("#project-form-status");
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  status.textContent = "Đang tạo dự án…";
+  try {
+    const project = await request("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: $("#project-name-input").value.trim() }),
+    });
+    state.projects.push(project);
+    state.currentProjectId = project.project_id;
+    await loadProjects();
+    await loadLibrary();
+    projectDialog.close();
+  } catch (error) {
+    status.textContent = error.message || "Không tạo được dự án.";
+  } finally {
+    button.disabled = false;
+  }
+});
 $("#sidebar-add-content").addEventListener("click", () => {
   openContentDialog();
   closeDrawer({ restoreFocus: false });
@@ -1118,6 +1251,7 @@ document.querySelectorAll(".library-tab[data-library-tab]").forEach((tab) => tab
   renderLibraryDialog(scope);
 }));
 $("#close-content-dialog").addEventListener("click", () => contentDialog.close());
+projectDialog.addEventListener("click", (event) => { if (event.target === projectDialog) projectDialog.close(); });
 $("#close-library-dialog").addEventListener("click", () => libraryDialog.close());
 $("#close-conversation-source").addEventListener("click", () => $("#conversation-source-dialog").close());
 for (const dialog of [contentDialog, libraryDialog]) {
@@ -1128,7 +1262,7 @@ $("#conversation-source-dialog").addEventListener("click", (event) => {
 });
 $("#conversation-source-search").addEventListener("input", renderConversationSourcePicker);
 $("#conversation-library-choice").addEventListener("click", () => beginConversationWithSource({
-  source_type: "library", source_id: null, title: "Cả thư viện",
+  source_type: "library", source_id: null, title: "Toàn bộ dự án",
 }));
 document.querySelectorAll(".content-tab[data-content-tab]").forEach((tab) => tab.addEventListener("click", () => {
   const selected = tab.dataset.contentTab;
@@ -1141,26 +1275,32 @@ $("#content-link-form").addEventListener("submit", (event) => {
   event.preventDefault();
   $("#user-video-url").value = $("#content-video-url").value.trim();
   $("#user-video-file").value = "";
-  contentDialog.close();
+  setContentDialogStatus("");
   $("#user-video-form").requestSubmit();
 });
 $("#content-upload-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  if (!$("#content-video-file").files.length) return;
+  if (!$("#content-video-file").files.length) {
+    setContentDialogStatus("Chọn một video trước.", "error");
+    return;
+  }
   const transfer = new DataTransfer();
   transfer.items.add($("#content-video-file").files[0]);
   $("#user-video-file").files = transfer.files;
   $("#user-video-url").value = "";
-  contentDialog.close();
+  setContentDialogStatus("");
   $("#user-video-form").requestSubmit();
 });
 $("#content-document-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  if (!$("#content-document-file").files.length) return;
+  if (!$("#content-document-file").files.length) {
+    setContentDialogStatus("Chọn một tài liệu trước.", "error");
+    return;
+  }
   const transfer = new DataTransfer();
   transfer.items.add($("#content-document-file").files[0]);
   $("#user-document-file").files = transfer.files;
-  contentDialog.close();
+  setContentDialogStatus("");
   $("#user-document-form").requestSubmit();
 });
 $("#close-lecture").addEventListener("click", closeLecture);
@@ -1270,9 +1410,12 @@ $("#document-dialog").addEventListener("click", (event) => {
 const questionInput = $("#question-input");
 function updateQuestionInput() {
   questionInput.style.height = "auto";
-  questionInput.style.height = `${Math.min(questionInput.scrollHeight, 144)}px`;
+  const maxHeight = 144;
+  questionInput.style.height = `${Math.min(questionInput.scrollHeight, maxHeight)}px`;
+  questionInput.style.overflowY = questionInput.scrollHeight > maxHeight ? "auto" : "hidden";
   const count = questionInput.value.length;
   $("#question-hint").textContent = `${count}/500 ký tự${count >= 500 ? " · Đã đạt giới hạn" : ""}`;
+  $("#ask-button").disabled = !count || state.asking;
 }
 questionInput.addEventListener("input", updateQuestionInput);
 window.addEventListener("online", setNetworkStatus);
@@ -1451,6 +1594,12 @@ questionInput.addEventListener("keydown", (event) => {
     $("#question-form").requestSubmit();
   }
 });
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    $("#conversation-search")?.focus();
+  }
+});
 const thread = $("#thread"), bottomButton = $("#thread-bottom");
 const studyPanel = document.querySelector(".study-panel");
 function canScrollVertically(element, deltaY) {
@@ -1487,7 +1636,9 @@ window.addEventListener("popstate", () => {
 });
 
 setNetworkStatus();
-loadLearnerSession();
-loadLibrary();
+loadLearnerSession().then(async () => {
+  await loadProjects();
+  await loadLibrary();
+});
 showAdminLink();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});

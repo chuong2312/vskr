@@ -15,6 +15,18 @@ from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def test_ingest_job_carries_role_specific_limits(self):
+        queued_source = {}
+        with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": tempfile.gettempdir()}), \
+                mock.patch.object(handlers, "validate_ingest_url"), \
+                mock.patch.object(handlers, "_queue_job", side_effect=lambda source, _title: queued_source.update(source) or "job"):
+            result = asyncio.run(handlers.start_ingest(
+                url="https://example.com/video", file=None, owner_id="g:guest", project_id="project",
+            ))
+        self.assertEqual(result["job_id"], "job")
+        self.assertEqual(queued_source["limits"]["max_duration_s"], 900)
+        self.assertEqual(queued_source["limits"]["max_upload_bytes"], 100 * 1024 * 1024)
+
     def test_index_reload_can_bypass_initialization_backoff(self):
         fake_service = SimpleNamespace(meta={}, document_meta={})
         with mock.patch.dict(handlers.state, {"service": None, "failed_at": 1.0, "error": "old"}), \

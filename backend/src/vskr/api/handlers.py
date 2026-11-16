@@ -702,6 +702,9 @@ def _update_job(job_id, **changes):
 
 def _process_ingest_job(job_id, source):
     cfg = load_config()
+    if source.get("limits"):
+        cfg = dict(cfg)
+        cfg["ingest"] = {**cfg.get("ingest", {}), **source["limits"]}
     warnings = []
     try:
         if source["kind"] == "document":
@@ -855,7 +858,8 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
         validate_ingest_url(clean_url)
         video_id = f"user-{owner_id[:10]}-{uuid.uuid4().hex[:12]}" if owner_id else None
         source = {"kind": "url", "url": clean_url, "video_id": video_id,
-                  "owner_id": owner_id, "project_id": project_id}
+                  "owner_id": owner_id, "project_id": project_id,
+                  "limits": {"max_upload_bytes": max_bytes, "max_duration_s": max_duration}}
     else:
         filename = Path(file.filename or "video").name
         suffix = Path(filename).suffix.lower()
@@ -900,6 +904,7 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
             "title": Path(filename).stem or video_id,
             "owner_id": owner_id,
             "project_id": project_id,
+            "limits": {"max_upload_bytes": max_bytes, "max_duration_s": max_duration},
         }
 
     job_id = _queue_job(source, source.get("title"))

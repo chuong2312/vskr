@@ -73,6 +73,14 @@ class TestLearnerAccounts(unittest.TestCase):
         self.assertGreater(int(raised.exception.headers["Retry-After"]), 0)
         accounts.check_registration_rate("192.0.2.91", now=110)
 
+    def test_ingest_usage_is_limited_persistently(self):
+        with mock.patch.dict(os.environ, self.env):
+            for _ in range(3):
+                accounts.reserve_ingest_job("g:guest", 3, now=100)
+            with self.assertRaises(HTTPException) as raised:
+                accounts.reserve_ingest_job("g:guest", 3, now=100)
+        self.assertEqual(raised.exception.status_code, 429)
+
     def test_self_registration_only_requires_a_unique_username(self):
         with mock.patch.dict(os.environ, self.env):
             with ASGITestClient(app, authenticated_learner=False) as client:

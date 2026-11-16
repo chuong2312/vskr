@@ -22,6 +22,14 @@ class TestIngestUrlValidation(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(HTTPException):
                 validate_learner_ingest_url(url)
 
+    def test_learner_url_ingest_uses_configured_domains(self):
+        lecture = "https://lectures.example/video"
+        with mock.patch("vskr.api.ssrf.validate_ingest_url", return_value=lecture):
+            self.assertEqual(
+                validate_learner_ingest_url(lecture, allowed_domains=["lectures.example"]),
+                lecture,
+            )
+
     def test_rejects_non_http_scheme_and_embedded_credentials(self):
         for url in ("file:///etc/passwd", "ftp://example.com/video", "http://user:pass@example.com/video"):
             with self.subTest(url=url), self.assertRaises(HTTPException):

@@ -308,7 +308,9 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
         if url is not None and not isinstance(url, str):
             raise HTTPException(400, "Trường URL không hợp lệ.")
         if url:
-            url = validate_learner_ingest_url(url)
+            url = validate_learner_ingest_url(
+                url, allowed_domains=load_config().get("ingest", {}).get("allowed_domains")
+            )
         result = await handlers.start_ingest(url=url, file=file,
                                              owner_id=owner_id, project_id=project["project_id"])
     audit.write_event("ingest.start", target_id=result.get("job_id"), kind="upload" if file else "url")

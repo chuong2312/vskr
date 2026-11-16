@@ -907,6 +907,9 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
             "limits": {"max_upload_bytes": max_bytes, "max_duration_s": max_duration},
         }
 
+    max_jobs_per_day = int(role_limits.get("max_jobs_per_day", 0))
+    if max_jobs_per_day > 0:
+        accounts.reserve_ingest_job(owner_id, max_jobs_per_day)
     job_id = _queue_job(source, source.get("title"))
     return {"job_id": job_id, "status": "queued", "project_id": project_id}
 

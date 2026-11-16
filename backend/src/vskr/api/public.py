@@ -334,9 +334,10 @@ async def public_upload_document(request: Request, user=Depends(accounts.require
 
 
 @router.get("/api/jobs/{job_id}")
-def public_job_status(job_id: str, user=Depends(accounts.require_learner_or_admin)):
+def public_job_status(job_id: str, user=Depends(accounts.optional_learner_or_admin)):
     job = handlers.get_job(job_id)
-    if not user.get("admin") and job.get("owner_id") != user["user_id"]:
+    owner_id = user.get("owner") or user.get("user_id")
+    if not user.get("admin") and job.get("owner_id") != owner_id:
         raise HTTPException(404, "Không tìm thấy tác vụ.")
     if user.get("admin"):
         return job
@@ -420,14 +421,6 @@ def my_jobs(user=Depends(accounts.require_learner_or_guest)):
     owner = user.get("owner") or user.get("user_id")
     return [job for job in handlers.list_jobs(200)
             if job.get("owner_id") == owner]
-
-
-@router.get("/api/jobs/{job_id}")
-def my_job(job_id: str, user=Depends(accounts.require_learner_or_guest)):
-    job = handlers.get_job(job_id)
-    if job.get("owner_id") != (user.get("owner") or user.get("user_id")):
-        raise HTTPException(404, "Không tìm thấy job.")
-    return job
 
 
 @router.delete("/api/my/content/{kind}/{item_id}")

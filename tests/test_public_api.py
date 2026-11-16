@@ -15,6 +15,20 @@ from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def test_guest_can_poll_own_job_but_not_another_guests_job(self):
+        job = {"job_id": "job-a", "owner_id": "g:guest-a", "status": "running",
+               "phase": "download", "message": "Đang tải", "title": "Bài học"}
+        with mock.patch.object(handlers, "get_job", return_value=job):
+            with ASGITestClient(app, authenticated_learner=False) as first:
+                first.cookies.set("vskr_guest", "guest-a")
+                own = first.get("/api/jobs/job-a")
+            with ASGITestClient(app, authenticated_learner=False) as second:
+                second.cookies.set("vskr_guest", "guest-b")
+                other = second.get("/api/jobs/job-a")
+        self.assertEqual(own.status_code, 200, own.text)
+        self.assertEqual(own.json()["job_id"], "job-a")
+        self.assertEqual(other.status_code, 404, other.text)
+
     def test_guest_projects_are_isolated_and_catalog_accepts_project(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
                 mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}):

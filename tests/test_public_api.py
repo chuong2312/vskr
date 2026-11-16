@@ -15,6 +15,22 @@ from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def test_approved_owned_content_is_visible_to_other_learners_and_guests(self):
+        service = SimpleNamespace(
+            meta={"public-video": {
+                "video_id": "public-video", "title": "Đã duyệt", "owner_id": "u1",
+                "visibility": "public", "url": "https://youtu.be/public",
+            }},
+            document_meta={},
+            index=SimpleNamespace(chunks=[{"video_id": "public-video", "owner_id": "u1"}]),
+        )
+        with mock.patch.dict(handlers.state, {"service": service}):
+            learner = handlers.public_videos(owner_id="u2")
+            guest = handlers.public_videos(owner_id="g:guest", shared_only=True)
+            self.assertTrue(handlers.source_is_visible("video", "public-video", "u2"))
+        self.assertEqual([item["video_id"] for item in learner], ["public-video"])
+        self.assertEqual([item["video_id"] for item in guest], ["public-video"])
+
     def test_project_filter_keeps_shared_material(self):
         service = SimpleNamespace(
             meta={

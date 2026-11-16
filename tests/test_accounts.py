@@ -207,3 +207,36 @@ class TestLearnerAccounts(unittest.TestCase):
         with mock.patch("vskr.service.answer_question", side_effect=answer):
             service.ask("shared topic", shared_only=True)
         self.assertEqual(set(observed["chunks"]), {"shared:1"})
+
+    def test_public_owned_chunks_are_queryable_by_other_learners_and_guests(self):
+        chunks = [
+            {"chunk_id": "public:1", "video_id": "public", "owner_id": "user-a", "text": "public topic"},
+            {"chunk_id": "private:1", "video_id": "private", "owner_id": "user-a", "text": "private topic"},
+        ]
+        index = Index(chunks, np.asarray([[1., 0.], [0., 1.]]),
+                      BM25([tokenize(chunk["text"]) for chunk in chunks]), {},
+                      {"version": 1, "nodes": [], "edges": []})
+        service = object.__new__(Service)
+        service.index = index
+        service.meta = {
+            "public": {"video_id": "public", "owner_id": "user-a", "visibility": "public"},
+            "private": {"video_id": "private", "owner_id": "user-a", "visibility": "private"},
+        }
+        service.document_meta = {}
+        service.cfg = {"retrieval": {"mode": "hybrid", "top_k": 3}, "llm": {}}
+        service.embedder = mock.Mock()
+        service.embedder.encode_query.return_value = np.asarray([1., 0.])
+        service.retriever = None
+        observed = {}
+
+        def answer(_question, hits, _cfg):
+            observed["chunks"] = [hit["chunk"]["chunk_id"] for hit in hits]
+            return {"answer": "ok", "found": True, "cited": False, "source_ns": []}
+
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("public topic", owner_id="user-b")
+        self.assertEqual(observed["chunks"], ["public:1"])
+        observed.clear()
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("public topic", owner_id="g:guest", shared_only=True)
+        self.assertEqual(observed["chunks"], ["public:1"])

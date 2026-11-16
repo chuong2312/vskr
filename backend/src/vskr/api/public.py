@@ -452,6 +452,10 @@ def request_visibility(kind: str, item_id: str, payload: VisibilityPayload,
         raise HTTPException(404, "Không tìm thấy nội dung.")
     meta["visibility"] = payload.visibility
     write_json(meta_path, meta)
+    service = handlers.state.get("service")
+    if service is not None:
+        target = service.meta if kind == "video" else service.document_meta
+        target[item_id] = {**target.get(item_id, {}), **meta}
     return {"id": item_id, "visibility": payload.visibility}
 
 

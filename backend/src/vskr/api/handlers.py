@@ -23,6 +23,7 @@ from ..index import load_meta
 from ..ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
 from ..util import fmt_time, read_json, write_json
 from .. import audit, accounts
+from ..visibility import is_visible
 from .ssrf import validate_ingest_url
 
 
@@ -537,26 +538,22 @@ def admin_status():
 
 
 def _owner_is_visible(item_owner_id, owner_id=None, *, shared_only=False):
-    if shared_only:
-        return not item_owner_id
-    return owner_id is None or not item_owner_id or item_owner_id == owner_id
+    return is_visible({"owner_id": item_owner_id}, owner_id, shared_only=shared_only)
 
 
 def _meta_is_visible(meta, owner_id=None, *, shared_only=False):
-    owner = meta.get("owner") or meta.get("owner_id")
-    visibility = meta.get("visibility", "public" if not owner else "private")
-    if owner_id is None and not shared_only:
-        return True
-    if shared_only:
-        return visibility == "public" and not owner
-    return visibility == "public" or (owner is not None and owner in {owner_id, f"u:{owner_id}"})
+    return is_visible(meta, owner_id, shared_only=shared_only)
 
 
 def _indexed_video(video_id: str, owner_id=None, *, shared_only=False) -> bool:
     service = state["service"]
     return bool(service and any(
         chunk.get("video_id") == video_id
-        and _owner_is_visible(chunk.get("owner_id"), owner_id, shared_only=shared_only)
+        and _meta_is_visible(
+            (service.meta.get(video_id) if
+             (service.meta.get(video_id, {}).get("owner") or service.meta.get(video_id, {}).get("owner_id"))
+             else {**service.meta.get(video_id, {}), "owner_id": chunk.get("owner_id")}),
+            owner_id, shared_only=shared_only)
         for chunk in service.index.chunks
     ))
 
@@ -565,7 +562,11 @@ def _indexed_document(document_id: str, owner_id=None, *, shared_only=False) -> 
     service = state["service"]
     return bool(service and any(
         chunk.get("document_id") == document_id
-        and _owner_is_visible(chunk.get("owner_id"), owner_id, shared_only=shared_only)
+        and _meta_is_visible(
+            (service.document_meta.get(document_id) if
+             (service.document_meta.get(document_id, {}).get("owner") or service.document_meta.get(document_id, {}).get("owner_id"))
+             else {**service.document_meta.get(document_id, {}), "owner_id": chunk.get("owner_id")}),
+            owner_id, shared_only=shared_only)
         for chunk in service.index.chunks
     ))
 
@@ -603,21 +604,25 @@ def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project
             video_owners.setdefault(video_id, set()).add(chunk.get("owner_id"))
     result = []
     for meta in service.meta.values():
-        if not _meta_is_visible(meta, owner_id, shared_only=shared_only):
+        video_id = meta.get("video_id")
+        owners = video_owners.get(video_id, set())
+        item_owner = meta.get("owner") or meta.get("owner_id") or next(
+            (owner for owner in owners if owner), None
+        )
+        visibility_meta = meta if (meta.get("owner") or meta.get("owner_id")) else {
+            **meta, "owner_id": item_owner,
+        }
+        if not _meta_is_visible(visibility_meta, owner_id, shared_only=shared_only):
             continue
-        item_owner = meta.get("owner") or meta.get("owner_id")
         item_project = meta.get("project_id")
         if not item_project and item_owner:
             item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
         if project_id and item_owner and item_project != project_id:
             continue
-        video_id = meta.get("video_id")
-        owners = video_owners.get(video_id, set())
         if owned_only and (not owner_id or not owners or
                            any(item_owner not in {owner_id, f"u:{owner_id}"} for item_owner in owners)):
             continue
-        if not owners or any(not _owner_is_visible(item_owner_id, owner_id, shared_only=shared_only)
-                             for item_owner_id in owners):
+        if not owners:
             continue
         is_upload = meta.get("source_type") == "upload" and bool(meta.get("has_video_file"))
         host = (urlsplit(meta.get("url") or "").hostname or "").lower()
@@ -657,21 +662,25 @@ def public_catalog(owner_id=None, *, shared_only=False, owned_only=False, projec
             if document_id:
                 document_owners.setdefault(document_id, set()).add(chunk.get("owner_id"))
     for item in list_documents(cfg):
-        if not _meta_is_visible(item, owner_id, shared_only=shared_only):
-            continue
         document_id = item.get("document_id")
-        item_owner = item.get("owner") or item.get("owner_id")
+        owners = document_owners.get(document_id, set())
+        item_owner = item.get("owner") or item.get("owner_id") or next(
+            (owner for owner in owners if owner), None
+        )
+        visibility_meta = item if (item.get("owner") or item.get("owner_id")) else {
+            **item, "owner_id": item_owner,
+        }
+        if not _meta_is_visible(visibility_meta, owner_id, shared_only=shared_only):
+            continue
         item_project = item.get("project_id")
         if not item_project and item_owner:
             item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
         if project_id and item_owner and item_project != project_id:
             continue
-        owners = document_owners.get(document_id, set())
         if owned_only and (not owner_id or not owners or
                            any(item_owner not in {owner_id, f"u:{owner_id}"} for item_owner in owners)):
             continue
-        if not owners or any(not _owner_is_visible(item_owner_id, owner_id, shared_only=shared_only)
-                             for item_owner_id in owners):
+        if not owners:
             continue
         section_file = data_dir(cfg) / "documents" / document_id / "sections.json"
         count = len(read_json(section_file).get("chunks", [])) if section_file.is_file() else 0

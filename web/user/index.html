@@ -8,7 +8,7 @@
   <link rel="icon" href="/user/assets/icons/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/shared/tokens.css">
-  <link rel="stylesheet" href="/user/assets/styles.css?v=chat-shell-r4">
+  <link rel="stylesheet" href="/user/assets/styles.css?v=chat-shell-r5">
   <title>VSKR — Hỏi đáp bài giảng</title>
 </head>
 <body>
@@ -105,6 +105,7 @@
         <button id="drawer-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="library-drawer" aria-label="Mở thư viện">☰</button>
         <div class="chat-heading"><strong id="conversation-heading">Cuộc trò chuyện mới</strong></div>
         <button id="new-thread" class="icon-button" type="button" aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới">✎</button>
+        <button id="show-video-stage" class="icon-button" type="button" aria-label="Mở video đang xem" hidden>▣</button>
       </div>
       <p id="source-deleted-banner" class="source-deleted-banner" hidden>Video đã bị xoá. Bạn vẫn có thể đọc lịch sử cuộc trò chuyện.</p>
       <p id="app-status" class="request-status" role="status" hidden></p>
@@ -122,16 +123,18 @@
         </div>
 
         <section id="lecture-card" class="lecture-card" aria-label="Video bài giảng" hidden>
+          <div id="video-resizer" class="video-resizer" role="separator" aria-orientation="vertical" aria-label="Thay đổi chiều rộng bảng video" tabindex="0"></div>
           <div class="lecture-title-row">
             <div class="stage-heading">
-              <div class="stage-navigation">
-                <button id="prev-video" type="button" aria-label="Bài giảng trước" disabled>‹</button>
-                <button id="video-position" type="button" class="stage-position">1/1 bài giảng</button>
-                <button id="next-video" type="button" aria-label="Bài giảng tiếp theo" disabled>›</button>
-              </div>
+              <p class="eyebrow stage-eyebrow">ĐANG XEM</p>
               <h2 id="lecture-title"></h2>
             </div>
-            <div class="stage-actions"><span id="lecture-duration" class="duration-label"></span><button id="close-lecture" class="icon-button" type="button" aria-label="Đóng video">×</button></div>
+            <div class="stage-actions">
+              <span id="lecture-duration" class="duration-label"></span>
+              <button id="expand-video" class="icon-button" type="button" aria-label="Phóng to video">⤢</button>
+              <button id="collapse-lecture" class="icon-button" type="button" aria-label="Thu gọn bảng video">−</button>
+              <button id="close-lecture" class="icon-button" type="button" aria-label="Đóng video">×</button>
+            </div>
           </div>
           <div id="player" class="player" aria-label="Trình phát video"></div>
           <div class="timeline-wrap">
@@ -297,6 +300,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/user/assets/app.js?v=chat-shell-r4"></script>
+  <script type="module" src="/user/assets/app.js?v=chat-shell-r5"></script>
 </body>
 </html>

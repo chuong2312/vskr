@@ -12,7 +12,7 @@ const state = {
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
   preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Cả thư viện" },
   drafts: new Map(), draftId: "draft-new", sourcePickerMode: "new",
-  segmentContext: null,
+  segmentContext: null, videoPanelWidth: null,
 };
 
 function sourceKey(source) {
@@ -29,6 +29,13 @@ function formatTime(value) {
   const remainder = seconds % 60;
   const pad = (number) => String(number).padStart(2, "0");
   return hours ? `${hours}:${pad(minutes)}:${pad(remainder)}` : `${minutes}:${pad(remainder)}`;
+}
+
+function currentPlaybackTime() {
+  if (!state.player) return 0;
+  if (state.player.tagName === "VIDEO") return Number(state.player.currentTime) || 0;
+  if (typeof state.player.getCurrentTime === "function") return Number(state.player.getCurrentTime()) || 0;
+  return 0;
 }
 
 function setConversationSource(source = { source_id: null, source_type: "library", title: "Cả thư viện" }) {
@@ -518,15 +525,31 @@ function selectVideo(video, { open = true } = {}) {
   state.currentVideo = video;
   $("#welcome").hidden = open;
   $("#lecture-card").hidden = !open;
+  $("#lecture-card").classList.remove("video-expanded");
+  $("#expand-video").setAttribute("aria-label", "Phóng to video");
+  $("#expand-video").textContent = "⤢";
   $("#lecture-title").textContent = video.title || "Bài giảng";
   $("#lecture-duration").textContent = video.duration ? formatTime(video.duration) : "";
+  updateVideoStageButtons();
   renderVideos();
-  const index = state.videos.findIndex((item) => item.video_id === video.video_id);
-  $("#video-position").textContent = `${Math.max(0, index) + 1}/${state.videos.length} bài giảng`;
-  $("#prev-video").disabled = index <= 0;
-  $("#next-video").disabled = index < 0 || index >= state.videos.length - 1;
   setupPlayer(video);
   renderTimeline();
+}
+
+function updateVideoStageButtons() {
+  $("#show-video-stage").hidden = !state.currentVideo || !$("#lecture-card").hidden;
+}
+
+function resizeVideoPanel(width) {
+  const sidebarWidth = document.body.classList.contains("sidebar-collapsed") ? 72 : 260;
+  const maxWidth = Math.max(280, window.innerWidth - sidebarWidth - 400);
+  const boundedWidth = Math.max(280, Math.min(Math.min(720, maxWidth), width));
+  state.videoPanelWidth = boundedWidth;
+  document.documentElement.style.setProperty("--video-panel-width", `${boundedWidth}px`);
+  const resizer = $("#video-resizer");
+  resizer.setAttribute("aria-valuemin", "280");
+  resizer.setAttribute("aria-valuemax", String(Math.floor(Math.min(720, maxWidth))));
+  resizer.setAttribute("aria-valuenow", String(Math.round(boundedWidth)));
 }
 
 function setActiveSource(turnId, source) {
@@ -585,14 +608,6 @@ function jumpCurrentVideo(start) {
   } else {
     state.pendingJump = { videoId: state.currentVideo.video_id, start };
   }
-
-  function currentPlaybackTime() {
-    if (!state.player) return 0;
-    if (state.player.tagName === "VIDEO") return Number(state.player.currentTime) || 0;
-    if (typeof state.player.getCurrentTime === "function") return Number(state.player.getCurrentTime()) || 0;
-    return 0;
-  }
-
 }
 
 function closeLecture() {
@@ -600,7 +615,9 @@ function closeLecture() {
   if (state.player?.destroy) state.player.destroy();
   state.player = null;
   $("#lecture-card").hidden = true;
+  $("#lecture-card").classList.remove("video-expanded");
   $("#welcome").hidden = Boolean($("#conversation").children.length);
+  updateVideoStageButtons();
   renderTimeline();
 }
 
@@ -1814,6 +1831,52 @@ $("#content-document-form").addEventListener("submit", (event) => {
   });
 });
 $("#close-lecture").addEventListener("click", closeLecture);
+$("#collapse-lecture").addEventListener("click", () => {
+  if (state.currentVideo && state.player) {
+    state.pendingJump = { videoId: state.currentVideo.video_id, start: currentPlaybackTime() };
+  }
+  closeLecture();
+});
+$("#show-video-stage").addEventListener("click", () => {
+  if (state.currentVideo) selectVideo(state.currentVideo);
+});
+$("#expand-video").addEventListener("click", () => {
+  const expanded = $("#lecture-card").classList.toggle("video-expanded");
+  $("#expand-video").setAttribute("aria-label", expanded ? "Thu nhỏ video" : "Phóng to video");
+  $("#expand-video").textContent = expanded ? "⤡" : "⤢";
+});
+const videoResizer = $("#video-resizer");
+let resizePointerStart = 0;
+let resizeWidthStart = 0;
+videoResizer.addEventListener("pointerdown", (event) => {
+  if (!event.isPrimary || event.button !== 0 || window.matchMedia("(max-width: 899px)").matches) return;
+  event.preventDefault();
+  resizePointerStart = event.clientX;
+  resizeWidthStart = state.videoPanelWidth || $("#lecture-card").getBoundingClientRect().width;
+  videoResizer.setPointerCapture(event.pointerId);
+  document.body.classList.add("resizing-video-panel");
+});
+videoResizer.addEventListener("pointermove", (event) => {
+  if (!videoResizer.hasPointerCapture(event.pointerId)) return;
+  resizeVideoPanel(resizeWidthStart + resizePointerStart - event.clientX);
+});
+function finishVideoResize(event) {
+  if (videoResizer.hasPointerCapture(event.pointerId)) videoResizer.releasePointerCapture(event.pointerId);
+  document.body.classList.remove("resizing-video-panel");
+}
+videoResizer.addEventListener("pointerup", finishVideoResize);
+videoResizer.addEventListener("pointercancel", finishVideoResize);
+videoResizer.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  const width = state.videoPanelWidth || $("#lecture-card").getBoundingClientRect().width;
+  resizeVideoPanel(width + (event.key === "ArrowLeft" ? 24 : -24));
+});
+window.addEventListener("resize", () => {
+  if (state.videoPanelWidth !== null && !window.matchMedia("(max-width: 899px)").matches) {
+    resizeVideoPanel(state.videoPanelWidth);
+  }
+});
 $("#ask-current-segment").addEventListener("click", () => {
   const time = currentPlaybackTime();
   state.segmentContext = time;
@@ -2059,6 +2122,7 @@ $("#sidebar-collapse").addEventListener("click", () => {
   }
   const collapsed = document.body.classList.toggle("sidebar-collapsed");
   $("#sidebar-collapse").setAttribute("aria-label", collapsed ? "Mở rộng thanh bên" : "Thu gọn thanh bên");
+  if (state.videoPanelWidth !== null) resizeVideoPanel(state.videoPanelWidth);
 });
 if (!window.matchMedia("(max-width: 899px)").matches) {
   drawer.inert = false;
@@ -2111,9 +2175,6 @@ document.addEventListener("click", (event) => {
     $("#suggest-toggle").setAttribute("aria-expanded", "false");
   }
 });
-$("#video-position").addEventListener("click", () => drawerToggle.click());
-$("#prev-video").addEventListener("click", () => { const i = state.videos.findIndex((v) => v.video_id === state.currentVideo?.video_id); if (i > 0) selectVideo(state.videos[i - 1]); });
-$("#next-video").addEventListener("click", () => { const i = state.videos.findIndex((v) => v.video_id === state.currentVideo?.video_id); if (i >= 0 && i < state.videos.length - 1) selectVideo(state.videos[i + 1]); });
 $("#new-thread").addEventListener("click", () => {
   if (state.asking) return;
   startNewConversation();

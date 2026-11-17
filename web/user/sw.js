@@ -1,4 +1,4 @@
-const CACHE_NAME = "vskr-user-shell-v21";
+const CACHE_NAME = "vskr-user-shell-v22";
 const AUTH_PAGES = new Set(["/login", "/register"]);
 const SHELL = [
   "/",
@@ -7,8 +7,8 @@ const SHELL = [
   "/manifest.webmanifest",
   "/shared/tokens.css",
   "/shared/api.js",
-  "/user/assets/styles.css?v=chat-shell-r4",
-  "/user/assets/app.js?v=chat-shell-r4",
+  "/user/assets/styles.css?v=chat-shell-r5",
+  "/user/assets/app.js?v=chat-shell-r5",
   "/user/assets/login.js",
   "/user/assets/icons/icon-192.png",
   "/user/assets/icons/icon-512.png",

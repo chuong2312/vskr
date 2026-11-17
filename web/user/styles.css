@@ -728,3 +728,60 @@ body.sidebar-collapsed .signed-in-account .icon-button { margin:0; }
   color:var(--ink);
   font-size:.8rem;
 }
+.content-drop-zone {
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:9px;
+  width:100%;
+  min-height:68px;
+  margin:0 0 12px;
+  padding:12px;
+  border:1px dashed var(--line);
+  border-radius:12px;
+  background:var(--canvas);
+  color:var(--muted);
+  font:inherit;
+  font-size:.82rem;
+  cursor:pointer;
+}
+.content-drop-zone > span:first-child { color:var(--brand); font-size:1.35rem; }
+.content-drop-zone strong { color:var(--brand); }
+.content-drop-zone:hover,.content-drop-zone.is-dragging { border-color:var(--brand); background:var(--soft); }
+.content-dialog { max-height:min(86dvh,800px); overflow-y:auto; overscroll-behavior:contain; }
+.content-jobs #content-job-list { max-height:220px; overflow:auto; overscroll-behavior:contain; }
+.content-job { margin-top:8px; padding:10px; border:1px solid var(--line); border-radius:10px; }
+.content-job-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.content-job-title { min-width:0; overflow:hidden; font-size:.8rem; text-overflow:ellipsis; white-space:nowrap; }
+.content-job-state { flex:none; color:var(--brand); font-size:.7rem; font-weight:750; }
+.content-job-state.is-error,.content-job-message.is-error { color:var(--danger); }
+.content-job-message { margin:5px 0 0; color:var(--muted); font-size:.74rem; line-height:1.45; overflow-wrap:anywhere; }
+.content-job-progress { display:block; width:100%; height:6px; margin-top:9px; accent-color:var(--brand); }
+.sidebar-nav #sidebar-library { position:relative; }
+.sidebar-nav #sidebar-library.has-active-jobs::after {
+  position:absolute;
+  top:5px;
+  right:36px;
+  width:7px;
+  height:7px;
+  border:1px solid var(--surface);
+  border-radius:50%;
+  background:var(--accent);
+  content:"";
+}
+.app-toast {
+  position:fixed;
+  z-index:60;
+  left:calc(260px + (100vw - 260px)/2);
+  bottom:28px;
+  max-width:min(460px,calc(100vw - 32px));
+  padding:11px 16px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--surface);
+  color:var(--ink);
+  box-shadow:0 8px 28px #0003;
+  font-size:.84rem;
+  transform:translateX(-50%);
+}
+@media (max-width:899px) { .app-toast { left:50%; bottom:calc(84px + env(safe-area-inset-bottom)); } }

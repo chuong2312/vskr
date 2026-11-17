@@ -8,7 +8,7 @@
   <link rel="icon" href="/user/assets/icons/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/shared/tokens.css">
-  <link rel="stylesheet" href="/user/assets/styles.css?v=chat-shell-r3">
+  <link rel="stylesheet" href="/user/assets/styles.css?v=chat-shell-r4">
   <title>VSKR — Hỏi đáp bài giảng</title>
 </head>
 <body>
@@ -82,7 +82,7 @@
         <button id="add-video-toggle" class="small-button" type="button" aria-expanded="false" aria-controls="add-video-panel">＋ Thêm video</button>
         <div id="add-video-panel" class="user-add-panel" hidden>
           <div id="guest-add-notice" class="guest-add-notice" hidden><p>Đăng nhập để thêm video hoặc tài liệu riêng của bạn.</p><div class="account-actions"><a class="small-button" href="/login">Đăng nhập</a><a class="small-button account-register-link" href="/register">Tạo tài khoản</a></div></div>
-          <form id="user-video-form"><label for="user-video-url">Dán link YouTube</label><input id="user-video-url" type="url" placeholder="https://youtube.com/…"><label for="user-video-file">Hoặc chọn video từ máy</label><input id="user-video-file" type="file" accept="video/*"><button class="primary-button" type="submit">Thêm video để hỏi</button><p id="user-video-status" class="request-status" role="status"></p></form>
+          <form id="user-video-form"><label for="user-video-url">Dán link YouTube</label><input id="user-video-url" type="url" placeholder="https://youtube.com/…"><label for="user-video-file">Hoặc chọn video từ máy</label><input id="user-video-file" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm,.avi,.mpeg,.mpg,video/mp4,video/quicktime,video/webm"><button class="primary-button" type="submit">Thêm video để hỏi</button><p id="user-video-status" class="request-status" role="status"></p></form>
           <form id="user-document-form"><label for="user-document-file">Thêm tài liệu</label><input id="user-document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx"><button class="small-button" type="submit">Thêm tài liệu để hỏi</button><p id="user-document-status" class="request-status" role="status"></p></form>
         </div>
         <p id="library-loading" class="muted">Đang tải học liệu…</p>
@@ -211,25 +211,30 @@
       <button class="content-tab" type="button" aria-selected="false" data-content-tab="document">Tài liệu</button>
     </div>
     <p id="content-project-label" class="content-quota">Nội dung sẽ được thêm vào thư viện của bạn.</p>
+    <button id="content-drop-zone" class="content-drop-zone" type="button" aria-label="Chọn hoặc thả tệp video hoặc tài liệu">
+      <span aria-hidden="true">＋</span><span>Thả tệp vào đây hoặc <strong>chọn tệp</strong></span>
+    </button>
+    <input id="content-drop-file" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm,.avi,.mpeg,.mpg,.txt,.md,.rst,.pdf,.docx,video/mp4,video/quicktime,video/webm" hidden>
     <form id="content-link-form" class="content-form">
       <label for="content-video-url">Liên kết video (YouTube…)</label>
       <input id="content-video-url" type="url" placeholder="https://www.youtube.com/watch?v=…" required>
       <p>Nội dung bạn thêm mặc định là <strong>riêng tư</strong>; chỉ mình bạn hỏi đáp được trên đó.</p>
-      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+      <button class="primary-button" type="submit">Thêm</button>
     </form>
     <form id="content-upload-form" class="content-form" hidden>
       <label for="content-video-file">Chọn video từ máy</label>
-      <input id="content-video-file" type="file" accept="video/*" required>
-      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+      <input id="content-video-file" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm,.avi,.mpeg,.mpg,video/mp4,video/quicktime,video/webm" required>
+      <button class="primary-button" type="submit">Thêm</button>
     </form>
     <form id="content-document-form" class="content-form" hidden>
       <label for="content-document-file">Chọn tài liệu</label>
       <input id="content-document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx" required>
-      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+      <button class="primary-button" type="submit">Thêm</button>
     </form>
     <p id="content-dialog-status" class="request-status" role="status" aria-live="polite"></p>
     <div class="content-jobs"><h3>Đang xử lý</h3><div id="content-job-list"></div></div>
   </dialog>
+  <div id="app-toast" class="app-toast" role="status" aria-live="polite" hidden></div>
 
   <dialog id="project-dialog" class="account-dialog" aria-labelledby="project-dialog-title">
     <div class="dialog-heading">
@@ -292,6 +297,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/user/assets/app.js?v=chat-shell-r3"></script>
+  <script type="module" src="/user/assets/app.js?v=chat-shell-r4"></script>
 </body>
 </html>

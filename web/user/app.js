@@ -5,6 +5,7 @@ const state = {
   videos: [], documents: [], conversations: [], activeConversationId: null, currentVideo: null, sources: [], player: null,
   projects: [], currentProjectId: null,
   signedIn: false,
+  uploadLimits: null, jobs: [], jobPollTimer: null, jobPollInFlight: false, toastTimer: null,
   sourcesByTurn: new Map(), answersByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
@@ -89,25 +90,176 @@ function setContentDialogStatus(message = "", kind = "") {
   setStatus(message, kind, $("#content-dialog-status"));
 }
 
-function currentProject() {
-  return state.projects.find((project) => project.project_id === state.currentProjectId) || null;
-}
-
 function updateProjectLabel() {
   const label = $("#content-project-label");
   if (!label) return;
-  label.textContent = "Nội dung sẽ được thêm vào thư viện của bạn.";
+  const limits = state.uploadLimits;
+  if (!limits || !Number.isFinite(Number(limits.max_upload_mb))) {
+    label.textContent = "Chưa tải được hạn mức tải lên từ tài khoản.";
+    return;
+  }
+  const parts = [`Tối đa ${Number(limits.max_upload_mb)} MB mỗi tệp`];
+  if (Number.isFinite(Number(limits.max_duration_min))) parts.push(`${Number(limits.max_duration_min)} phút mỗi video`);
+  if (Number.isFinite(Number(limits.max_active_jobs))) parts.push(`${Number(limits.max_active_jobs)} tác vụ cùng lúc`);
+  label.textContent = `Hạn mức tài khoản: ${parts.join(" · ")}.`;
 }
 
-async function waitForPublicJob(jobId, statusNode, secondaryStatusNode = null) {
-  while (true) {
-    const job = await request(`/api/jobs/${encodeURIComponent(jobId)}`);
-    const message = `${job.phase || "Đang xử lý"}: ${job.message || "Vui lòng chờ…"}`;
-    statusNode.textContent = message;
-    if (secondaryStatusNode) secondaryStatusNode.textContent = message;
-    if (job.status === "error") throw new Error(job.error_detail || job.message || "Xử lý thất bại.");
-    if (job.status === "done") return job;
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+function renderLibraryBadge() {
+  const badge = $("#sidebar-library-badge");
+  const libraryButton = $("#sidebar-library");
+  if (!badge || !libraryButton) return;
+  const total = state.videos.length + state.documents.length;
+  badge.textContent = String(total);
+  badge.hidden = total === 0;
+  const hasActiveJobs = state.jobs.some((job) => job.status === "queued" || job.status === "running");
+  libraryButton.classList.toggle("has-active-jobs", hasActiveJobs);
+  libraryButton.setAttribute("aria-label", hasActiveJobs ? "Thư viện, có nội dung đang xử lý" : "Thư viện");
+}
+
+function showToast(message) {
+  const toast = $("#app-toast");
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
+}
+
+function renderContentJobs() {
+  const list = $("#content-job-list");
+  if (!list) return;
+  list.replaceChildren();
+  if (!state.jobs.length) {
+    list.append(make("p", "muted", "Chưa có nội dung nào đang xử lý."));
+    return;
+  }
+  for (const job of state.jobs.slice(0, 8)) {
+    const card = make("article", "content-job");
+    const heading = make("div", "content-job-heading");
+    heading.append(
+      make("strong", "content-job-title", job.title || "Nội dung mới"),
+      make("span", `content-job-state ${job.status === "error" ? "is-error" : ""}`, job.status === "done" ? "Đã xong" : job.status === "error" ? "Lỗi" : job.status === "queued" ? "Đang chờ" : "Đang xử lý"),
+    );
+    const details = job.error_detail || job.message || (job.status === "done" ? "Nội dung đã sẵn sàng để hỏi đáp." : "Vui lòng chờ…");
+    card.append(heading, make("p", `content-job-message ${job.status === "error" ? "is-error" : ""}`, `${job.phase || "Tác vụ"}: ${details}`));
+    if (job.status === "queued" || job.status === "running") {
+      const progress = make("progress", "content-job-progress");
+      progress.max = 1;
+      progress.setAttribute("aria-label", `Tiến độ xử lý ${job.title || "nội dung"}`);
+      card.append(progress);
+    }
+    list.append(card);
+  }
+}
+
+function stopJobPolling() {
+  if (state.jobPollTimer) clearInterval(state.jobPollTimer);
+  state.jobPollTimer = null;
+}
+
+async function refreshMyJobs() {
+  if (!contentDialog.open || state.jobPollInFlight) return;
+  state.jobPollInFlight = true;
+  try {
+    const jobs = await request("/api/my/jobs");
+    if (!Array.isArray(jobs)) throw new Error("Máy chủ trả về trạng thái tác vụ không hợp lệ.");
+    if (!contentDialog.open) return;
+    const previousStatuses = new Map(state.jobs.map((job) => [job.job_id, job.status]));
+    state.jobs = jobs;
+    renderContentJobs();
+    renderLibraryBadge();
+    const completed = state.jobs.find((job) =>
+      job.status === "done" && ["queued", "running"].includes(previousStatuses.get(job.job_id)));
+    if (completed) {
+      showToast(`${completed.title || "Nội dung"} đã xử lý xong.`);
+      await loadLibrary();
+    }
+    if (state.jobs.some((job) => job.status === "queued" || job.status === "running")) {
+      if (!state.jobPollTimer) state.jobPollTimer = setInterval(refreshMyJobs, 2000);
+    } else {
+      stopJobPolling();
+    }
+  } catch (error) {
+    if (contentDialog.open) setContentDialogStatus(error.message || "Không tải được trạng thái xử lý.", "error");
+  } finally {
+    state.jobPollInFlight = false;
+  }
+}
+
+const contentDialog = $("#content-dialog");
+const libraryDialog = $("#library-dialog");
+let libraryDialogScope = "mine";
+
+function validateUploadFile(file, type) {
+  if (!file) return "Chọn một tệp trước.";
+  const extension = file.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  const supported = type === "document"
+    ? new Set(["txt", "md", "rst", "pdf", "docx"])
+    : new Set(["mp4", "m4v", "mov", "mkv", "webm", "avi", "mpeg", "mpg"]);
+  if (!extension || !supported.has(extension)) {
+    return type === "document"
+      ? "Định dạng tài liệu chưa được hỗ trợ. Hãy dùng .txt, .md, .rst, .pdf hoặc .docx."
+      : "Định dạng video chưa được hỗ trợ. Hãy dùng .mp4, .m4v, .mov, .mkv, .webm, .avi, .mpeg hoặc .mpg.";
+  }
+  const maxUploadMb = Number(state.uploadLimits?.max_upload_mb);
+  if (!Number.isFinite(maxUploadMb) || maxUploadMb <= 0) return "Chưa tải được hạn mức tệp từ tài khoản. Hãy thử tải lại trang.";
+  if (file.size > maxUploadMb * 1024 * 1024) return `Tệp vượt quá giới hạn ${maxUploadMb} MB của tài khoản.`;
+  return "";
+}
+
+async function enqueueContent({ type, url = "", file = null, statusNode, button, closeOnQueue = false }) {
+  const error = type === "document" ? validateUploadFile(file, type)
+    : file ? validateUploadFile(file, "video") : "";
+  if (error) {
+    setStatus(error, "error", statusNode);
+    return;
+  }
+  if (!state.currentProjectId) {
+    setStatus("Chưa tải được thư viện. Hãy thử lại sau.", "error", statusNode);
+    return;
+  }
+  let parsedUrl;
+  if (url) {
+    try { parsedUrl = new URL(url); } catch { setStatus("Nhập một liên kết hợp lệ.", "error", statusNode); return; }
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      setStatus("Liên kết phải bắt đầu bằng http:// hoặc https://.", "error", statusNode);
+      return;
+    }
+  } else if (type === "video" && !file) {
+    setStatus("Dán liên kết video hoặc chọn một tệp video.", "error", statusNode);
+    return;
+  }
+  if (button) button.disabled = true;
+  setStatus("Đang thêm vào hàng đợi xử lý…", "", statusNode);
+  try {
+    const payload = new FormData();
+    if (type === "document") {
+      payload.append("file", file);
+    } else if (file) {
+      payload.append("file", file);
+    } else {
+      payload.append("url", parsedUrl.href);
+    }
+    payload.append("project_id", state.currentProjectId);
+    const queued = await request(type === "document" ? "/api/documents" : "/api/ingest", {
+      method: "POST",
+      body: payload,
+    });
+    state.jobs = [
+      { job_id: queued.job_id, title: file?.name || parsedUrl?.hostname || "Nội dung mới", status: "queued", phase: "queued", message: "Đang chờ xử lý…" },
+      ...state.jobs.filter((job) => job.job_id !== queued.job_id),
+    ];
+    renderLibraryBadge();
+    if (closeOnQueue && contentDialog.open) contentDialog.close();
+    showToast("Đã thêm vào hàng đợi xử lý.");
+    setStatus("Đã thêm vào hàng đợi xử lý.", "", statusNode);
+    if (contentDialog.open) {
+      renderContentJobs();
+      await refreshMyJobs();
+    }
+  } catch (error) {
+    setStatus(error.message || "Không thể thêm nội dung vào hàng đợi.", "error", statusNode);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -118,50 +270,28 @@ $("#add-video-toggle").addEventListener("click", () => {
 });
 $("#user-video-url").addEventListener("input", () => { if ($("#user-video-url").value.trim()) $("#user-video-file").value = ""; });
 $("#user-video-file").addEventListener("change", () => { if ($("#user-video-file").files.length) $("#user-video-url").value = ""; });
-$("#user-video-form").addEventListener("submit", async (event) => {
+$("#user-video-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const status = $("#user-video-status"), url = $("#user-video-url").value.trim(), file = $("#user-video-file").files[0];
-  if (Boolean(url) === Boolean(file)) { status.textContent = "Dán một link hoặc chọn một video."; return; }
-  const payload = new FormData();
-  if (url) payload.append("url", url); else payload.append("file", file);
-  if (state.currentProjectId) payload.append("project_id", state.currentProjectId);
-  const button = event.submitter; button.disabled = true; status.textContent = "Đang tiếp nhận video…";
-  setContentDialogStatus("Đang tiếp nhận video…");
-  try {
-    const queued = await request("/api/ingest", { method: "POST", body: payload });
-    await waitForPublicJob(queued.job_id, status, $("#content-dialog-status"));
-    await loadLibrary();
-    status.textContent = "Video đã sẵn sàng. Bạn có thể hỏi ngay.";
-    setContentDialogStatus("Video đã sẵn sàng. Bạn có thể hỏi ngay.");
-  } catch (error) {
-    status.textContent = error.message || "Không thêm được video.";
-    setContentDialogStatus(status.textContent, "error");
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  const url = $("#user-video-url").value.trim();
+  const file = $("#user-video-file").files[0] || null;
+  if (Boolean(url) === Boolean(file)) {
+    setStatus("Dán một liên kết hoặc chọn một video.", "error", $("#user-video-status"));
+    return;
   }
-  finally { button.disabled = false; }
+  enqueueContent({ type: "video", url, file, statusNode: $("#user-video-status"), button });
 });
-$("#user-document-form").addEventListener("submit", async (event) => {
+$("#user-document-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const status = $("#user-document-status"), file = $("#user-document-file").files[0];
-  if (!file) { status.textContent = "Chọn một tài liệu trước."; setContentDialogStatus(status.textContent, "error"); return; }
-  const payload = new FormData(); payload.append("file", file);
-  if (state.currentProjectId) payload.append("project_id", state.currentProjectId);
-  const button = event.submitter; button.disabled = true; status.textContent = "Đang tiếp nhận tài liệu…";
-  setContentDialogStatus("Đang tiếp nhận tài liệu…");
-  try {
-    const queued = await request("/api/documents", { method: "POST", body: payload });
-    await waitForPublicJob(queued.job_id, status, $("#content-dialog-status"));
-    await loadLibrary(); status.textContent = "Tài liệu đã sẵn sàng để hỏi.";
-    setContentDialogStatus(status.textContent);
-  } catch (error) {
-    status.textContent = error.message || "Không thêm được tài liệu.";
-    setContentDialogStatus(status.textContent, "error");
-  }
-  finally { button.disabled = false; }
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  enqueueContent({
+    type: "document",
+    file: $("#user-document-file").files[0] || null,
+    statusNode: $("#user-document-status"),
+    button,
+  });
 });
 
-const contentDialog = $("#content-dialog");
-const libraryDialog = $("#library-dialog");
-let libraryDialogScope = "mine";
 function openContentDialog() {
   if (!state.currentProjectId) {
     setStatus("Chưa tải được thư viện. Hãy thử lại sau.", "error");
@@ -169,7 +299,11 @@ function openContentDialog() {
   }
   updateProjectLabel();
   if (!contentDialog.open) contentDialog.showModal();
-  $("#content-video-url").focus();
+  setContentDialogStatus("");
+  renderContentJobs();
+  refreshMyJobs();
+  const selected = document.querySelector(".content-tab[data-content-tab][aria-selected='true']")?.dataset.contentTab || "link";
+  $(`#content-${selected === "link" ? "video-url" : selected === "upload" ? "video-file" : "document-file"}`).focus();
 }
 async function renderLibraryDialog(scope = libraryDialogScope) {
   libraryDialogScope = scope;
@@ -1036,6 +1170,8 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
   const signedIn = Boolean(session?.user_id);
   const lostSession = state.signedIn && !signedIn;
   state.signedIn = signedIn;
+  state.uploadLimits = session?.limits || null;
+  updateProjectLabel();
   if (lostSession) {
     state.videos = [];
     state.documents = [];
@@ -1458,11 +1594,7 @@ async function loadLibrary() {
     $("#library-loading").hidden = true;
     renderDocuments();
     renderVideos();
-    const badge = $("#sidebar-library-badge");
-    if (badge) {
-      badge.textContent = String(state.videos.length + state.documents.length);
-      badge.hidden = state.videos.length + state.documents.length === 0;
-    }
+    renderLibraryBadge();
     const preferredVideoId = state.currentVideo?.video_id || state.preferredConversationVideoId;
     const initialVideo = state.videos.find((video) => video.video_id === preferredVideoId);
     if (initialVideo) selectVideo(initialVideo, { open: false });
@@ -1561,6 +1693,7 @@ document.querySelectorAll(".library-tab[data-library-tab]").forEach((tab) => tab
   renderLibraryDialog(scope);
 }));
 $("#close-content-dialog").addEventListener("click", () => contentDialog.close());
+contentDialog.addEventListener("close", stopJobPolling);
 projectDialog.addEventListener("click", (event) => { if (event.target === projectDialog) projectDialog.close(); });
 $("#close-library-dialog").addEventListener("click", () => libraryDialog.close());
 $("#close-conversation-source").addEventListener("click", () => $("#conversation-source-dialog").close());
@@ -1590,9 +1723,25 @@ document.querySelectorAll(".content-tab[data-content-tab]").forEach((tab) => tab
   $("#content-link-form").hidden = selected !== "link";
   $("#content-upload-form").hidden = selected !== "upload";
   $("#content-document-form").hidden = selected !== "document";
+  setContentDialogStatus("");
 }));
+$("#content-video-file").addEventListener("change", (event) => {
+  const error = validateUploadFile(event.currentTarget.files[0], "video");
+  if (error) setContentDialogStatus(error, "error");
+});
+$("#content-document-file").addEventListener("change", (event) => {
+  const error = validateUploadFile(event.currentTarget.files[0], "document");
+  if (error) setContentDialogStatus(error, "error");
+});
 function openContentWithDroppedFile(file) {
-  const isDocument = /\.(txt|md|rst|pdf|docx)$/i.test(file.name);
+  const extension = file.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  const isDocument = ["txt", "md", "rst", "pdf", "docx"].includes(extension);
+  const isVideo = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "mpeg", "mpg"].includes(extension);
+  if (!isDocument && !isVideo) {
+    openContentDialog();
+    setContentDialogStatus(`Định dạng ${extension ? `.${extension}` : "tệp"} chưa được hỗ trợ. Hãy chọn video hoặc tài liệu thuộc danh sách cho phép.`, "error");
+    return;
+  }
   const action = isDocument ? "document" : "upload";
   const input = $(isDocument ? "#content-document-file" : "#content-video-file");
   const transfer = new DataTransfer();
@@ -1600,7 +1749,28 @@ function openContentWithDroppedFile(file) {
   input.files = transfer.files;
   openContentDialog();
   document.querySelector(`.content-tab[data-content-tab="${action}"]`).click();
+  input.focus();
+  const validation = validateUploadFile(file, isDocument ? "document" : "video");
+  if (validation) setContentDialogStatus(validation, "error");
 }
+$("#content-drop-zone").addEventListener("click", () => $("#content-drop-file").click());
+$("#content-drop-zone").addEventListener("dragover", (event) => {
+  event.preventDefault();
+  event.currentTarget.classList.add("is-dragging");
+});
+$("#content-drop-zone").addEventListener("dragleave", (event) => event.currentTarget.classList.remove("is-dragging"));
+$("#content-drop-zone").addEventListener("drop", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  event.currentTarget.classList.remove("is-dragging");
+  const file = event.dataTransfer?.files?.[0];
+  if (file) openContentWithDroppedFile(file);
+});
+$("#content-drop-file").addEventListener("change", (event) => {
+  const file = event.currentTarget.files[0];
+  if (file) openContentWithDroppedFile(file);
+  event.currentTarget.value = "";
+});
 document.addEventListener("dragover", (event) => {
   if ([...(event.dataTransfer?.types || [])].includes("Files")) event.preventDefault();
 });
@@ -1612,35 +1782,36 @@ document.addEventListener("drop", (event) => {
 });
 $("#content-link-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  $("#user-video-url").value = $("#content-video-url").value.trim();
-  $("#user-video-file").value = "";
-  setContentDialogStatus("");
-  $("#user-video-form").requestSubmit();
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  enqueueContent({
+    type: "video",
+    url: $("#content-video-url").value.trim(),
+    statusNode: $("#content-dialog-status"),
+    button,
+    closeOnQueue: true,
+  });
 });
 $("#content-upload-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  if (!$("#content-video-file").files.length) {
-    setContentDialogStatus("Chọn một video trước.", "error");
-    return;
-  }
-  const transfer = new DataTransfer();
-  transfer.items.add($("#content-video-file").files[0]);
-  $("#user-video-file").files = transfer.files;
-  $("#user-video-url").value = "";
-  setContentDialogStatus("");
-  $("#user-video-form").requestSubmit();
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  enqueueContent({
+    type: "video",
+    file: $("#content-video-file").files[0] || null,
+    statusNode: $("#content-dialog-status"),
+    button,
+    closeOnQueue: true,
+  });
 });
 $("#content-document-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  if (!$("#content-document-file").files.length) {
-    setContentDialogStatus("Chọn một tài liệu trước.", "error");
-    return;
-  }
-  const transfer = new DataTransfer();
-  transfer.items.add($("#content-document-file").files[0]);
-  $("#user-document-file").files = transfer.files;
-  setContentDialogStatus("");
-  $("#user-document-form").requestSubmit();
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  enqueueContent({
+    type: "document",
+    file: $("#content-document-file").files[0] || null,
+    statusNode: $("#content-dialog-status"),
+    button,
+    closeOnQueue: true,
+  });
 });
 $("#close-lecture").addEventListener("click", closeLecture);
 $("#ask-current-segment").addEventListener("click", () => {
@@ -1765,6 +1936,7 @@ $("#add-pasted-link").addEventListener("click", () => {
   if (!url) return;
   $("#content-video-url").value = url;
   openContentDialog();
+  document.querySelector('.content-tab[data-content-tab="link"]').click();
 });
 window.addEventListener("online", setNetworkStatus);
 window.addEventListener("offline", setNetworkStatus);
@@ -1956,6 +2128,8 @@ $("#suggestions").addEventListener("click", (event) => {
   openContentDialog();
   document.querySelector(`.content-tab[data-content-tab="${action}"]`)?.click();
   if (action === "link") $("#content-video-url").focus();
+  else if (action === "upload") $("#content-video-file").focus();
+  else $("#content-document-file").focus();
 });
 questionInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {

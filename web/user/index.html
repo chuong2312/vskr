@@ -8,7 +8,7 @@
   <link rel="icon" href="/user/assets/icons/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/shared/tokens.css">
-  <link rel="stylesheet" href="/user/assets/styles.css?v=chat-shell-r1">
+  <link rel="stylesheet" href="/user/assets/styles.css?v=chat-shell-r2">
   <title>VSKR — Hỏi đáp bài giảng</title>
 </head>
 <body>
@@ -103,7 +103,7 @@
     <section class="study-panel" aria-label="Hỏi đáp bài giảng">
       <div class="chat-toolbar">
         <button id="drawer-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="library-drawer" aria-label="Mở thư viện">☰</button>
-        <div class="chat-heading"><strong id="conversation-heading">Cuộc trò chuyện mới</strong><span id="conversation-source-chip" class="source-chip" hidden></span></div>
+        <div class="chat-heading"><strong id="conversation-heading">Cuộc trò chuyện mới</strong></div>
         <button id="new-thread" class="icon-button" type="button" aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới">✎</button>
       </div>
       <p id="source-deleted-banner" class="source-deleted-banner" hidden>Video đã bị xoá. Bạn vẫn có thể đọc lịch sử cuộc trò chuyện.</p>
@@ -148,17 +148,24 @@
 
       <form id="question-form" class="question-composer">
         <label class="sr-only" for="question-input">Câu hỏi về bài giảng</label>
-        <div class="composer-tools">
-          <button id="suggest-toggle" class="suggest-button" type="button" aria-expanded="false" aria-controls="suggestions">✦ Gợi ý</button>
-          <div id="suggestions" class="suggestions" hidden>
-            <button type="button">Hãy tóm tắt nội dung chính của bài giảng.</button>
-            <button type="button">Giải thích một khái niệm trong học liệu bằng ví dụ.</button>
-            <button type="button">X là gì? Hãy giải thích dựa trên học liệu.</button>
-          </div>
+        <div class="composer-scope">
+          <button id="conversation-source-chip" class="source-chip" type="button" aria-label="Chọn nguồn" aria-expanded="false">Cả thư viện ▾</button>
         </div>
         <div class="composer-input">
+          <div class="composer-tools">
+            <button id="suggest-toggle" class="suggest-button" type="button" aria-label="Mở menu thêm nội dung" aria-expanded="false" aria-controls="suggestions">+</button>
+            <div id="suggestions" class="suggestions" hidden>
+              <button type="button" data-content-action="link">Dán liên kết video</button>
+              <button type="button" data-content-action="upload">Tải video lên</button>
+              <button type="button" data-content-action="document">Thêm tài liệu</button>
+            </div>
+          </div>
           <textarea id="question-input" rows="1" maxlength="500" placeholder="Hỏi về bài giảng hoặc tài liệu…" required></textarea>
           <button id="ask-button" class="primary-button send-button" type="submit" aria-label="Gửi câu hỏi">↑</button>
+        </div>
+        <div id="pasted-link-card" class="pasted-link-card" hidden>
+          <span>Thêm video này?</span>
+          <button id="add-pasted-link" class="small-button" type="button">Thêm</button>
         </div>
         <div class="composer-footer">
           <span id="question-hint" class="muted" aria-live="polite">0/500 ký tự</span>
@@ -285,6 +292,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/user/assets/app.js?v=chat-shell-r1"></script>
+  <script type="module" src="/user/assets/app.js?v=chat-shell-r2"></script>
 </body>
 </html>

@@ -9,7 +9,8 @@ const state = {
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
-  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Toàn bộ thư viện" },
+  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Cả thư viện" },
+  drafts: new Map(), draftId: "draft-new", sourcePickerMode: "new",
   segmentContext: null,
 };
 
@@ -29,14 +30,31 @@ function formatTime(value) {
   return hours ? `${hours}:${pad(minutes)}:${pad(remainder)}` : `${minutes}:${pad(remainder)}`;
 }
 
-function setConversationSource(source = { source_id: null, source_type: "library", title: "Toàn bộ thư viện" }) {
+function setConversationSource(source = { source_id: null, source_type: "library", title: "Cả thư viện" }) {
   state.conversationSource = source;
   const chip = $("#conversation-source-chip");
-  chip.textContent = source.source_type === "library" ? "Toàn bộ thư viện" : source.title;
-  chip.hidden = source.source_type === "library";
+  chip.textContent = source.source_type === "library" ? "Cả thư viện ▾" : `📹 ${source.title} ▾`;
+  chip.setAttribute("aria-label", `Chọn nguồn. Hiện tại: ${source.title}`);
   $("#privacy-note").textContent = source.source_type === "library"
     ? "Tìm trên toàn bộ thư viện"
     : `Chỉ tìm trong: ${source.title}`;
+}
+
+function currentDraftKey() {
+  return state.draftId || state.activeConversationId || "draft-new";
+}
+
+function createDraftId() {
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function saveCurrentDraft() {
+  if (typeof questionInput !== "undefined") state.drafts.set(currentDraftKey(), questionInput.value);
+}
+
+function restoreDraft(key) {
+  questionInput.value = state.drafts.get(key) || "";
+  updateQuestionInput();
 }
 
 function setSourceDeleted(deleted) {
@@ -146,11 +164,11 @@ const libraryDialog = $("#library-dialog");
 let libraryDialogScope = "mine";
 function openContentDialog() {
   if (!state.currentProjectId) {
-    setStatus("Hãy tạo hoặc chọn một dự án trước.", "error");
+    setStatus("Chưa tải được thư viện. Hãy thử lại sau.", "error");
     return;
   }
   updateProjectLabel();
-  contentDialog.showModal();
+  if (!contentDialog.open) contentDialog.showModal();
   $("#content-video-url").focus();
 }
 async function renderLibraryDialog(scope = libraryDialogScope) {
@@ -618,6 +636,7 @@ function setTurnStatus(turn, message, kind = "") {
 
 async function submitQuestion(question = $("#question-input").value.trim(), options = {}) {
   if (!question || state.asking || $("#source-deleted-banner").hidden === false) return;
+  const previousDraftKey = currentDraftKey();
   const retryTurn = options.retryTurn || null;
   if (state.segmentContext && question && !question.startsWith("Tại ")) {
     question = `Tại ${formatTime(state.segmentContext)}: ${question}`;
@@ -655,6 +674,8 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     });
     if (result.conversation_id) {
       state.activeConversationId = result.conversation_id;
+      state.draftId = result.conversation_id;
+      state.drafts.delete(previousDraftKey);
       $("#conversation-heading").textContent = result.conversation_title || question.slice(0, 60);
       updateConversationUrl(result.conversation_id);
       loadConversations();
@@ -958,6 +979,7 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     closeDrawer();
     return;
   }
+  saveCurrentDraft();
   const loadToken = ++state.conversationLoadToken;
   try {
     setStatus("Đang mở cuộc trò chuyện…");
@@ -965,11 +987,12 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     if (loadToken !== state.conversationLoadToken) return;
     clearRetry();
     state.activeConversationId = conversation.conversation_id;
+    state.draftId = conversation.conversation_id;
     $("#conversation-heading").textContent = conversation.title || "Cuộc trò chuyện mới";
     setConversationSource({
       source_id: conversation.source_id || null,
       source_type: conversation.source_type || "library",
-      title: conversation.source_title || conversation.title || "Toàn bộ thư viện",
+      title: conversation.source_title || conversation.title || "Cả thư viện",
     });
     if (conversation.project_id && state.projects.some((project) => project.project_id === conversation.project_id)) {
       state.currentProjectId = conversation.project_id;
@@ -993,6 +1016,7 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
       answerTurn.querySelector(".turn-content").replaceChildren(resultNode);
       renderResult(savedTurn, resultNode, answerTurn.dataset.turnId, { scroll: false });
     }
+    restoreDraft(state.draftId);
     const sourceVideo = state.videos.find((video) => video.video_id === conversation.source_id)
       || state.videos.find((video) => video.video_id === state.preferredConversationVideoId);
     if (sourceVideo) selectVideo(sourceVideo);
@@ -1018,9 +1042,11 @@ function resetConversationView({ updateUrl = true, replaceUrl = false, focus = t
     setStatus("Đợi câu trả lời xong rồi hãy bắt đầu cuộc trò chuyện mới.", "error");
     return;
   }
+  saveCurrentDraft();
   state.conversationLoadToken += 1;
   clearRetry();
   state.activeConversationId = null;
+  state.draftId = createDraftId();
   setConversationSource();
   setSourceDeleted(false);
   $("#conversation-heading").textContent = "Cuộc trò chuyện mới";
@@ -1063,13 +1089,21 @@ function renderConversationSourcePicker() {
         return info;
       })(),
     );
-    row.addEventListener("click", () => beginConversationWithSource(item));
+    row.addEventListener("click", () => {
+      if (state.sourcePickerMode === "select") {
+        setConversationSource(item);
+        $("#conversation-source-dialog").close();
+        return;
+      }
+      beginConversationWithSource(item);
+    });
     list.append(row);
   }
   if (!items.length) list.append(make("p", "muted", "Không tìm thấy nguồn phù hợp."));
 }
 
 async function beginConversationWithSource(source) {
+  saveCurrentDraft();
   const normalized = {
     source_id: source.source_type === "library" ? null : source.source_id,
     source_type: source.source_type,
@@ -1088,6 +1122,7 @@ async function beginConversationWithSource(source) {
         }),
       });
       state.activeConversationId = created.conversation_id;
+      state.draftId = created.conversation_id;
       updateConversationUrl(created.conversation_id);
       await loadConversations();
     } catch (error) {
@@ -1096,6 +1131,7 @@ async function beginConversationWithSource(source) {
     }
   } else {
     state.activeConversationId = null;
+    state.draftId = createDraftId();
     updateConversationUrl(null, { replace: true });
   }
   state.conversationLoadToken += 1;
@@ -1110,6 +1146,7 @@ async function beginConversationWithSource(source) {
   $("#conversation-heading").textContent = "Cuộc trò chuyện mới";
   $("#conversation").replaceChildren();
   $("#welcome").hidden = false;
+  restoreDraft(state.draftId);
   if (normalized.source_type === "video") {
     const video = state.videos.find((item) => item.video_id === normalized.source_id);
     if (video) selectVideo(video);
@@ -1122,14 +1159,16 @@ async function beginConversationWithSource(source) {
   questionInput.focus();
 }
 
-function openConversationSourcePicker() {
+function openConversationSourcePicker({ mode = "new" } = {}) {
   if (state.asking) {
     setStatus("Đợi câu trả lời xong rồi hãy bắt đầu cuộc trò chuyện mới.", "error");
     return;
   }
+  state.sourcePickerMode = mode;
   $("#conversation-source-search").value = "";
   renderConversationSourcePicker();
   $("#conversation-source-dialog").showModal();
+  $("#conversation-source-chip").setAttribute("aria-expanded", String(mode === "select"));
 }
 
 function startNewConversation(options = {}) {
@@ -1268,9 +1307,19 @@ $("#conversation-source-dialog").addEventListener("click", (event) => {
   if (event.target === $("#conversation-source-dialog")) $("#conversation-source-dialog").close();
 });
 $("#conversation-source-search").addEventListener("input", renderConversationSourcePicker);
-$("#conversation-library-choice").addEventListener("click", () => beginConversationWithSource({
-  source_type: "library", source_id: null, title: "Toàn bộ thư viện",
-}));
+$("#conversation-library-choice").addEventListener("click", () => {
+  const librarySource = { source_type: "library", source_id: null, title: "Cả thư viện" };
+  if (state.sourcePickerMode === "select") {
+    setConversationSource(librarySource);
+    $("#conversation-source-dialog").close();
+    return;
+  }
+  beginConversationWithSource(librarySource);
+});
+$("#conversation-source-chip").addEventListener("click", () => openConversationSourcePicker({ mode: "select" }));
+$("#conversation-source-dialog").addEventListener("close", () => {
+  $("#conversation-source-chip").setAttribute("aria-expanded", "false");
+});
 document.querySelectorAll(".content-tab[data-content-tab]").forEach((tab) => tab.addEventListener("click", () => {
   const selected = tab.dataset.contentTab;
   document.querySelectorAll(".content-tab[data-content-tab]").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
@@ -1278,6 +1327,25 @@ document.querySelectorAll(".content-tab[data-content-tab]").forEach((tab) => tab
   $("#content-upload-form").hidden = selected !== "upload";
   $("#content-document-form").hidden = selected !== "document";
 }));
+function openContentWithDroppedFile(file) {
+  const isDocument = /\.(txt|md|rst|pdf|docx)$/i.test(file.name);
+  const action = isDocument ? "document" : "upload";
+  const input = $(isDocument ? "#content-document-file" : "#content-video-file");
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  openContentDialog();
+  document.querySelector(`.content-tab[data-content-tab="${action}"]`).click();
+}
+document.addEventListener("dragover", (event) => {
+  if ([...(event.dataTransfer?.types || [])].includes("Files")) event.preventDefault();
+});
+document.addEventListener("drop", (event) => {
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) return;
+  event.preventDefault();
+  openContentWithDroppedFile(file);
+});
 $("#content-link-form").addEventListener("submit", (event) => {
   event.preventDefault();
   $("#user-video-url").value = $("#content-video-url").value.trim();
@@ -1423,8 +1491,17 @@ function updateQuestionInput() {
   const count = questionInput.value.length;
   $("#question-hint").textContent = `${count}/500 ký tự${count >= 500 ? " · Đã đạt giới hạn" : ""}`;
   $("#ask-button").disabled = !count || state.asking;
+  const url = questionInput.value.match(/https?:\/\/[^\s<>"']+/i)?.[0].replace(/[),.!?]+$/, "");
+  $("#pasted-link-card").hidden = !url;
+  saveCurrentDraft();
 }
 questionInput.addEventListener("input", updateQuestionInput);
+$("#add-pasted-link").addEventListener("click", () => {
+  const url = questionInput.value.match(/https?:\/\/[^\s<>"']+/i)?.[0].replace(/[),.!?]+$/, "");
+  if (!url) return;
+  $("#content-video-url").value = url;
+  openContentDialog();
+});
 window.addEventListener("online", setNetworkStatus);
 window.addEventListener("offline", setNetworkStatus);
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -1606,7 +1683,16 @@ $("#new-thread").addEventListener("click", () => {
   startNewConversation();
 });
 $("#suggest-toggle").addEventListener("click", () => { const box = $("#suggestions"), open = box.hidden; box.hidden = !open; $("#suggest-toggle").setAttribute("aria-expanded", String(open)); });
-$("#suggestions").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#question-input").value = button.textContent; $("#question-input").dispatchEvent(new Event("input")); $("#question-input").focus(); $("#suggestions").hidden = true; $("#suggest-toggle").setAttribute("aria-expanded", "false"); });
+$("#suggestions").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-content-action]");
+  if (!button) return;
+  const action = button.dataset.contentAction;
+  $("#suggestions").hidden = true;
+  $("#suggest-toggle").setAttribute("aria-expanded", "false");
+  openContentDialog();
+  document.querySelector(`.content-tab[data-content-tab="${action}"]`)?.click();
+  if (action === "link") $("#content-video-url").focus();
+});
 questionInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();

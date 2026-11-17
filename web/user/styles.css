@@ -636,3 +636,54 @@ body.sidebar-collapsed .signed-in-account .icon-button { margin:0; }
   .library-panel { width:min(320px,88vw); height:100dvh; max-height:100dvh; }
   .study-panel { grid-column:auto; }
 }
+.composer-scope {
+  width:min(700px,calc(100% - 32px));
+  margin:0 auto 6px;
+}
+.composer-scope .source-chip {
+  display:inline-flex;
+  align-items:center;
+  max-width:100%;
+  padding:4px 0;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  text-align:left;
+  cursor:pointer;
+}
+.composer-input { position:relative; padding-left:38px; }
+.composer-tools {
+  position:absolute;
+  z-index:12;
+  left:0;
+  bottom:5px;
+  display:block;
+}
+.suggest-button {
+  display:grid;
+  width:30px;
+  height:30px;
+  padding:0;
+  place-items:center;
+  border:1px solid var(--line);
+  border-radius:50%;
+  background:var(--surface);
+  color:var(--ink);
+  font-size:1.2rem;
+  cursor:pointer;
+}
+.suggest-button:hover { background:var(--soft); }
+.pasted-link-card {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  width:min(700px,calc(100% - 32px));
+  margin:8px auto 0;
+  padding:7px 10px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--canvas);
+  color:var(--ink);
+  font-size:.8rem;
+}

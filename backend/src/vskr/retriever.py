@@ -94,7 +94,8 @@ class Retriever:
             if mode == "vector" and thr is not None and float(vec_scores.max()) < thr:
                 return []
         if mode == "vector":
-            order = np.argsort(-vec_scores)[:top_k]
+            order = [int(i) for i in np.argsort(-vec_scores)[:top_k]
+                     if np.isfinite(vec_scores[i])]
             pairs = [(int(i), float(vec_scores[i])) for i in order]
         elif mode == "bm25":
             s = np.array(idx.bm25.scores(tokenize(query)))

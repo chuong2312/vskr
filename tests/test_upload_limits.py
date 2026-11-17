@@ -1,10 +1,26 @@
 import asyncio
 import unittest
+from unittest import mock
 
 from vskr.api import UploadBodyLimitMiddleware
 
 
 class TestUploadBodyLimitMiddleware(unittest.TestCase):
+    def test_guest_ingest_body_cap_is_lower_than_learner_cap(self):
+        cfg = {
+            "ingest": {"max_upload_bytes": 1024 * 1024 * 1024},
+            "limits": {"guest": {"max_upload_bytes": 100}, "user": {"max_upload_bytes": 1000}},
+        }
+        middleware = UploadBodyLimitMiddleware(lambda *_args: None)
+        with mock.patch("vskr.config.load_config", return_value=cfg), \
+                mock.patch("vskr.accounts.get_session", return_value=None):
+            guest_scope = {"path": "/api/ingest", "headers": []}
+            self.assertEqual(middleware._limit_for_scope(guest_scope), 100 + middleware.OVERHEAD_BYTES)
+        with mock.patch("vskr.config.load_config", return_value=cfg), \
+                mock.patch("vskr.accounts.get_session", return_value={"user_id": "u1"}):
+            learner_scope = {"path": "/api/ingest", "headers": [(b"cookie", b"vskr_user=token")]}
+            self.assertEqual(middleware._limit_for_scope(learner_scope), 1000 + middleware.OVERHEAD_BYTES)
+
     def _run(self, middleware, scope, receive):
         messages = []
 

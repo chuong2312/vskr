@@ -44,19 +44,14 @@ def validate_ingest_url(url: str) -> str:
     return url
 
 
-def validate_learner_ingest_url(url: str) -> str:
-    """Learner links are restricted to YouTube; broader yt-dlp URLs stay admin-only."""
+def validate_learner_ingest_url(url: str, allowed_domains=None) -> str:
+    """Learner links are restricted to configured domains."""
     try:
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")
     except (TypeError, ValueError) as exc:
         raise HTTPException(400, "URL video không hợp lệ.") from exc
-    if not (
-        host == "youtu.be"
-        or host == "youtube.com"
-        or host.endswith(".youtube.com")
-        or host == "youtube-nocookie.com"
-        or host.endswith(".youtube-nocookie.com")
-    ):
+    domains = allowed_domains or ("youtube.com", "youtu.be", "youtube-nocookie.com")
+    if not any(host == domain or host.endswith("." + domain) for domain in domains):
         raise HTTPException(400, "Người học hiện chỉ có thể dán link YouTube hoặc tải video lên.")
     return validate_ingest_url(url)

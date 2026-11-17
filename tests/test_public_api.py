@@ -15,6 +15,73 @@ from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def test_ingest_job_carries_role_specific_limits(self):
+        queued_source = {}
+        with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": tempfile.gettempdir()}), \
+                mock.patch.object(handlers, "validate_ingest_url"), \
+                mock.patch.object(handlers, "_queue_job", side_effect=lambda source, _title: queued_source.update(source) or "job"):
+            result = asyncio.run(handlers.start_ingest(
+                url="https://example.com/video", file=None, owner_id="g:guest", project_id="project",
+            ))
+        self.assertEqual(result["job_id"], "job")
+        self.assertEqual(queued_source["limits"]["max_duration_s"], 900)
+        self.assertEqual(queued_source["limits"]["max_upload_bytes"], 100 * 1024 * 1024)
+
+    def test_index_reload_can_bypass_initialization_backoff(self):
+        fake_service = SimpleNamespace(meta={}, document_meta={})
+        with mock.patch.dict(handlers.state, {"service": None, "failed_at": 1.0, "error": "old"}), \
+                mock.patch("time.time", return_value=2.0), \
+                mock.patch("vskr.api.handlers.load_config", return_value={}), \
+                mock.patch("vskr.service.Service", return_value=fake_service) as service_ctor:
+            handlers._init_service()
+            self.assertIsNone(handlers.state["service"])
+            handlers._init_service(force=True)
+            self.assertEqual(service_ctor.call_count, 1)
+            self.assertIs(handlers.state["service"], fake_service)
+
+    def test_approved_owned_content_is_visible_to_other_learners_and_guests(self):
+        service = SimpleNamespace(
+            meta={"public-video": {
+                "video_id": "public-video", "title": "Đã duyệt", "owner_id": "u1",
+                "visibility": "public", "url": "https://youtu.be/public",
+            }},
+            document_meta={},
+            index=SimpleNamespace(chunks=[{"video_id": "public-video", "owner_id": "u1"}]),
+        )
+        with mock.patch.dict(handlers.state, {"service": service}):
+            learner = handlers.public_videos(owner_id="u2")
+            guest = handlers.public_videos(owner_id="g:guest", shared_only=True)
+            self.assertTrue(handlers.source_is_visible("video", "public-video", "u2"))
+        self.assertEqual([item["video_id"] for item in learner], ["public-video"])
+        self.assertEqual([item["video_id"] for item in guest], ["public-video"])
+
+    def test_project_filter_keeps_shared_material(self):
+        service = SimpleNamespace(
+            meta={
+                "shared": {"video_id": "shared", "title": "Chung", "url": "https://youtu.be/shared"},
+                "owned": {"video_id": "owned", "title": "Riêng", "owner_id": "u1", "project_id": "p1",
+                          "url": "https://youtu.be/owned"},
+            },
+            index=SimpleNamespace(chunks=[{"video_id": "shared"}, {"video_id": "owned", "owner_id": "u1"}]),
+        )
+        with mock.patch.dict(handlers.state, {"service": service}):
+            videos = handlers.public_videos(owner_id="u1", project_id="p1")
+        self.assertEqual({item["video_id"] for item in videos}, {"shared", "owned"})
+
+    def test_guest_can_poll_own_job_but_not_another_guests_job(self):
+        job = {"job_id": "job-a", "owner_id": "g:guest-a", "status": "running",
+               "phase": "download", "message": "Đang tải", "title": "Bài học"}
+        with mock.patch.object(handlers, "get_job", return_value=job):
+            with ASGITestClient(app, authenticated_learner=False) as first:
+                first.cookies.set("vskr_guest", "guest-a")
+                own = first.get("/api/jobs/job-a")
+            with ASGITestClient(app, authenticated_learner=False) as second:
+                second.cookies.set("vskr_guest", "guest-b")
+                other = second.get("/api/jobs/job-a")
+        self.assertEqual(own.status_code, 200, own.text)
+        self.assertEqual(own.json()["job_id"], "job-a")
+        self.assertEqual(other.status_code, 404, other.text)
+
     def test_guest_projects_are_isolated_and_catalog_accepts_project(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
                 mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}):

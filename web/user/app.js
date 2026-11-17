@@ -5,12 +5,14 @@ const state = {
   videos: [], documents: [], conversations: [], activeConversationId: null, currentVideo: null, sources: [], player: null,
   projects: [], currentProjectId: null,
   signedIn: false,
-  sourcesByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
+  uploadLimits: null, jobs: [], jobPollTimer: null, jobPollInFlight: false, toastTimer: null,
+  sourcesByTurn: new Map(), answersByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
-  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Toàn bộ dự án" },
-  segmentContext: null,
+  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Cả thư viện" },
+  drafts: new Map(), draftId: "draft-new", sourcePickerMode: "new",
+  segmentContext: null, videoPanelWidth: null,
 };
 
 function sourceKey(source) {
@@ -29,14 +31,38 @@ function formatTime(value) {
   return hours ? `${hours}:${pad(minutes)}:${pad(remainder)}` : `${minutes}:${pad(remainder)}`;
 }
 
-function setConversationSource(source = { source_id: null, source_type: "library", title: "Toàn bộ dự án" }) {
+function currentPlaybackTime() {
+  if (!state.player) return 0;
+  if (state.player.tagName === "VIDEO") return Number(state.player.currentTime) || 0;
+  if (typeof state.player.getCurrentTime === "function") return Number(state.player.getCurrentTime()) || 0;
+  return 0;
+}
+
+function setConversationSource(source = { source_id: null, source_type: "library", title: "Cả thư viện" }) {
   state.conversationSource = source;
   const chip = $("#conversation-source-chip");
-  chip.textContent = source.source_type === "library" ? "Toàn bộ dự án" : source.title;
-  chip.hidden = source.source_type === "library";
+  chip.textContent = source.source_type === "library" ? "Cả thư viện ▾" : `📹 ${source.title} ▾`;
+  chip.setAttribute("aria-label", `Chọn nguồn. Hiện tại: ${source.title}`);
   $("#privacy-note").textContent = source.source_type === "library"
     ? "Tìm trên toàn bộ thư viện"
     : `Chỉ tìm trong: ${source.title}`;
+}
+
+function currentDraftKey() {
+  return state.draftId || state.activeConversationId || "draft-new";
+}
+
+function createDraftId() {
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function saveCurrentDraft() {
+  if (typeof questionInput !== "undefined") state.drafts.set(currentDraftKey(), questionInput.value);
+}
+
+function restoreDraft(key) {
+  questionInput.value = state.drafts.get(key) || "";
+  updateQuestionInput();
 }
 
 function setSourceDeleted(deleted) {
@@ -71,25 +97,176 @@ function setContentDialogStatus(message = "", kind = "") {
   setStatus(message, kind, $("#content-dialog-status"));
 }
 
-function currentProject() {
-  return state.projects.find((project) => project.project_id === state.currentProjectId) || null;
-}
-
 function updateProjectLabel() {
   const label = $("#content-project-label");
   if (!label) return;
-  label.textContent = "Nội dung sẽ được thêm vào thư viện của bạn.";
+  const limits = state.uploadLimits;
+  if (!limits || !Number.isFinite(Number(limits.max_upload_mb))) {
+    label.textContent = "Chưa tải được hạn mức tải lên từ tài khoản.";
+    return;
+  }
+  const parts = [`Tối đa ${Number(limits.max_upload_mb)} MB mỗi tệp`];
+  if (Number.isFinite(Number(limits.max_duration_min))) parts.push(`${Number(limits.max_duration_min)} phút mỗi video`);
+  if (Number.isFinite(Number(limits.max_active_jobs))) parts.push(`${Number(limits.max_active_jobs)} tác vụ cùng lúc`);
+  label.textContent = `Hạn mức tài khoản: ${parts.join(" · ")}.`;
 }
 
-async function waitForPublicJob(jobId, statusNode, secondaryStatusNode = null) {
-  while (true) {
-    const job = await request(`/api/jobs/${encodeURIComponent(jobId)}`);
-    const message = `${job.phase || "Đang xử lý"}: ${job.message || "Vui lòng chờ…"}`;
-    statusNode.textContent = message;
-    if (secondaryStatusNode) secondaryStatusNode.textContent = message;
-    if (job.status === "error") throw new Error(job.error_detail || job.message || "Xử lý thất bại.");
-    if (job.status === "done") return job;
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+function renderLibraryBadge() {
+  const badge = $("#sidebar-library-badge");
+  const libraryButton = $("#sidebar-library");
+  if (!badge || !libraryButton) return;
+  const total = state.videos.length + state.documents.length;
+  badge.textContent = String(total);
+  badge.hidden = total === 0;
+  const hasActiveJobs = state.jobs.some((job) => job.status === "queued" || job.status === "running");
+  libraryButton.classList.toggle("has-active-jobs", hasActiveJobs);
+  libraryButton.setAttribute("aria-label", hasActiveJobs ? "Thư viện, có nội dung đang xử lý" : "Thư viện");
+}
+
+function showToast(message) {
+  const toast = $("#app-toast");
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
+}
+
+function renderContentJobs() {
+  const list = $("#content-job-list");
+  if (!list) return;
+  list.replaceChildren();
+  if (!state.jobs.length) {
+    list.append(make("p", "muted", "Chưa có nội dung nào đang xử lý."));
+    return;
+  }
+  for (const job of state.jobs.slice(0, 8)) {
+    const card = make("article", "content-job");
+    const heading = make("div", "content-job-heading");
+    heading.append(
+      make("strong", "content-job-title", job.title || "Nội dung mới"),
+      make("span", `content-job-state ${job.status === "error" ? "is-error" : ""}`, job.status === "done" ? "Đã xong" : job.status === "error" ? "Lỗi" : job.status === "queued" ? "Đang chờ" : "Đang xử lý"),
+    );
+    const details = job.error_detail || job.message || (job.status === "done" ? "Nội dung đã sẵn sàng để hỏi đáp." : "Vui lòng chờ…");
+    card.append(heading, make("p", `content-job-message ${job.status === "error" ? "is-error" : ""}`, `${job.phase || "Tác vụ"}: ${details}`));
+    if (job.status === "queued" || job.status === "running") {
+      const progress = make("progress", "content-job-progress");
+      progress.max = 1;
+      progress.setAttribute("aria-label", `Tiến độ xử lý ${job.title || "nội dung"}`);
+      card.append(progress);
+    }
+    list.append(card);
+  }
+}
+
+function stopJobPolling() {
+  if (state.jobPollTimer) clearInterval(state.jobPollTimer);
+  state.jobPollTimer = null;
+}
+
+async function refreshMyJobs() {
+  if (!contentDialog.open || state.jobPollInFlight) return;
+  state.jobPollInFlight = true;
+  try {
+    const jobs = await request("/api/my/jobs");
+    if (!Array.isArray(jobs)) throw new Error("Máy chủ trả về trạng thái tác vụ không hợp lệ.");
+    if (!contentDialog.open) return;
+    const previousStatuses = new Map(state.jobs.map((job) => [job.job_id, job.status]));
+    state.jobs = jobs;
+    renderContentJobs();
+    renderLibraryBadge();
+    const completed = state.jobs.find((job) =>
+      job.status === "done" && ["queued", "running"].includes(previousStatuses.get(job.job_id)));
+    if (completed) {
+      showToast(`${completed.title || "Nội dung"} đã xử lý xong.`);
+      await loadLibrary();
+    }
+    if (state.jobs.some((job) => job.status === "queued" || job.status === "running")) {
+      if (!state.jobPollTimer) state.jobPollTimer = setInterval(refreshMyJobs, 2000);
+    } else {
+      stopJobPolling();
+    }
+  } catch (error) {
+    if (contentDialog.open) setContentDialogStatus(error.message || "Không tải được trạng thái xử lý.", "error");
+  } finally {
+    state.jobPollInFlight = false;
+  }
+}
+
+const contentDialog = $("#content-dialog");
+const libraryDialog = $("#library-dialog");
+let libraryDialogScope = "mine";
+
+function validateUploadFile(file, type) {
+  if (!file) return "Chọn một tệp trước.";
+  const extension = file.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  const supported = type === "document"
+    ? new Set(["txt", "md", "rst", "pdf", "docx"])
+    : new Set(["mp4", "m4v", "mov", "mkv", "webm", "avi", "mpeg", "mpg"]);
+  if (!extension || !supported.has(extension)) {
+    return type === "document"
+      ? "Định dạng tài liệu chưa được hỗ trợ. Hãy dùng .txt, .md, .rst, .pdf hoặc .docx."
+      : "Định dạng video chưa được hỗ trợ. Hãy dùng .mp4, .m4v, .mov, .mkv, .webm, .avi, .mpeg hoặc .mpg.";
+  }
+  const maxUploadMb = Number(state.uploadLimits?.max_upload_mb);
+  if (!Number.isFinite(maxUploadMb) || maxUploadMb <= 0) return "Chưa tải được hạn mức tệp từ tài khoản. Hãy thử tải lại trang.";
+  if (file.size > maxUploadMb * 1024 * 1024) return `Tệp vượt quá giới hạn ${maxUploadMb} MB của tài khoản.`;
+  return "";
+}
+
+async function enqueueContent({ type, url = "", file = null, statusNode, button, closeOnQueue = false }) {
+  const error = type === "document" ? validateUploadFile(file, type)
+    : file ? validateUploadFile(file, "video") : "";
+  if (error) {
+    setStatus(error, "error", statusNode);
+    return;
+  }
+  if (!state.currentProjectId) {
+    setStatus("Chưa tải được thư viện. Hãy thử lại sau.", "error", statusNode);
+    return;
+  }
+  let parsedUrl;
+  if (url) {
+    try { parsedUrl = new URL(url); } catch { setStatus("Nhập một liên kết hợp lệ.", "error", statusNode); return; }
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      setStatus("Liên kết phải bắt đầu bằng http:// hoặc https://.", "error", statusNode);
+      return;
+    }
+  } else if (type === "video" && !file) {
+    setStatus("Dán liên kết video hoặc chọn một tệp video.", "error", statusNode);
+    return;
+  }
+  if (button) button.disabled = true;
+  setStatus("Đang thêm vào hàng đợi xử lý…", "", statusNode);
+  try {
+    const payload = new FormData();
+    if (type === "document") {
+      payload.append("file", file);
+    } else if (file) {
+      payload.append("file", file);
+    } else {
+      payload.append("url", parsedUrl.href);
+    }
+    payload.append("project_id", state.currentProjectId);
+    const queued = await request(type === "document" ? "/api/documents" : "/api/ingest", {
+      method: "POST",
+      body: payload,
+    });
+    state.jobs = [
+      { job_id: queued.job_id, title: file?.name || parsedUrl?.hostname || "Nội dung mới", status: "queued", phase: "queued", message: "Đang chờ xử lý…" },
+      ...state.jobs.filter((job) => job.job_id !== queued.job_id),
+    ];
+    renderLibraryBadge();
+    if (closeOnQueue && contentDialog.open) contentDialog.close();
+    showToast("Đã thêm vào hàng đợi xử lý.");
+    setStatus("Đã thêm vào hàng đợi xử lý.", "", statusNode);
+    if (contentDialog.open) {
+      renderContentJobs();
+      await refreshMyJobs();
+    }
+  } catch (error) {
+    setStatus(error.message || "Không thể thêm nội dung vào hàng đợi.", "error", statusNode);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -100,58 +277,40 @@ $("#add-video-toggle").addEventListener("click", () => {
 });
 $("#user-video-url").addEventListener("input", () => { if ($("#user-video-url").value.trim()) $("#user-video-file").value = ""; });
 $("#user-video-file").addEventListener("change", () => { if ($("#user-video-file").files.length) $("#user-video-url").value = ""; });
-$("#user-video-form").addEventListener("submit", async (event) => {
+$("#user-video-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const status = $("#user-video-status"), url = $("#user-video-url").value.trim(), file = $("#user-video-file").files[0];
-  if (Boolean(url) === Boolean(file)) { status.textContent = "Dán một link hoặc chọn một video."; return; }
-  const payload = new FormData();
-  if (url) payload.append("url", url); else payload.append("file", file);
-  if (state.currentProjectId) payload.append("project_id", state.currentProjectId);
-  const button = event.submitter; button.disabled = true; status.textContent = "Đang tiếp nhận video…";
-  setContentDialogStatus("Đang tiếp nhận video…");
-  try {
-    const queued = await request("/api/ingest", { method: "POST", body: payload });
-    await waitForPublicJob(queued.job_id, status, $("#content-dialog-status"));
-    await loadLibrary();
-    status.textContent = "Video đã sẵn sàng. Bạn có thể hỏi ngay.";
-    setContentDialogStatus("Video đã sẵn sàng. Bạn có thể hỏi ngay.");
-  } catch (error) {
-    status.textContent = error.message || "Không thêm được video.";
-    setContentDialogStatus(status.textContent, "error");
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  const url = $("#user-video-url").value.trim();
+  const file = $("#user-video-file").files[0] || null;
+  if (Boolean(url) === Boolean(file)) {
+    setStatus("Dán một liên kết hoặc chọn một video.", "error", $("#user-video-status"));
+    return;
   }
-  finally { button.disabled = false; }
+  enqueueContent({ type: "video", url, file, statusNode: $("#user-video-status"), button });
 });
-$("#user-document-form").addEventListener("submit", async (event) => {
+$("#user-document-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const status = $("#user-document-status"), file = $("#user-document-file").files[0];
-  if (!file) { status.textContent = "Chọn một tài liệu trước."; setContentDialogStatus(status.textContent, "error"); return; }
-  const payload = new FormData(); payload.append("file", file);
-  if (state.currentProjectId) payload.append("project_id", state.currentProjectId);
-  const button = event.submitter; button.disabled = true; status.textContent = "Đang tiếp nhận tài liệu…";
-  setContentDialogStatus("Đang tiếp nhận tài liệu…");
-  try {
-    const queued = await request("/api/documents", { method: "POST", body: payload });
-    await waitForPublicJob(queued.job_id, status, $("#content-dialog-status"));
-    await loadLibrary(); status.textContent = "Tài liệu đã sẵn sàng để hỏi.";
-    setContentDialogStatus(status.textContent);
-  } catch (error) {
-    status.textContent = error.message || "Không thêm được tài liệu.";
-    setContentDialogStatus(status.textContent, "error");
-  }
-  finally { button.disabled = false; }
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  enqueueContent({
+    type: "document",
+    file: $("#user-document-file").files[0] || null,
+    statusNode: $("#user-document-status"),
+    button,
+  });
 });
 
-const contentDialog = $("#content-dialog");
-const libraryDialog = $("#library-dialog");
-let libraryDialogScope = "mine";
 function openContentDialog() {
   if (!state.currentProjectId) {
-    setStatus("Hãy tạo hoặc chọn một dự án trước.", "error");
+    setStatus("Chưa tải được thư viện. Hãy thử lại sau.", "error");
     return;
   }
   updateProjectLabel();
-  contentDialog.showModal();
-  $("#content-video-url").focus();
+  if (!contentDialog.open) contentDialog.showModal();
+  setContentDialogStatus("");
+  renderContentJobs();
+  refreshMyJobs();
+  const selected = document.querySelector(".content-tab[data-content-tab][aria-selected='true']")?.dataset.contentTab || "link";
+  $(`#content-${selected === "link" ? "video-url" : selected === "upload" ? "video-file" : "document-file"}`).focus();
 }
 async function renderLibraryDialog(scope = libraryDialogScope) {
   libraryDialogScope = scope;
@@ -366,15 +525,31 @@ function selectVideo(video, { open = true } = {}) {
   state.currentVideo = video;
   $("#welcome").hidden = open;
   $("#lecture-card").hidden = !open;
+  $("#lecture-card").classList.remove("video-expanded");
+  $("#expand-video").setAttribute("aria-label", "Phóng to video");
+  $("#expand-video").textContent = "⤢";
   $("#lecture-title").textContent = video.title || "Bài giảng";
   $("#lecture-duration").textContent = video.duration ? formatTime(video.duration) : "";
+  updateVideoStageButtons();
   renderVideos();
-  const index = state.videos.findIndex((item) => item.video_id === video.video_id);
-  $("#video-position").textContent = `${Math.max(0, index) + 1}/${state.videos.length} bài giảng`;
-  $("#prev-video").disabled = index <= 0;
-  $("#next-video").disabled = index < 0 || index >= state.videos.length - 1;
   setupPlayer(video);
   renderTimeline();
+}
+
+function updateVideoStageButtons() {
+  $("#show-video-stage").hidden = !state.currentVideo || !$("#lecture-card").hidden;
+}
+
+function resizeVideoPanel(width) {
+  const sidebarWidth = document.body.classList.contains("sidebar-collapsed") ? 72 : 260;
+  const maxWidth = Math.max(280, window.innerWidth - sidebarWidth - 400);
+  const boundedWidth = Math.max(280, Math.min(Math.min(720, maxWidth), width));
+  state.videoPanelWidth = boundedWidth;
+  document.documentElement.style.setProperty("--video-panel-width", `${boundedWidth}px`);
+  const resizer = $("#video-resizer");
+  resizer.setAttribute("aria-valuemin", "280");
+  resizer.setAttribute("aria-valuemax", String(Math.floor(Math.min(720, maxWidth))));
+  resizer.setAttribute("aria-valuenow", String(Math.round(boundedWidth)));
 }
 
 function setActiveSource(turnId, source) {
@@ -433,14 +608,6 @@ function jumpCurrentVideo(start) {
   } else {
     state.pendingJump = { videoId: state.currentVideo.video_id, start };
   }
-
-  function currentPlaybackTime() {
-    if (!state.player) return 0;
-    if (state.player.tagName === "VIDEO") return Number(state.player.currentTime) || 0;
-    if (typeof state.player.getCurrentTime === "function") return Number(state.player.getCurrentTime()) || 0;
-    return 0;
-  }
-
 }
 
 function closeLecture() {
@@ -448,7 +615,9 @@ function closeLecture() {
   if (state.player?.destroy) state.player.destroy();
   state.player = null;
   $("#lecture-card").hidden = true;
+  $("#lecture-card").classList.remove("video-expanded");
   $("#welcome").hidden = Boolean($("#conversation").children.length);
+  updateVideoStageButtons();
   renderTimeline();
 }
 
@@ -480,46 +649,257 @@ async function openSource(source, turnId = state.activeTurnId) {
   jumpCurrentVideo(Number(source.start) || 0);
 }
 
-function appendCitedAnswer(container, answer, sources, turnId) {
-  const citationPattern = /\[\s*(?:Nguồn\s*)?(\d+(?:\s*[,;]\s*(?:Nguồn\s*)?\d+)*)\s*\]/gi;
+const circledNumbers = [..."①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"];
+
+function showCitationPreview(wrapper, visible) {
+  wrapper.querySelector(".citation-popover").hidden = !visible;
+}
+
+function createCitation(source, number, turnId, label) {
+  const wrapper = make("span", "citation-wrap");
+  const button = make("button", "citation", label);
+  button.type = "button";
+  button.setAttribute("aria-label", `Xem trước nguồn ${number}; bấm để mở nguồn`);
+  button.setAttribute("aria-haspopup", "true");
+  const location = source.source_type === "document"
+    ? `Mục ${source.section ?? "tài liệu"}`
+    : source.label || formatTime(source.start);
+  const preview = make("span", "citation-popover");
+  preview.setAttribute("role", "tooltip");
+  preview.append(
+    make("strong", "citation-preview-title", source.title || (source.source_type === "document" ? "Tài liệu" : "Bài giảng")),
+    make("small", "citation-preview-location", location),
+    make("span", "citation-preview-text", source.text ? source.text.slice(0, 220) : "Không có trích đoạn xem trước."),
+  );
+  preview.hidden = true;
+  wrapper.append(button, preview);
+  wrapper.addEventListener("mouseenter", () => showCitationPreview(wrapper, true));
+  wrapper.addEventListener("mouseleave", () => showCitationPreview(wrapper, false));
+  wrapper.addEventListener("focusin", () => showCitationPreview(wrapper, true));
+  wrapper.addEventListener("focusout", (event) => {
+    if (!wrapper.contains(event.relatedTarget)) showCitationPreview(wrapper, false);
+  });
+  let holdTimer = null;
+  let held = false;
+  const cancelHold = () => {
+    if (holdTimer) clearTimeout(holdTimer);
+    holdTimer = null;
+  };
+  button.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") return;
+    held = false;
+    holdTimer = setTimeout(() => {
+      held = true;
+      showCitationPreview(wrapper, true);
+    }, 450);
+  });
+  button.addEventListener("pointerup", cancelHold);
+  button.addEventListener("pointercancel", cancelHold);
+  button.addEventListener("click", (event) => {
+    if (held) {
+      event.preventDefault();
+      held = false;
+      return;
+    }
+    openSource(source, turnId);
+  });
+  return wrapper;
+}
+
+function appendInlineMarkdown(parent, text, sources, turnId) {
+  const pattern = /\[\s*(?:Nguồn\s*)?(\d+(?:\s*[,;]\s*(?:Nguồn\s*)?\d+)*)\s*\]|([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|`([^`\n]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gu;
   let cursor = 0;
-  for (const match of answer.matchAll(citationPattern)) {
-    container.append(document.createTextNode(answer.slice(cursor, match.index)));
-    const numbers = match[1].match(/\d+/g).map(Number);
-    if (numbers.every((number) => sources.some((source) => source.n === number))) {
-      numbers.forEach((number, index) => {
-        if (index) container.append(document.createTextNode(", "));
-        const sourceItem = sources.find((item) => item.n === number);
-        const cite = make("button", "citation", `[${number}] ${sourceItem?.source_type === "document" ? "▤" : "▶"}`);
-        cite.type = "button";
-        cite.setAttribute("aria-label", `Mở nguồn ${number}`);
-        cite.addEventListener("click", () => {
-          const source = sources.find((item) => item.n === number);
-          if (source) openSource(source, turnId);
+  let renderedCitations = 0;
+  for (const match of text.matchAll(pattern)) {
+    parent.append(document.createTextNode(text.slice(cursor, match.index)));
+    if (match[1] || match[2]) {
+      const numbers = match[1]
+        ? match[1].match(/\d+/g).map(Number)
+        : [circledNumbers.indexOf(match[2]) + 1];
+      const valid = numbers.map((number) => ({
+        number,
+        source: sources.find((item) => Number(item.n) === number),
+      }));
+      if (valid.every((item) => item.source)) {
+        renderedCitations += valid.length;
+        valid.forEach((item, index) => {
+          if (index) parent.append(document.createTextNode(", "));
+          const label = circledNumbers[item.number - 1] || `[${item.number}]`;
+          parent.append(createCitation(item.source, item.number, turnId, label));
         });
-        container.append(cite);
-      });
-    } else {
-      container.append(document.createTextNode(match[0]));
+      } else {
+        parent.append(document.createTextNode(match[0]));
+      }
+    } else if (match[3]) {
+      parent.append(make("strong", "markdown-strong", match[3].slice(2, -2)));
+    } else if (match[4]) {
+      parent.append(make("em", "markdown-emphasis", match[4].slice(1, -1)));
+    } else if (match[5]) {
+      parent.append(make("code", "inline-code", match[5]));
+    } else if (match[6] && match[7]) {
+      const link = make("a", "markdown-link", match[6]);
+      link.href = match[7];
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      parent.append(link);
     }
     cursor = match.index + match[0].length;
   }
-  container.append(document.createTextNode(answer.slice(cursor)));
+  parent.append(document.createTextNode(text.slice(cursor)));
+  return renderedCitations;
+}
+
+function tableCells(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function isTableStart(lines, index) {
+  if (!lines[index]?.includes("|") || !lines[index + 1]?.includes("|")) return false;
+  return tableCells(lines[index + 1]).every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function isMarkdownBlockStart(lines, index) {
+  const line = lines[index] || "";
+  return /^\s*(```|#{1,6}\s|[-*+]\s|\d+\.\s|>)/.test(line) || isTableStart(lines, index);
+}
+
+function appendMarkdownAnswer(container, answer, sources, turnId) {
+  const lines = String(answer).replace(/\r\n?/g, "\n").split("\n");
+  let citations = 0;
+  const appendInline = (parent, text) => {
+    citations += appendInlineMarkdown(parent, text, sources, turnId);
+  };
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index];
+    if (!line.trim()) { index += 1; continue; }
+    if (/^\s*```/.test(line)) {
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) codeLines.push(lines[index++]);
+      if (index < lines.length) index += 1;
+      const block = make("div", "code-block");
+      const pre = make("pre");
+      pre.append(make("code", "", codeLines.join("\n")));
+      const copy = make("button", "small-button code-copy", "Sao chép mã");
+      copy.type = "button";
+      copy.setAttribute("aria-label", "Sao chép đoạn mã");
+      copy.addEventListener("click", () => copyText(codeLines.join("\n")));
+      block.append(copy, pre);
+      container.append(block);
+      continue;
+    }
+    const heading = line.match(/^\s*(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const node = make(`h${heading[1].length}`, "markdown-heading");
+      appendInline(node, heading[2]);
+      container.append(node);
+      index += 1;
+      continue;
+    }
+    if (isTableStart(lines, index)) {
+      const tableWrap = make("div", "markdown-table-wrap");
+      const table = make("table", "markdown-table");
+      const header = make("thead");
+      const headerRow = make("tr");
+      for (const cell of tableCells(line)) {
+        const th = make("th");
+        appendInline(th, cell);
+        headerRow.append(th);
+      }
+      header.append(headerRow);
+      table.append(header);
+      index += 2;
+      const body = make("tbody");
+      while (index < lines.length && lines[index].includes("|")) {
+        const row = make("tr");
+        for (const cell of tableCells(lines[index++])) {
+          const td = make("td");
+          appendInline(td, cell);
+          row.append(td);
+        }
+        body.append(row);
+      }
+      table.append(body);
+      tableWrap.append(table);
+      container.append(tableWrap);
+      continue;
+    }
+    const listMatch = line.match(/^\s*([-*+])\s+|^\s*(\d+)\.\s+/);
+    if (listMatch) {
+      const ordered = Boolean(listMatch[2]);
+      const list = make(ordered ? "ol" : "ul", "markdown-list");
+      const itemPattern = ordered ? /^\s*\d+\.\s+/ : /^\s*[-*+]\s+/;
+      while (index < lines.length && itemPattern.test(lines[index])) {
+        const item = make("li");
+        appendInline(item, lines[index++].replace(itemPattern, ""));
+        list.append(item);
+      }
+      container.append(list);
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const quote = make("blockquote", "markdown-quote");
+      while (index < lines.length && /^\s*>/.test(lines[index])) {
+        const paragraph = make("p");
+        appendInline(paragraph, lines[index++].replace(/^\s*>\s?/, ""));
+        quote.append(paragraph);
+      }
+      container.append(quote);
+      continue;
+    }
+    const paragraphLines = [line];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !isMarkdownBlockStart(lines, index)) {
+      paragraphLines.push(lines[index++]);
+    }
+    const paragraph = make("p", "markdown-paragraph");
+    appendInline(paragraph, paragraphLines.join("\n"));
+    container.append(paragraph);
+  }
+  return citations;
+}
+
+async function copyText(text) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Bộ nhớ tạm không khả dụng.");
+    await navigator.clipboard.writeText(text);
+    setStatus("Đã sao chép vào bộ nhớ tạm.");
+  } catch (error) {
+    setStatus(error.message || "Không sao chép được nội dung.", "error");
+  }
 }
 
 function renderResult(result, root, turnId, { scroll = true } = {}) {
   const followThread = isThreadNearEnd();
   state.sources = Array.isArray(result.sources) ? result.sources : [];
+  state.answersByTurn.set(String(turnId), result.answer || "Chưa có câu trả lời.");
   state.activeTurnId = String(turnId);
   state.activeSourceKey = null;
   state.sourcesByTurn.set(state.activeTurnId, state.sources);
   root.replaceChildren();
   const answer = make("div", `answer${result.found ? "" : " not-found"}`);
-  appendCitedAnswer(answer, result.answer || "Chưa có câu trả lời.", state.sources, turnId);
+  const citationCount = appendMarkdownAnswer(answer, state.answersByTurn.get(String(turnId)), state.sources, turnId);
   root.append(answer);
-  if (result.found && state.sources.length) {
+  if (result.no_sources === true || citationCount === 0) {
+    root.append(make("p", "coverage-note", "Không tìm thấy nội dung này trong nguồn đang chọn"));
+  } else if (result.found && state.sources.length) {
     root.append(make("p", "coverage-note", "Câu trả lời dựa trên các đoạn gần nhất tìm được trong thư viện. Hãy mở nguồn để đối chiếu."));
   }
+  const actions = make("div", "answer-actions");
+  const copy = make("button", "answer-action", "Sao chép");
+  copy.type = "button";
+  copy.setAttribute("aria-label", "Sao chép câu trả lời");
+  copy.addEventListener("click", () => copyText(state.answersByTurn.get(String(turnId)) || ""));
+  const regenerate = make("button", "answer-action", "Tạo lại");
+  regenerate.type = "button";
+  regenerate.setAttribute("aria-label", "Tạo lại câu trả lời");
+  regenerate.addEventListener("click", () => {
+    const userTurn = root.closest(".assistant-turn")?.previousElementSibling;
+    const question = userTurn?.dataset.question;
+    if (question) submitQuestion(question, { retryTurn: root.closest(".assistant-turn") });
+  });
+  actions.append(copy, regenerate);
+  root.append(actions);
   if (state.sources.length) {
     const cards = make("div", "source-list");
     for (const source of state.sources) {
@@ -598,10 +978,57 @@ function addTurn(role, content, pending = false, { scroll = true, forceScroll = 
   const turnId = `turn-${++state.turnCounter}`;
   row.id = turnId;
   row.dataset.turnId = turnId;
-  const avatar = make("span", "turn-avatar", role === "user" ? "B" : "V");
-  avatar.setAttribute("aria-hidden", "true");
-  const body = make("div", "turn-content", content);
-  row.append(avatar, body);
+  const body = make("div", role === "user" ? "turn-content turn-bubble" : "turn-content", content);
+  if (role === "user") {
+    row.dataset.question = content;
+    const actions = make("div", "question-actions");
+    const edit = make("button", "answer-action", "Sửa");
+    edit.type = "button";
+    edit.setAttribute("aria-label", "Sửa câu hỏi");
+    const editor = make("div", "edit-question-panel");
+    editor.hidden = true;
+    const textarea = make("textarea", "edit-question-input", content);
+    textarea.rows = 3;
+    textarea.setAttribute("aria-label", "Chỉnh sửa câu hỏi");
+    const save = make("button", "small-button", "Gửi lại");
+    save.type = "button";
+    const cancel = make("button", "answer-action", "Hủy");
+    cancel.type = "button";
+    const closeEditor = () => {
+      editor.hidden = true;
+      body.hidden = false;
+      edit.focus();
+    };
+    edit.addEventListener("click", () => {
+      editor.hidden = false;
+      body.hidden = true;
+      textarea.value = row.dataset.question || "";
+      textarea.focus();
+    });
+    save.addEventListener("click", () => {
+      if (!textarea.value.trim()) {
+        textarea.focus();
+        return;
+      }
+      if (state.asking) {
+        setStatus("Đợi câu trả lời hiện tại xong rồi gửi lại câu hỏi.", "error");
+        return;
+      }
+      if (!$("#source-deleted-banner").hidden) {
+        setStatus("Nguồn của cuộc trò chuyện đã bị xoá; không thể gửi câu hỏi mới.", "error");
+        return;
+      }
+      editor.hidden = true;
+      body.hidden = false;
+      submitQuestion(textarea.value.trim());
+    });
+    cancel.addEventListener("click", closeEditor);
+    editor.append(textarea, save, cancel);
+    actions.append(edit);
+    row.append(body, actions, editor);
+  } else {
+    row.append(body);
+  }
   if (pending) row.dataset.pending = "true";
   $("#conversation").append(row);
   if (scroll) scrollThreadToEnd({ onlyIfNearEnd: !forceScroll });
@@ -618,6 +1045,7 @@ function setTurnStatus(turn, message, kind = "") {
 
 async function submitQuestion(question = $("#question-input").value.trim(), options = {}) {
   if (!question || state.asking || $("#source-deleted-banner").hidden === false) return;
+  const previousDraftKey = currentDraftKey();
   const retryTurn = options.retryTurn || null;
   if (state.segmentContext && question && !question.startsWith("Tại ")) {
     question = `Tại ${formatTime(state.segmentContext)}: ${question}`;
@@ -634,7 +1062,7 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     turn = addTurn("assistant", "", true, { scroll: false });
     scrollThreadToEnd();
   }
-  const pending = make("p", "request-status", retryTurn ? "Đang thử gửi lại câu hỏi…" : "Đang tìm trong bài giảng và tài liệu…");
+  const pending = make("p", "request-status", retryTurn ? "Đang thử gửi lại câu hỏi…" : "Đang trả lời…");
   pending.setAttribute("role", "status");
   turn.querySelector(".turn-content").replaceChildren(pending);
   state.asking = true;
@@ -655,6 +1083,8 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     });
     if (result.conversation_id) {
       state.activeConversationId = result.conversation_id;
+      state.draftId = result.conversation_id;
+      state.drafts.delete(previousDraftKey);
       $("#conversation-heading").textContent = result.conversation_title || question.slice(0, 60);
       updateConversationUrl(result.conversation_id);
       loadConversations();
@@ -675,7 +1105,9 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
         if (child !== currentUserTurn && child !== turn) child.remove();
       }
       state.sourcesByTurn.clear();
+      state.answersByTurn.clear();
       state.sourcesByTurn.set(String(turn.dataset.turnId), state.sources);
+      state.answersByTurn.set(String(turn.dataset.turnId), result.answer || "Chưa có câu trả lời.");
       sessionStorage.removeItem("vskr-user-csrf");
       setAccountView(null, { preserveCurrentThread: true });
       setStatus("Phiên đăng nhập đã hết hạn. Câu trả lời này chưa được lưu; bạn vẫn có thể tiếp tục hỏi bài với tư cách khách.", "error");
@@ -724,15 +1156,24 @@ async function showAdminLink() {
 
 async function loadLearnerSession() {
   try {
-    const session = await request("/api/user/auth/me");
+    const session = await request("/api/user/me");
+    if (session.user_id && !state.signedIn) {
+      state.projects = [];
+      state.currentProjectId = null;
+    }
     setAccountView(session);
-    $("#user-name").textContent = session.username;
-    if (session.csrf_token) sessionStorage.setItem("vskr-user-csrf", session.csrf_token);
-    await loadConversations();
-    const requestedConversation = new URL(location.href).searchParams.get("conversation");
-    if (requestedConversation && state.conversations.some((item) => item.conversation_id === requestedConversation)) {
-      await openConversation(requestedConversation, { updateUrl: false });
-    } else if (requestedConversation) {
+    $("#user-name").textContent = session.username || "";
+    if (session.user_id) {
+      if (session.csrf_token) sessionStorage.setItem("vskr-user-csrf", session.csrf_token);
+      await loadProjects();
+      const requestedConversation = new URL(location.href).searchParams.get("conversation");
+      if (requestedConversation && state.conversations.some((item) => item.conversation_id === requestedConversation)) {
+        await openConversation(requestedConversation, { updateUrl: false });
+      } else if (requestedConversation) {
+        updateConversationUrl(null, { replace: true });
+      }
+    } else {
+      sessionStorage.removeItem("vskr-user-csrf");
       updateConversationUrl(null, { replace: true });
     }
   } catch {
@@ -746,6 +1187,8 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
   const signedIn = Boolean(session?.user_id);
   const lostSession = state.signedIn && !signedIn;
   state.signedIn = signedIn;
+  state.uploadLimits = session?.limits || null;
+  updateProjectLabel();
   if (lostSession) {
     state.videos = [];
     state.documents = [];
@@ -785,6 +1228,7 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
     if (lostSession && !preserveCurrentThread) {
       state.sources = [];
       state.sourcesByTurn.clear();
+      state.answersByTurn.clear();
       state.activeTurnId = null;
       state.activeSourceKey = null;
       $("#conversation").replaceChildren();
@@ -949,6 +1393,7 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     closeDrawer();
     return;
   }
+  saveCurrentDraft();
   const loadToken = ++state.conversationLoadToken;
   try {
     setStatus("Đang mở cuộc trò chuyện…");
@@ -956,11 +1401,12 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     if (loadToken !== state.conversationLoadToken) return;
     clearRetry();
     state.activeConversationId = conversation.conversation_id;
+    state.draftId = conversation.conversation_id;
     $("#conversation-heading").textContent = conversation.title || "Cuộc trò chuyện mới";
     setConversationSource({
       source_id: conversation.source_id || null,
       source_type: conversation.source_type || "library",
-      title: conversation.source_title || conversation.title || "Toàn bộ dự án",
+      title: conversation.source_title || conversation.title || "Cả thư viện",
     });
     if (conversation.project_id && state.projects.some((project) => project.project_id === conversation.project_id)) {
       state.currentProjectId = conversation.project_id;
@@ -972,6 +1418,7 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     if (updateUrl) updateConversationUrl(conversation.conversation_id);
     state.sources = [];
     state.sourcesByTurn.clear();
+    state.answersByTurn.clear();
     state.activeTurnId = null;
     state.activeSourceKey = null;
     $("#conversation").replaceChildren();
@@ -984,6 +1431,7 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
       answerTurn.querySelector(".turn-content").replaceChildren(resultNode);
       renderResult(savedTurn, resultNode, answerTurn.dataset.turnId, { scroll: false });
     }
+    restoreDraft(state.draftId);
     const sourceVideo = state.videos.find((video) => video.video_id === conversation.source_id)
       || state.videos.find((video) => video.video_id === state.preferredConversationVideoId);
     if (sourceVideo) selectVideo(sourceVideo);
@@ -1009,9 +1457,11 @@ function resetConversationView({ updateUrl = true, replaceUrl = false, focus = t
     setStatus("Đợi câu trả lời xong rồi hãy bắt đầu cuộc trò chuyện mới.", "error");
     return;
   }
+  saveCurrentDraft();
   state.conversationLoadToken += 1;
   clearRetry();
   state.activeConversationId = null;
+  state.draftId = createDraftId();
   setConversationSource();
   setSourceDeleted(false);
   $("#conversation-heading").textContent = "Cuộc trò chuyện mới";
@@ -1024,6 +1474,7 @@ function resetConversationView({ updateUrl = true, replaceUrl = false, focus = t
   setStatus("");
   state.sources = [];
   state.sourcesByTurn.clear();
+  state.answersByTurn.clear();
   state.activeTurnId = null;
   state.activeSourceKey = null;
   renderTimeline();
@@ -1054,17 +1505,25 @@ function renderConversationSourcePicker() {
         return info;
       })(),
     );
-    row.addEventListener("click", () => beginConversationWithSource(item));
+    row.addEventListener("click", () => {
+      if (state.sourcePickerMode === "select") {
+        setConversationSource(item);
+        $("#conversation-source-dialog").close();
+        return;
+      }
+      beginConversationWithSource(item);
+    });
     list.append(row);
   }
   if (!items.length) list.append(make("p", "muted", "Không tìm thấy nguồn phù hợp."));
 }
 
 async function beginConversationWithSource(source) {
+  saveCurrentDraft();
   const normalized = {
     source_id: source.source_type === "library" ? null : source.source_id,
     source_type: source.source_type,
-    title: source.title || "Toàn bộ dự án",
+    title: source.title || "Toàn bộ thư viện",
   };
   if (state.signedIn) {
     try {
@@ -1079,6 +1538,7 @@ async function beginConversationWithSource(source) {
         }),
       });
       state.activeConversationId = created.conversation_id;
+      state.draftId = created.conversation_id;
       updateConversationUrl(created.conversation_id);
       await loadConversations();
     } catch (error) {
@@ -1087,12 +1547,14 @@ async function beginConversationWithSource(source) {
     }
   } else {
     state.activeConversationId = null;
+    state.draftId = createDraftId();
     updateConversationUrl(null, { replace: true });
   }
   state.conversationLoadToken += 1;
   clearRetry();
   state.sources = [];
   state.sourcesByTurn.clear();
+  state.answersByTurn.clear();
   state.activeTurnId = null;
   state.activeSourceKey = null;
   state.preferredConversationVideoId = normalized.source_type === "video" ? normalized.source_id : null;
@@ -1101,6 +1563,7 @@ async function beginConversationWithSource(source) {
   $("#conversation-heading").textContent = "Cuộc trò chuyện mới";
   $("#conversation").replaceChildren();
   $("#welcome").hidden = false;
+  restoreDraft(state.draftId);
   if (normalized.source_type === "video") {
     const video = state.videos.find((item) => item.video_id === normalized.source_id);
     if (video) selectVideo(video);
@@ -1113,14 +1576,16 @@ async function beginConversationWithSource(source) {
   questionInput.focus();
 }
 
-function openConversationSourcePicker() {
+function openConversationSourcePicker({ mode = "new" } = {}) {
   if (state.asking) {
     setStatus("Đợi câu trả lời xong rồi hãy bắt đầu cuộc trò chuyện mới.", "error");
     return;
   }
+  state.sourcePickerMode = mode;
   $("#conversation-source-search").value = "";
   renderConversationSourcePicker();
   $("#conversation-source-dialog").showModal();
+  $("#conversation-source-chip").setAttribute("aria-expanded", String(mode === "select"));
 }
 
 function startNewConversation(options = {}) {
@@ -1146,11 +1611,7 @@ async function loadLibrary() {
     $("#library-loading").hidden = true;
     renderDocuments();
     renderVideos();
-    const badge = $("#sidebar-library-badge");
-    if (badge) {
-      badge.textContent = String(state.videos.length + state.documents.length);
-      badge.hidden = !(state.signedIn && state.videos.length + state.documents.length);
-    }
+    renderLibraryBadge();
     const preferredVideoId = state.currentVideo?.video_id || state.preferredConversationVideoId;
     const initialVideo = state.videos.find((video) => video.video_id === preferredVideoId);
     if (initialVideo) selectVideo(initialVideo, { open: false });
@@ -1183,8 +1644,7 @@ document.querySelectorAll(".welcome-suggestions button").forEach((button) => {
 $("#new-conversation").addEventListener("click", () => startNewConversation());
 $("#new-conversation-sidebar").addEventListener("click", () => startNewConversation());
 $("#sidebar-search").addEventListener("click", () => {
-  const search = $("#conversation-search");
-  search?.focus();
+  openLibrarySearch();
 });
 $("#project-select").addEventListener("change", async (event) => {
   state.currentProjectId = event.target.value || null;
@@ -1228,7 +1688,6 @@ $("#sidebar-add-content").addEventListener("click", () => {
   openContentDialog();
   closeDrawer({ restoreFocus: false });
 });
-$("#sidebar-collapse").addEventListener("click", () => closeDrawer({ restoreFocus: false }));
 $("#sidebar-account-menu").addEventListener("click", () => {
   const menu = $("#sidebar-account-actions");
   menu.hidden = !menu.hidden;
@@ -1251,6 +1710,7 @@ document.querySelectorAll(".library-tab[data-library-tab]").forEach((tab) => tab
   renderLibraryDialog(scope);
 }));
 $("#close-content-dialog").addEventListener("click", () => contentDialog.close());
+contentDialog.addEventListener("close", stopJobPolling);
 projectDialog.addEventListener("click", (event) => { if (event.target === projectDialog) projectDialog.close(); });
 $("#close-library-dialog").addEventListener("click", () => libraryDialog.close());
 $("#close-conversation-source").addEventListener("click", () => $("#conversation-source-dialog").close());
@@ -1261,49 +1721,162 @@ $("#conversation-source-dialog").addEventListener("click", (event) => {
   if (event.target === $("#conversation-source-dialog")) $("#conversation-source-dialog").close();
 });
 $("#conversation-source-search").addEventListener("input", renderConversationSourcePicker);
-$("#conversation-library-choice").addEventListener("click", () => beginConversationWithSource({
-  source_type: "library", source_id: null, title: "Toàn bộ dự án",
-}));
+$("#conversation-library-choice").addEventListener("click", () => {
+  const librarySource = { source_type: "library", source_id: null, title: "Cả thư viện" };
+  if (state.sourcePickerMode === "select") {
+    setConversationSource(librarySource);
+    $("#conversation-source-dialog").close();
+    return;
+  }
+  beginConversationWithSource(librarySource);
+});
+$("#conversation-source-chip").addEventListener("click", () => openConversationSourcePicker({ mode: "select" }));
+$("#conversation-source-dialog").addEventListener("close", () => {
+  $("#conversation-source-chip").setAttribute("aria-expanded", "false");
+});
 document.querySelectorAll(".content-tab[data-content-tab]").forEach((tab) => tab.addEventListener("click", () => {
   const selected = tab.dataset.contentTab;
   document.querySelectorAll(".content-tab[data-content-tab]").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
   $("#content-link-form").hidden = selected !== "link";
   $("#content-upload-form").hidden = selected !== "upload";
   $("#content-document-form").hidden = selected !== "document";
+  setContentDialogStatus("");
 }));
+$("#content-video-file").addEventListener("change", (event) => {
+  const error = validateUploadFile(event.currentTarget.files[0], "video");
+  if (error) setContentDialogStatus(error, "error");
+});
+$("#content-document-file").addEventListener("change", (event) => {
+  const error = validateUploadFile(event.currentTarget.files[0], "document");
+  if (error) setContentDialogStatus(error, "error");
+});
+function openContentWithDroppedFile(file) {
+  const extension = file.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  const isDocument = ["txt", "md", "rst", "pdf", "docx"].includes(extension);
+  const isVideo = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "mpeg", "mpg"].includes(extension);
+  if (!isDocument && !isVideo) {
+    openContentDialog();
+    setContentDialogStatus(`Định dạng ${extension ? `.${extension}` : "tệp"} chưa được hỗ trợ. Hãy chọn video hoặc tài liệu thuộc danh sách cho phép.`, "error");
+    return;
+  }
+  const action = isDocument ? "document" : "upload";
+  const input = $(isDocument ? "#content-document-file" : "#content-video-file");
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  openContentDialog();
+  document.querySelector(`.content-tab[data-content-tab="${action}"]`).click();
+  input.focus();
+  const validation = validateUploadFile(file, isDocument ? "document" : "video");
+  if (validation) setContentDialogStatus(validation, "error");
+}
+$("#content-drop-zone").addEventListener("click", () => $("#content-drop-file").click());
+$("#content-drop-zone").addEventListener("dragover", (event) => {
+  event.preventDefault();
+  event.currentTarget.classList.add("is-dragging");
+});
+$("#content-drop-zone").addEventListener("dragleave", (event) => event.currentTarget.classList.remove("is-dragging"));
+$("#content-drop-zone").addEventListener("drop", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  event.currentTarget.classList.remove("is-dragging");
+  const file = event.dataTransfer?.files?.[0];
+  if (file) openContentWithDroppedFile(file);
+});
+$("#content-drop-file").addEventListener("change", (event) => {
+  const file = event.currentTarget.files[0];
+  if (file) openContentWithDroppedFile(file);
+  event.currentTarget.value = "";
+});
+document.addEventListener("dragover", (event) => {
+  if ([...(event.dataTransfer?.types || [])].includes("Files")) event.preventDefault();
+});
+document.addEventListener("drop", (event) => {
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) return;
+  event.preventDefault();
+  openContentWithDroppedFile(file);
+});
 $("#content-link-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  $("#user-video-url").value = $("#content-video-url").value.trim();
-  $("#user-video-file").value = "";
-  setContentDialogStatus("");
-  $("#user-video-form").requestSubmit();
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  enqueueContent({
+    type: "video",
+    url: $("#content-video-url").value.trim(),
+    statusNode: $("#content-dialog-status"),
+    button,
+    closeOnQueue: true,
+  });
 });
 $("#content-upload-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  if (!$("#content-video-file").files.length) {
-    setContentDialogStatus("Chọn một video trước.", "error");
-    return;
-  }
-  const transfer = new DataTransfer();
-  transfer.items.add($("#content-video-file").files[0]);
-  $("#user-video-file").files = transfer.files;
-  $("#user-video-url").value = "";
-  setContentDialogStatus("");
-  $("#user-video-form").requestSubmit();
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  enqueueContent({
+    type: "video",
+    file: $("#content-video-file").files[0] || null,
+    statusNode: $("#content-dialog-status"),
+    button,
+    closeOnQueue: true,
+  });
 });
 $("#content-document-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  if (!$("#content-document-file").files.length) {
-    setContentDialogStatus("Chọn một tài liệu trước.", "error");
-    return;
-  }
-  const transfer = new DataTransfer();
-  transfer.items.add($("#content-document-file").files[0]);
-  $("#user-document-file").files = transfer.files;
-  setContentDialogStatus("");
-  $("#user-document-form").requestSubmit();
+  const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+  enqueueContent({
+    type: "document",
+    file: $("#content-document-file").files[0] || null,
+    statusNode: $("#content-dialog-status"),
+    button,
+    closeOnQueue: true,
+  });
 });
 $("#close-lecture").addEventListener("click", closeLecture);
+$("#collapse-lecture").addEventListener("click", () => {
+  if (state.currentVideo && state.player) {
+    state.pendingJump = { videoId: state.currentVideo.video_id, start: currentPlaybackTime() };
+  }
+  closeLecture();
+});
+$("#show-video-stage").addEventListener("click", () => {
+  if (state.currentVideo) selectVideo(state.currentVideo);
+});
+$("#expand-video").addEventListener("click", () => {
+  const expanded = $("#lecture-card").classList.toggle("video-expanded");
+  $("#expand-video").setAttribute("aria-label", expanded ? "Thu nhỏ video" : "Phóng to video");
+  $("#expand-video").textContent = expanded ? "⤡" : "⤢";
+});
+const videoResizer = $("#video-resizer");
+let resizePointerStart = 0;
+let resizeWidthStart = 0;
+videoResizer.addEventListener("pointerdown", (event) => {
+  if (!event.isPrimary || event.button !== 0 || window.matchMedia("(max-width: 899px)").matches) return;
+  event.preventDefault();
+  resizePointerStart = event.clientX;
+  resizeWidthStart = state.videoPanelWidth || $("#lecture-card").getBoundingClientRect().width;
+  videoResizer.setPointerCapture(event.pointerId);
+  document.body.classList.add("resizing-video-panel");
+});
+videoResizer.addEventListener("pointermove", (event) => {
+  if (!videoResizer.hasPointerCapture(event.pointerId)) return;
+  resizeVideoPanel(resizeWidthStart + resizePointerStart - event.clientX);
+});
+function finishVideoResize(event) {
+  if (videoResizer.hasPointerCapture(event.pointerId)) videoResizer.releasePointerCapture(event.pointerId);
+  document.body.classList.remove("resizing-video-panel");
+}
+videoResizer.addEventListener("pointerup", finishVideoResize);
+videoResizer.addEventListener("pointercancel", finishVideoResize);
+videoResizer.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  const width = state.videoPanelWidth || $("#lecture-card").getBoundingClientRect().width;
+  resizeVideoPanel(width + (event.key === "ArrowLeft" ? 24 : -24));
+});
+window.addEventListener("resize", () => {
+  if (state.videoPanelWidth !== null && !window.matchMedia("(max-width: 899px)").matches) {
+    resizeVideoPanel(state.videoPanelWidth);
+  }
+});
 $("#ask-current-segment").addEventListener("click", () => {
   const time = currentPlaybackTime();
   state.segmentContext = time;
@@ -1416,8 +1989,18 @@ function updateQuestionInput() {
   const count = questionInput.value.length;
   $("#question-hint").textContent = `${count}/500 ký tự${count >= 500 ? " · Đã đạt giới hạn" : ""}`;
   $("#ask-button").disabled = !count || state.asking;
+  const url = questionInput.value.match(/https?:\/\/[^\s<>"']+/i)?.[0].replace(/[),.!?]+$/, "");
+  $("#pasted-link-card").hidden = !url;
+  saveCurrentDraft();
 }
 questionInput.addEventListener("input", updateQuestionInput);
+$("#add-pasted-link").addEventListener("click", () => {
+  const url = questionInput.value.match(/https?:\/\/[^\s<>"']+/i)?.[0].replace(/[),.!?]+$/, "");
+  if (!url) return;
+  $("#content-video-url").value = url;
+  openContentDialog();
+  document.querySelector('.content-tab[data-content-tab="link"]').click();
+});
 window.addEventListener("online", setNetworkStatus);
 window.addEventListener("offline", setNetworkStatus);
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -1447,6 +2030,10 @@ function closeSearch() {
   searchInput.value = "";
   searchInput.setAttribute("aria-expanded", "false");
   searchInput.removeAttribute("aria-activedescendant");
+}
+function openLibrarySearch() {
+  topbar.classList.add("search-open");
+  searchInput.focus();
 }
 function updateSearch() {
   const query = searchInput.value.trim().toLocaleLowerCase("vi");
@@ -1481,7 +2068,7 @@ function updateSearch() {
       searchInput.setAttribute("aria-expanded", "false");
       searchInput.value = "";
       searchInput.removeAttribute("aria-activedescendant");
-      if (window.matchMedia("(max-width: 899px)").matches) closeSearch();
+      closeSearch();
     });
     searchResults.append(button);
   }
@@ -1514,11 +2101,11 @@ searchInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && searchIndex >= 0) { event.preventDefault(); options[searchIndex]?.click(); }
 });
 document.addEventListener("click", (event) => {
-  if (event.target instanceof Element && !event.target.closest(".global-search")) {
+  if (event.target instanceof Element && !event.target.closest(".global-search") && !event.target.closest("#sidebar-search")) {
     searchResults.hidden = true;
     searchInput.setAttribute("aria-expanded", "false");
     searchInput.removeAttribute("aria-activedescendant");
-    if (window.matchMedia("(max-width: 899px)").matches) closeSearch();
+    closeSearch();
   }
 });
 searchToggle.addEventListener("click", () => {
@@ -1528,6 +2115,15 @@ searchToggle.addEventListener("click", () => {
   else closeSearch();
 });
 const drawer = $("#library-drawer"), drawerToggle = $("#drawer-toggle"), drawerBackdrop = $("#drawer-backdrop");
+$("#sidebar-collapse").addEventListener("click", () => {
+  if (window.matchMedia("(max-width: 899px)").matches) {
+    closeDrawer({ restoreFocus: false });
+    return;
+  }
+  const collapsed = document.body.classList.toggle("sidebar-collapsed");
+  $("#sidebar-collapse").setAttribute("aria-label", collapsed ? "Mở rộng thanh bên" : "Thu gọn thanh bên");
+  if (state.videoPanelWidth !== null) resizeVideoPanel(state.videoPanelWidth);
+});
 if (!window.matchMedia("(max-width: 899px)").matches) {
   drawer.inert = false;
   drawer.setAttribute("aria-hidden", "false");
@@ -1579,15 +2175,23 @@ document.addEventListener("click", (event) => {
     $("#suggest-toggle").setAttribute("aria-expanded", "false");
   }
 });
-$("#video-position").addEventListener("click", () => drawerToggle.click());
-$("#prev-video").addEventListener("click", () => { const i = state.videos.findIndex((v) => v.video_id === state.currentVideo?.video_id); if (i > 0) selectVideo(state.videos[i - 1]); });
-$("#next-video").addEventListener("click", () => { const i = state.videos.findIndex((v) => v.video_id === state.currentVideo?.video_id); if (i >= 0 && i < state.videos.length - 1) selectVideo(state.videos[i + 1]); });
 $("#new-thread").addEventListener("click", () => {
   if (state.asking) return;
   startNewConversation();
 });
 $("#suggest-toggle").addEventListener("click", () => { const box = $("#suggestions"), open = box.hidden; box.hidden = !open; $("#suggest-toggle").setAttribute("aria-expanded", String(open)); });
-$("#suggestions").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#question-input").value = button.textContent; $("#question-input").dispatchEvent(new Event("input")); $("#question-input").focus(); $("#suggestions").hidden = true; $("#suggest-toggle").setAttribute("aria-expanded", "false"); });
+$("#suggestions").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-content-action]");
+  if (!button) return;
+  const action = button.dataset.contentAction;
+  $("#suggestions").hidden = true;
+  $("#suggest-toggle").setAttribute("aria-expanded", "false");
+  openContentDialog();
+  document.querySelector(`.content-tab[data-content-tab="${action}"]`)?.click();
+  if (action === "link") $("#content-video-url").focus();
+  else if (action === "upload") $("#content-video-file").focus();
+  else $("#content-document-file").focus();
+});
 questionInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
@@ -1597,7 +2201,7 @@ questionInput.addEventListener("keydown", (event) => {
 document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    $("#conversation-search")?.focus();
+    openLibrarySearch();
   }
 });
 const thread = $("#thread"), bottomButton = $("#thread-bottom");
@@ -1637,7 +2241,6 @@ window.addEventListener("popstate", () => {
 
 setNetworkStatus();
 loadLearnerSession().then(async () => {
-  await loadProjects();
   await loadLibrary();
 });
 showAdminLink();

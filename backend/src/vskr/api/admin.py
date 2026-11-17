@@ -52,6 +52,10 @@ def set_content_visibility(kind: str, item_id: str, payload: VisibilityPayload):
     meta = read_json(meta_path)
     meta["visibility"] = payload.visibility
     write_json(meta_path, meta)
+    service = handlers.state.get("service")
+    if service is not None:
+        target = service.meta if kind == "video" else service.document_meta
+        target[item_id] = {**target.get(item_id, {}), **meta}
     audit.write_event("content.visibility", target_id=item_id, kind=kind, visibility=payload.visibility)
     return {"id": item_id, "visibility": payload.visibility}
 

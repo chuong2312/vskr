@@ -6,6 +6,7 @@ from .qa import answer_question
 from .retriever import Retriever
 from .bm25 import BM25, tokenize
 from .util import fmt_time, source_link
+from .visibility import is_visible
 
 
 class ModelBusyError(RuntimeError):
@@ -67,13 +68,16 @@ class Service:
                 for chunk in self.index.chunks if chunk.get("project_id") == project_id
             }
         elif allowed_sources is None and (owner_id is not None or shared_only):
-            allowed_sources = {
-                chunk.get("video_id") or chunk.get("document_id")
-                for chunk in self.index.chunks
-                if ((not chunk.get("owner_id") or chunk.get("owner_id") == owner_id)
-                    if shared_only else
-                    (not chunk.get("owner_id") or chunk.get("owner_id") in {owner_id, f"u:{owner_id}"}))
-            }
+            allowed_sources = set()
+            for chunk in self.index.chunks:
+                source_id = chunk.get("video_id") or chunk.get("document_id")
+                if not source_id:
+                    continue
+                metadata = (self.meta if chunk.get("video_id") else self.document_meta).get(source_id, {})
+                if not metadata.get("owner") and not metadata.get("owner_id") and chunk.get("owner_id"):
+                    metadata = {**metadata, "owner_id": chunk["owner_id"]}
+                if is_visible(metadata, owner_id, shared_only=shared_only):
+                    allowed_sources.add(source_id)
         hits = retriever.search(question, mode=mode, allowed_sources=allowed_sources)
         t1 = time.time()
         if llm_lock is not None and not llm_lock.acquire(timeout=lock_timeout):

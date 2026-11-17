@@ -308,7 +308,9 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
         if url is not None and not isinstance(url, str):
             raise HTTPException(400, "Trường URL không hợp lệ.")
         if url:
-            url = validate_learner_ingest_url(url)
+            url = validate_learner_ingest_url(
+                url, allowed_domains=load_config().get("ingest", {}).get("allowed_domains")
+            )
         result = await handlers.start_ingest(url=url, file=file,
                                              owner_id=owner_id, project_id=project["project_id"])
     audit.write_event("ingest.start", target_id=result.get("job_id"), kind="upload" if file else "url")
@@ -334,9 +336,10 @@ async def public_upload_document(request: Request, user=Depends(accounts.require
 
 
 @router.get("/api/jobs/{job_id}")
-def public_job_status(job_id: str, user=Depends(accounts.require_learner_or_admin)):
+def public_job_status(job_id: str, user=Depends(accounts.optional_learner_or_admin)):
     job = handlers.get_job(job_id)
-    if not user.get("admin") and job.get("owner_id") != user["user_id"]:
+    owner_id = user.get("owner") or user.get("user_id")
+    if not user.get("admin") and job.get("owner_id") != owner_id:
         raise HTTPException(404, "Không tìm thấy tác vụ.")
     if user.get("admin"):
         return job
@@ -422,14 +425,6 @@ def my_jobs(user=Depends(accounts.require_learner_or_guest)):
             if job.get("owner_id") == owner]
 
 
-@router.get("/api/jobs/{job_id}")
-def my_job(job_id: str, user=Depends(accounts.require_learner_or_guest)):
-    job = handlers.get_job(job_id)
-    if job.get("owner_id") != (user.get("owner") or user.get("user_id")):
-        raise HTTPException(404, "Không tìm thấy job.")
-    return job
-
-
 @router.delete("/api/my/content/{kind}/{item_id}")
 def delete_my_content(kind: str, item_id: str, user=Depends(accounts.require_learner_or_guest)):
     cfg = load_config()
@@ -459,6 +454,10 @@ def request_visibility(kind: str, item_id: str, payload: VisibilityPayload,
         raise HTTPException(404, "Không tìm thấy nội dung.")
     meta["visibility"] = payload.visibility
     write_json(meta_path, meta)
+    service = handlers.state.get("service")
+    if service is not None:
+        target = service.meta if kind == "video" else service.document_meta
+        target[item_id] = {**target.get(item_id, {}), **meta}
     return {"id": item_id, "visibility": payload.visibility}
 
 

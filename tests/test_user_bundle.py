@@ -53,6 +53,23 @@ class TestUserBundle(unittest.TestCase):
         self.assertIn("selectVideo(sourceVideo)", app)
         self.assertIn("state.currentVideo?.video_id || state.preferredConversationVideoId", app)
 
+    def test_video_stage_has_resizing_and_mobile_controls_without_old_video_navigation(self):
+        web_root = Path(__file__).parents[1] / "web" / "user"
+        page = (web_root / "index.html").read_text(encoding="utf-8")
+        app = (web_root / "app.js").read_text(encoding="utf-8")
+        styles = (web_root / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="video-resizer" class="video-resizer" role="separator"', page)
+        self.assertIn('id="collapse-lecture"', page)
+        self.assertIn('id="show-video-stage"', page)
+        self.assertIn('id="expand-video"', page)
+        self.assertIn("function currentPlaybackTime()", app)
+        self.assertIn('videoResizer.addEventListener("pointermove"', app)
+        self.assertIn(".study-panel:has(#lecture-card:not([hidden])) { grid-column:2; }", styles)
+        self.assertNotIn('id="video-position"', page)
+        self.assertNotIn('id="prev-video"', page)
+        self.assertNotIn('id="next-video"', page)
+
     def test_user_pwa_shell_is_public_and_does_not_cache_api_or_video(self):
         data_dir = tempfile.TemporaryDirectory()
         try:
@@ -68,16 +85,16 @@ class TestUserBundle(unittest.TestCase):
                     shared = client.get("/shared/tokens.css")
                     icon = client.get("/user/assets/icons/icon.svg")
                     api_client = client.get("/shared/api.js")
-                    app_js = client.get("/user/assets/app.js?v=history-context-r2")
-                    app_css = client.get("/user/assets/styles.css?v=history-context-r2")
+                    app_js = client.get("/user/assets/app.js?v=chat-shell-r5")
+                    app_css = client.get("/user/assets/styles.css?v=chat-shell-r5")
             self.assertEqual(page.status_code, 200)
             self.assertEqual(page.headers.get("cache-control"), "no-cache")
             self.assertIn("Hỏi điều bạn muốn hiểu", page.text)
             self.assertIn('id="user-login" class="quiet-button" href="/login"', page.text)
             self.assertIn('id="user-register" class="primary-button account-register" href="/register"', page.text)
             self.assertIn("Bạn có thể hỏi bài ngay mà không cần tài khoản", page.text)
-            self.assertIn("styles.css?v=history-context-r2", page.text)
-            self.assertIn("app.js?v=history-context-r2", page.text)
+            self.assertIn("styles.css?v=chat-shell-r5", page.text)
+            self.assertIn("app.js?v=chat-shell-r5", page.text)
             self.assertEqual(login.status_code, 200)
             self.assertEqual(login.headers.get("cache-control"), "no-store")
             self.assertIn('id="login-tab"', login.text)
@@ -106,9 +123,9 @@ class TestUserBundle(unittest.TestCase):
             self.assertEqual(app_css.status_code, 200)
             self.assertEqual(app_css.headers.get("cache-control"), "no-cache")
             shell = worker.text.split("self.addEventListener(\"install\"", 1)[0]
-            self.assertIn('const CACHE_NAME = "vskr-user-shell-v17"', shell)
-            self.assertIn('"/user/assets/app.js?v=history-context-r2"', shell)
-            self.assertIn('"/user/assets/styles.css?v=history-context-r2"', shell)
+            self.assertIn('const CACHE_NAME = "vskr-user-shell-v22"', shell)
+            self.assertIn('"/user/assets/app.js?v=chat-shell-r5"', shell)
+            self.assertIn('"/user/assets/styles.css?v=chat-shell-r5"', shell)
             self.assertIn('"/register"', shell)
             self.assertIn('"/login"', shell)
             self.assertIn('const AUTH_PAGES = new Set(["/login", "/register"])', shell)

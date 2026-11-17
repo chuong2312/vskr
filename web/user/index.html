@@ -8,7 +8,7 @@
   <link rel="icon" href="/user/assets/icons/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/shared/tokens.css">
-  <link rel="stylesheet" href="/user/assets/styles.css?v=history-context-r2">
+  <link rel="stylesheet" href="/user/assets/styles.css?v=chat-shell-r5">
   <title>VSKR — Hỏi đáp bài giảng</title>
 </head>
 <body>
@@ -44,7 +44,7 @@
       </div>
       <nav class="sidebar-nav" aria-label="Điều hướng">
         <button id="new-conversation-sidebar" type="button"><span aria-hidden="true">＋</span><span>Cuộc trò chuyện mới</span></button>
-        <button id="sidebar-search" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m13 13 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Tìm kiếm</span></button>
+        <button id="sidebar-search" type="button" aria-label="Tìm kiếm (Ctrl hoặc Cmd+K)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m13 13 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Tìm kiếm</span><kbd>Ctrl K</kbd></button>
         <button id="sidebar-add-content" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 14V3m0 0L6 7m4-4 4 4M4 12v4h12v-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Thêm nội dung</span></button>
         <button id="sidebar-library" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h3v12H4zm5 0h3v12H9zm5 0h2v12h-2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span>Thư viện</span><span id="sidebar-library-badge" class="count-badge" hidden>0</span></button>
       </nav>
@@ -82,7 +82,7 @@
         <button id="add-video-toggle" class="small-button" type="button" aria-expanded="false" aria-controls="add-video-panel">＋ Thêm video</button>
         <div id="add-video-panel" class="user-add-panel" hidden>
           <div id="guest-add-notice" class="guest-add-notice" hidden><p>Đăng nhập để thêm video hoặc tài liệu riêng của bạn.</p><div class="account-actions"><a class="small-button" href="/login">Đăng nhập</a><a class="small-button account-register-link" href="/register">Tạo tài khoản</a></div></div>
-          <form id="user-video-form"><label for="user-video-url">Dán link YouTube</label><input id="user-video-url" type="url" placeholder="https://youtube.com/…"><label for="user-video-file">Hoặc chọn video từ máy</label><input id="user-video-file" type="file" accept="video/*"><button class="primary-button" type="submit">Thêm video để hỏi</button><p id="user-video-status" class="request-status" role="status"></p></form>
+          <form id="user-video-form"><label for="user-video-url">Dán link YouTube</label><input id="user-video-url" type="url" placeholder="https://youtube.com/…"><label for="user-video-file">Hoặc chọn video từ máy</label><input id="user-video-file" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm,.avi,.mpeg,.mpg,video/mp4,video/quicktime,video/webm"><button class="primary-button" type="submit">Thêm video để hỏi</button><p id="user-video-status" class="request-status" role="status"></p></form>
           <form id="user-document-form"><label for="user-document-file">Thêm tài liệu</label><input id="user-document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx"><button class="small-button" type="submit">Thêm tài liệu để hỏi</button><p id="user-document-status" class="request-status" role="status"></p></form>
         </div>
         <p id="library-loading" class="muted">Đang tải học liệu…</p>
@@ -103,8 +103,9 @@
     <section class="study-panel" aria-label="Hỏi đáp bài giảng">
       <div class="chat-toolbar">
         <button id="drawer-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="library-drawer" aria-label="Mở thư viện">☰</button>
-        <div class="chat-heading"><strong id="conversation-heading">Cuộc trò chuyện mới</strong><span id="conversation-source-chip" class="source-chip" hidden></span></div>
+        <div class="chat-heading"><strong id="conversation-heading">Cuộc trò chuyện mới</strong></div>
         <button id="new-thread" class="icon-button" type="button" aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới">✎</button>
+        <button id="show-video-stage" class="icon-button" type="button" aria-label="Mở video đang xem" hidden>▣</button>
       </div>
       <p id="source-deleted-banner" class="source-deleted-banner" hidden>Video đã bị xoá. Bạn vẫn có thể đọc lịch sử cuộc trò chuyện.</p>
       <p id="app-status" class="request-status" role="status" hidden></p>
@@ -122,16 +123,18 @@
         </div>
 
         <section id="lecture-card" class="lecture-card" aria-label="Video bài giảng" hidden>
+          <div id="video-resizer" class="video-resizer" role="separator" aria-orientation="vertical" aria-label="Thay đổi chiều rộng bảng video" tabindex="0"></div>
           <div class="lecture-title-row">
             <div class="stage-heading">
-              <div class="stage-navigation">
-                <button id="prev-video" type="button" aria-label="Bài giảng trước" disabled>‹</button>
-                <button id="video-position" type="button" class="stage-position">1/1 bài giảng</button>
-                <button id="next-video" type="button" aria-label="Bài giảng tiếp theo" disabled>›</button>
-              </div>
+              <p class="eyebrow stage-eyebrow">ĐANG XEM</p>
               <h2 id="lecture-title"></h2>
             </div>
-            <div class="stage-actions"><span id="lecture-duration" class="duration-label"></span><button id="close-lecture" class="icon-button" type="button" aria-label="Đóng video">×</button></div>
+            <div class="stage-actions">
+              <span id="lecture-duration" class="duration-label"></span>
+              <button id="expand-video" class="icon-button" type="button" aria-label="Phóng to video">⤢</button>
+              <button id="collapse-lecture" class="icon-button" type="button" aria-label="Thu gọn bảng video">−</button>
+              <button id="close-lecture" class="icon-button" type="button" aria-label="Đóng video">×</button>
+            </div>
           </div>
           <div id="player" class="player" aria-label="Trình phát video"></div>
           <div class="timeline-wrap">
@@ -148,17 +151,24 @@
 
       <form id="question-form" class="question-composer">
         <label class="sr-only" for="question-input">Câu hỏi về bài giảng</label>
-        <div class="composer-tools">
-          <button id="suggest-toggle" class="suggest-button" type="button" aria-expanded="false" aria-controls="suggestions">✦ Gợi ý</button>
-          <div id="suggestions" class="suggestions" hidden>
-            <button type="button">Hãy tóm tắt nội dung chính của bài giảng.</button>
-            <button type="button">Giải thích một khái niệm trong học liệu bằng ví dụ.</button>
-            <button type="button">X là gì? Hãy giải thích dựa trên học liệu.</button>
-          </div>
+        <div class="composer-scope">
+          <button id="conversation-source-chip" class="source-chip" type="button" aria-label="Chọn nguồn" aria-expanded="false">Cả thư viện ▾</button>
         </div>
         <div class="composer-input">
+          <div class="composer-tools">
+            <button id="suggest-toggle" class="suggest-button" type="button" aria-label="Mở menu thêm nội dung" aria-expanded="false" aria-controls="suggestions">+</button>
+            <div id="suggestions" class="suggestions" hidden>
+              <button type="button" data-content-action="link">Dán liên kết video</button>
+              <button type="button" data-content-action="upload">Tải video lên</button>
+              <button type="button" data-content-action="document">Thêm tài liệu</button>
+            </div>
+          </div>
           <textarea id="question-input" rows="1" maxlength="500" placeholder="Hỏi về bài giảng hoặc tài liệu…" required></textarea>
           <button id="ask-button" class="primary-button send-button" type="submit" aria-label="Gửi câu hỏi">↑</button>
+        </div>
+        <div id="pasted-link-card" class="pasted-link-card" hidden>
+          <span>Thêm video này?</span>
+          <button id="add-pasted-link" class="small-button" type="button">Thêm</button>
         </div>
         <div class="composer-footer">
           <span id="question-hint" class="muted" aria-live="polite">0/500 ký tự</span>
@@ -204,25 +214,30 @@
       <button class="content-tab" type="button" aria-selected="false" data-content-tab="document">Tài liệu</button>
     </div>
     <p id="content-project-label" class="content-quota">Nội dung sẽ được thêm vào thư viện của bạn.</p>
+    <button id="content-drop-zone" class="content-drop-zone" type="button" aria-label="Chọn hoặc thả tệp video hoặc tài liệu">
+      <span aria-hidden="true">＋</span><span>Thả tệp vào đây hoặc <strong>chọn tệp</strong></span>
+    </button>
+    <input id="content-drop-file" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm,.avi,.mpeg,.mpg,.txt,.md,.rst,.pdf,.docx,video/mp4,video/quicktime,video/webm" hidden>
     <form id="content-link-form" class="content-form">
       <label for="content-video-url">Liên kết video (YouTube…)</label>
       <input id="content-video-url" type="url" placeholder="https://www.youtube.com/watch?v=…" required>
       <p>Nội dung bạn thêm mặc định là <strong>riêng tư</strong>; chỉ mình bạn hỏi đáp được trên đó.</p>
-      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+      <button class="primary-button" type="submit">Thêm</button>
     </form>
     <form id="content-upload-form" class="content-form" hidden>
       <label for="content-video-file">Chọn video từ máy</label>
-      <input id="content-video-file" type="file" accept="video/*" required>
-      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+      <input id="content-video-file" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm,.avi,.mpeg,.mpg,video/mp4,video/quicktime,video/webm" required>
+      <button class="primary-button" type="submit">Thêm</button>
     </form>
     <form id="content-document-form" class="content-form" hidden>
       <label for="content-document-file">Chọn tài liệu</label>
       <input id="content-document-file" type="file" accept=".txt,.md,.rst,.pdf,.docx" required>
-      <button class="primary-button" type="submit">Thêm vào thư viện của tôi</button>
+      <button class="primary-button" type="submit">Thêm</button>
     </form>
     <p id="content-dialog-status" class="request-status" role="status" aria-live="polite"></p>
     <div class="content-jobs"><h3>Đang xử lý</h3><div id="content-job-list"></div></div>
   </dialog>
+  <div id="app-toast" class="app-toast" role="status" aria-live="polite" hidden></div>
 
   <dialog id="project-dialog" class="account-dialog" aria-labelledby="project-dialog-title">
     <div class="dialog-heading">
@@ -285,6 +300,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/user/assets/app.js?v=history-context-r2"></script>
+  <script type="module" src="/user/assets/app.js?v=chat-shell-r5"></script>
 </body>
 </html>

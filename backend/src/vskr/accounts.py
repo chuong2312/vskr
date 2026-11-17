@@ -99,6 +99,11 @@ def _connect():
             name TEXT NOT NULL,
             created_at INTEGER NOT NULL
         )""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS ingest_usage (
+            usage_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )""")
         connection.commit()
         yield connection
         connection.commit()
@@ -120,6 +125,23 @@ def check_registration_rate(ip: str, now: float | None = None) -> None:
         attempts.append(now)
         while len(_registration_attempts) > 10_000:
             _registration_attempts.popitem(last=False)
+
+
+def reserve_ingest_job(owner_id: str, max_jobs_per_day: int, now: int | None = None) -> None:
+    now = int(time.time()) if now is None else int(now)
+    cutoff = now - 24 * 60 * 60
+    with _connect() as db:
+        db.execute("DELETE FROM ingest_usage WHERE created_at < ?", (cutoff,))
+        count = db.execute(
+            "SELECT COUNT(*) FROM ingest_usage WHERE owner_id = ? AND created_at >= ?",
+            (owner_id, cutoff),
+        ).fetchone()[0]
+        if count >= max_jobs_per_day:
+            raise HTTPException(429, "Bạn đã đạt giới hạn số tác vụ trong ngày.")
+        db.execute(
+            "INSERT INTO ingest_usage(owner_id, created_at) VALUES (?, ?)",
+            (owner_id, now),
+        )
 
 
 def register(username: str, password: str):

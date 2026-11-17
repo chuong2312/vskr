@@ -45,6 +45,36 @@ class UploadBodyLimitMiddleware:
         self.app = app
         self._test_limits = limits
 
+    @staticmethod
+    def _cookie(scope, name):
+        from http.cookies import SimpleCookie
+
+        cookie = SimpleCookie()
+        cookie.load(dict((key.decode().lower(), value.decode()) for key, value in scope.get("headers", [])).get("cookie", ""))
+        return cookie[name].value if name in cookie else None
+
+    def _limit_for_scope(self, scope) -> int | None:
+        path = scope.get("path", "")
+        if self._test_limits is not None:
+            return self._test_limits.get(path)
+        from .. import accounts
+        from ..config import load_config
+
+        cfg = load_config()
+        limits = cfg.get("limits", {})
+        learner = bool(self._cookie(scope, accounts.COOKIE_NAME)
+                       and accounts.get_session(self._cookie(scope, accounts.COOKIE_NAME)))
+        role = limits.get("user" if learner else "guest", {})
+        overhead = UploadBodyLimitMiddleware.OVERHEAD_BYTES
+        if path == "/api/ingest":
+            default = cfg.get("ingest", {}).get("max_upload_bytes", 1_073_741_824)
+            return int(role.get("max_upload_bytes", default)) + overhead
+        if path == "/api/documents":
+            return (100 if learner else 20) * 1024 * 1024 + overhead
+        if path == "/api/eval/questions/import":
+            return 5 * 1024 * 1024 + overhead
+        return None
+
     def _limit(self, path: str) -> int | None:
         if self._test_limits is not None:
             return self._test_limits.get(path)
@@ -65,7 +95,7 @@ class UploadBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        limit = self._limit(scope.get("path", ""))
+        limit = self._limit_for_scope(scope)
         if limit is None:
             await self.app(scope, receive, send)
             return

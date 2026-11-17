@@ -223,6 +223,47 @@ body { background:var(--canvas); }
  .top-actions { gap:5px; }
  .top-actions .quiet-button { padding:.42rem .62rem; font-size:.75rem; }
 }
+/* Answers stay unboxed while user prompts read as right-aligned chat bubbles. */
+.user-turn { display:flex; flex-direction:column; align-items:flex-end; gap:5px; padding:0; border:0; font-size:1rem; font-weight:400; }
+.turn-bubble { width:max-content; max-width:min(82%,680px); padding:11px 15px; border-radius:18px 18px 4px 18px; background:var(--soft); color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; }
+.question-actions,.answer-actions { display:flex; align-items:center; gap:5px; }
+.answer-action { min-height:32px; padding:5px 8px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:.78rem; cursor:pointer; }
+.answer-action:hover { background:var(--soft); color:var(--ink); }
+.edit-question-panel { width:min(100%,680px); text-align:left; }
+.edit-question-input { display:block; width:100%; min-height:76px; padding:10px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); font:inherit; resize:vertical; }
+.edit-question-panel .small-button { margin-top:7px; }
+.assistant-turn .turn-avatar { display:none; }
+.assistant-turn .turn-content { flex:1; min-width:0; }
+.assistant-turn .result { margin:0; padding:0; border:0; border-radius:0; background:transparent; }
+.answer { white-space:normal; overflow-wrap:anywhere; }
+.markdown-paragraph { margin:0 0 .85rem; line-height:1.75; white-space:pre-wrap; }
+.markdown-paragraph:last-child { margin-bottom:0; }
+.markdown-heading { margin:.25rem 0 .7rem; font-size:1.12em; line-height:1.4; }
+.markdown-list { margin:.25rem 0 .9rem; padding-left:1.5rem; line-height:1.7; }
+.markdown-list li + li { margin-top:.2rem; }
+.markdown-quote { margin:.3rem 0 .9rem; padding:.1rem 0 .1rem .9rem; border-left:3px solid var(--brand); color:var(--muted); }
+.markdown-quote p { margin:.3rem 0; }
+.inline-code,.code-block pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.inline-code { padding:.12em .35em; border-radius:5px; background:var(--soft); font-size:.9em; }
+.markdown-link { color:var(--brand); text-decoration:underline; text-underline-offset:2px; }
+.code-block { position:relative; margin:.8rem 0 1rem; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.code-block pre { max-height:440px; overflow:auto; margin:0; padding:38px 14px 14px; font-size:.86rem; line-height:1.6; white-space:pre; }
+.code-copy { position:absolute; top:7px; right:7px; min-height:30px; padding:.3rem .55rem; }
+.markdown-table-wrap { max-width:100%; margin:.7rem 0 1rem; overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
+.markdown-table { width:100%; border-collapse:collapse; font-size:.88rem; }
+.markdown-table th,.markdown-table td { min-width:90px; padding:9px 11px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+.markdown-table th { background:var(--soft); font-weight:750; }
+.markdown-table tr:last-child td { border-bottom:0; }
+.citation-wrap { position:relative; display:inline-block; vertical-align:middle; }
+.citation-popover { position:absolute; z-index:20; left:50%; bottom:calc(100% + 9px); display:grid; gap:5px; width:min(300px,78vw); padding:11px 12px; border:1px solid var(--line); border-radius:11px; background:var(--surface); color:var(--ink); box-shadow:0 10px 32px #0003; transform:translateX(-50%); white-space:normal; text-align:left; font-size:.79rem; line-height:1.45; }
+.citation-preview-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.citation-preview-location { color:var(--brand); }
+.citation-preview-text { display:-webkit-box; overflow:hidden; color:var(--muted); -webkit-box-orient:vertical; -webkit-line-clamp:4; }
+.coverage-note { margin:.7rem 0 0; }
+@media (max-width:899px) {
+ .turn-bubble { max-width:min(88%,680px); }
+ .citation-popover { position:fixed; left:50%; bottom:auto; top:12px; width:min(360px,calc(100vw - 28px)); transform:translateX(-50%); }
+}
 /* Reference layout: fixed navigation rail, centered conversation, optional source stage. */
 .topbar { display:none; }
 .layout { height:100dvh; grid-template-columns:258px minmax(0,1fr); }

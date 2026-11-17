@@ -5,7 +5,7 @@ const state = {
   videos: [], documents: [], conversations: [], activeConversationId: null, currentVideo: null, sources: [], player: null,
   projects: [], currentProjectId: null,
   signedIn: false,
-  sourcesByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
+  sourcesByTurn: new Map(), answersByTurn: new Map(), activeTurnId: null, activeSourceKey: null, turnCounter: 0,
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
@@ -498,46 +498,257 @@ async function openSource(source, turnId = state.activeTurnId) {
   jumpCurrentVideo(Number(source.start) || 0);
 }
 
-function appendCitedAnswer(container, answer, sources, turnId) {
-  const citationPattern = /\[\s*(?:Nguồn\s*)?(\d+(?:\s*[,;]\s*(?:Nguồn\s*)?\d+)*)\s*\]/gi;
+const circledNumbers = [..."①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"];
+
+function showCitationPreview(wrapper, visible) {
+  wrapper.querySelector(".citation-popover").hidden = !visible;
+}
+
+function createCitation(source, number, turnId, label) {
+  const wrapper = make("span", "citation-wrap");
+  const button = make("button", "citation", label);
+  button.type = "button";
+  button.setAttribute("aria-label", `Xem trước nguồn ${number}; bấm để mở nguồn`);
+  button.setAttribute("aria-haspopup", "true");
+  const location = source.source_type === "document"
+    ? `Mục ${source.section ?? "tài liệu"}`
+    : source.label || formatTime(source.start);
+  const preview = make("span", "citation-popover");
+  preview.setAttribute("role", "tooltip");
+  preview.append(
+    make("strong", "citation-preview-title", source.title || (source.source_type === "document" ? "Tài liệu" : "Bài giảng")),
+    make("small", "citation-preview-location", location),
+    make("span", "citation-preview-text", source.text ? source.text.slice(0, 220) : "Không có trích đoạn xem trước."),
+  );
+  preview.hidden = true;
+  wrapper.append(button, preview);
+  wrapper.addEventListener("mouseenter", () => showCitationPreview(wrapper, true));
+  wrapper.addEventListener("mouseleave", () => showCitationPreview(wrapper, false));
+  wrapper.addEventListener("focusin", () => showCitationPreview(wrapper, true));
+  wrapper.addEventListener("focusout", (event) => {
+    if (!wrapper.contains(event.relatedTarget)) showCitationPreview(wrapper, false);
+  });
+  let holdTimer = null;
+  let held = false;
+  const cancelHold = () => {
+    if (holdTimer) clearTimeout(holdTimer);
+    holdTimer = null;
+  };
+  button.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") return;
+    held = false;
+    holdTimer = setTimeout(() => {
+      held = true;
+      showCitationPreview(wrapper, true);
+    }, 450);
+  });
+  button.addEventListener("pointerup", cancelHold);
+  button.addEventListener("pointercancel", cancelHold);
+  button.addEventListener("click", (event) => {
+    if (held) {
+      event.preventDefault();
+      held = false;
+      return;
+    }
+    openSource(source, turnId);
+  });
+  return wrapper;
+}
+
+function appendInlineMarkdown(parent, text, sources, turnId) {
+  const pattern = /\[\s*(?:Nguồn\s*)?(\d+(?:\s*[,;]\s*(?:Nguồn\s*)?\d+)*)\s*\]|([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|`([^`\n]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gu;
   let cursor = 0;
-  for (const match of answer.matchAll(citationPattern)) {
-    container.append(document.createTextNode(answer.slice(cursor, match.index)));
-    const numbers = match[1].match(/\d+/g).map(Number);
-    if (numbers.every((number) => sources.some((source) => source.n === number))) {
-      numbers.forEach((number, index) => {
-        if (index) container.append(document.createTextNode(", "));
-        const sourceItem = sources.find((item) => item.n === number);
-        const cite = make("button", "citation", `[${number}] ${sourceItem?.source_type === "document" ? "▤" : "▶"}`);
-        cite.type = "button";
-        cite.setAttribute("aria-label", `Mở nguồn ${number}`);
-        cite.addEventListener("click", () => {
-          const source = sources.find((item) => item.n === number);
-          if (source) openSource(source, turnId);
+  let renderedCitations = 0;
+  for (const match of text.matchAll(pattern)) {
+    parent.append(document.createTextNode(text.slice(cursor, match.index)));
+    if (match[1] || match[2]) {
+      const numbers = match[1]
+        ? match[1].match(/\d+/g).map(Number)
+        : [circledNumbers.indexOf(match[2]) + 1];
+      const valid = numbers.map((number) => ({
+        number,
+        source: sources.find((item) => Number(item.n) === number),
+      }));
+      if (valid.every((item) => item.source)) {
+        renderedCitations += valid.length;
+        valid.forEach((item, index) => {
+          if (index) parent.append(document.createTextNode(", "));
+          const label = circledNumbers[item.number - 1] || `[${item.number}]`;
+          parent.append(createCitation(item.source, item.number, turnId, label));
         });
-        container.append(cite);
-      });
-    } else {
-      container.append(document.createTextNode(match[0]));
+      } else {
+        parent.append(document.createTextNode(match[0]));
+      }
+    } else if (match[3]) {
+      parent.append(make("strong", "markdown-strong", match[3].slice(2, -2)));
+    } else if (match[4]) {
+      parent.append(make("em", "markdown-emphasis", match[4].slice(1, -1)));
+    } else if (match[5]) {
+      parent.append(make("code", "inline-code", match[5]));
+    } else if (match[6] && match[7]) {
+      const link = make("a", "markdown-link", match[6]);
+      link.href = match[7];
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      parent.append(link);
     }
     cursor = match.index + match[0].length;
   }
-  container.append(document.createTextNode(answer.slice(cursor)));
+  parent.append(document.createTextNode(text.slice(cursor)));
+  return renderedCitations;
+}
+
+function tableCells(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function isTableStart(lines, index) {
+  if (!lines[index]?.includes("|") || !lines[index + 1]?.includes("|")) return false;
+  return tableCells(lines[index + 1]).every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function isMarkdownBlockStart(lines, index) {
+  const line = lines[index] || "";
+  return /^\s*(```|#{1,6}\s|[-*+]\s|\d+\.\s|>)/.test(line) || isTableStart(lines, index);
+}
+
+function appendMarkdownAnswer(container, answer, sources, turnId) {
+  const lines = String(answer).replace(/\r\n?/g, "\n").split("\n");
+  let citations = 0;
+  const appendInline = (parent, text) => {
+    citations += appendInlineMarkdown(parent, text, sources, turnId);
+  };
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index];
+    if (!line.trim()) { index += 1; continue; }
+    if (/^\s*```/.test(line)) {
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) codeLines.push(lines[index++]);
+      if (index < lines.length) index += 1;
+      const block = make("div", "code-block");
+      const pre = make("pre");
+      pre.append(make("code", "", codeLines.join("\n")));
+      const copy = make("button", "small-button code-copy", "Sao chép mã");
+      copy.type = "button";
+      copy.setAttribute("aria-label", "Sao chép đoạn mã");
+      copy.addEventListener("click", () => copyText(codeLines.join("\n")));
+      block.append(copy, pre);
+      container.append(block);
+      continue;
+    }
+    const heading = line.match(/^\s*(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const node = make(`h${heading[1].length}`, "markdown-heading");
+      appendInline(node, heading[2]);
+      container.append(node);
+      index += 1;
+      continue;
+    }
+    if (isTableStart(lines, index)) {
+      const tableWrap = make("div", "markdown-table-wrap");
+      const table = make("table", "markdown-table");
+      const header = make("thead");
+      const headerRow = make("tr");
+      for (const cell of tableCells(line)) {
+        const th = make("th");
+        appendInline(th, cell);
+        headerRow.append(th);
+      }
+      header.append(headerRow);
+      table.append(header);
+      index += 2;
+      const body = make("tbody");
+      while (index < lines.length && lines[index].includes("|")) {
+        const row = make("tr");
+        for (const cell of tableCells(lines[index++])) {
+          const td = make("td");
+          appendInline(td, cell);
+          row.append(td);
+        }
+        body.append(row);
+      }
+      table.append(body);
+      tableWrap.append(table);
+      container.append(tableWrap);
+      continue;
+    }
+    const listMatch = line.match(/^\s*([-*+])\s+|^\s*(\d+)\.\s+/);
+    if (listMatch) {
+      const ordered = Boolean(listMatch[2]);
+      const list = make(ordered ? "ol" : "ul", "markdown-list");
+      const itemPattern = ordered ? /^\s*\d+\.\s+/ : /^\s*[-*+]\s+/;
+      while (index < lines.length && itemPattern.test(lines[index])) {
+        const item = make("li");
+        appendInline(item, lines[index++].replace(itemPattern, ""));
+        list.append(item);
+      }
+      container.append(list);
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const quote = make("blockquote", "markdown-quote");
+      while (index < lines.length && /^\s*>/.test(lines[index])) {
+        const paragraph = make("p");
+        appendInline(paragraph, lines[index++].replace(/^\s*>\s?/, ""));
+        quote.append(paragraph);
+      }
+      container.append(quote);
+      continue;
+    }
+    const paragraphLines = [line];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !isMarkdownBlockStart(lines, index)) {
+      paragraphLines.push(lines[index++]);
+    }
+    const paragraph = make("p", "markdown-paragraph");
+    appendInline(paragraph, paragraphLines.join("\n"));
+    container.append(paragraph);
+  }
+  return citations;
+}
+
+async function copyText(text) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Bộ nhớ tạm không khả dụng.");
+    await navigator.clipboard.writeText(text);
+    setStatus("Đã sao chép vào bộ nhớ tạm.");
+  } catch (error) {
+    setStatus(error.message || "Không sao chép được nội dung.", "error");
+  }
 }
 
 function renderResult(result, root, turnId, { scroll = true } = {}) {
   const followThread = isThreadNearEnd();
   state.sources = Array.isArray(result.sources) ? result.sources : [];
+  state.answersByTurn.set(String(turnId), result.answer || "Chưa có câu trả lời.");
   state.activeTurnId = String(turnId);
   state.activeSourceKey = null;
   state.sourcesByTurn.set(state.activeTurnId, state.sources);
   root.replaceChildren();
   const answer = make("div", `answer${result.found ? "" : " not-found"}`);
-  appendCitedAnswer(answer, result.answer || "Chưa có câu trả lời.", state.sources, turnId);
+  const citationCount = appendMarkdownAnswer(answer, state.answersByTurn.get(String(turnId)), state.sources, turnId);
   root.append(answer);
-  if (result.found && state.sources.length) {
+  if (result.no_sources === true || citationCount === 0) {
+    root.append(make("p", "coverage-note", "Không tìm thấy nội dung này trong nguồn đang chọn"));
+  } else if (result.found && state.sources.length) {
     root.append(make("p", "coverage-note", "Câu trả lời dựa trên các đoạn gần nhất tìm được trong thư viện. Hãy mở nguồn để đối chiếu."));
   }
+  const actions = make("div", "answer-actions");
+  const copy = make("button", "answer-action", "Sao chép");
+  copy.type = "button";
+  copy.setAttribute("aria-label", "Sao chép câu trả lời");
+  copy.addEventListener("click", () => copyText(state.answersByTurn.get(String(turnId)) || ""));
+  const regenerate = make("button", "answer-action", "Tạo lại");
+  regenerate.type = "button";
+  regenerate.setAttribute("aria-label", "Tạo lại câu trả lời");
+  regenerate.addEventListener("click", () => {
+    const userTurn = root.closest(".assistant-turn")?.previousElementSibling;
+    const question = userTurn?.dataset.question;
+    if (question) submitQuestion(question, { retryTurn: root.closest(".assistant-turn") });
+  });
+  actions.append(copy, regenerate);
+  root.append(actions);
   if (state.sources.length) {
     const cards = make("div", "source-list");
     for (const source of state.sources) {
@@ -616,10 +827,57 @@ function addTurn(role, content, pending = false, { scroll = true, forceScroll = 
   const turnId = `turn-${++state.turnCounter}`;
   row.id = turnId;
   row.dataset.turnId = turnId;
-  const avatar = make("span", "turn-avatar", role === "user" ? "B" : "V");
-  avatar.setAttribute("aria-hidden", "true");
-  const body = make("div", "turn-content", content);
-  row.append(avatar, body);
+  const body = make("div", role === "user" ? "turn-content turn-bubble" : "turn-content", content);
+  if (role === "user") {
+    row.dataset.question = content;
+    const actions = make("div", "question-actions");
+    const edit = make("button", "answer-action", "Sửa");
+    edit.type = "button";
+    edit.setAttribute("aria-label", "Sửa câu hỏi");
+    const editor = make("div", "edit-question-panel");
+    editor.hidden = true;
+    const textarea = make("textarea", "edit-question-input", content);
+    textarea.rows = 3;
+    textarea.setAttribute("aria-label", "Chỉnh sửa câu hỏi");
+    const save = make("button", "small-button", "Gửi lại");
+    save.type = "button";
+    const cancel = make("button", "answer-action", "Hủy");
+    cancel.type = "button";
+    const closeEditor = () => {
+      editor.hidden = true;
+      body.hidden = false;
+      edit.focus();
+    };
+    edit.addEventListener("click", () => {
+      editor.hidden = false;
+      body.hidden = true;
+      textarea.value = row.dataset.question || "";
+      textarea.focus();
+    });
+    save.addEventListener("click", () => {
+      if (!textarea.value.trim()) {
+        textarea.focus();
+        return;
+      }
+      if (state.asking) {
+        setStatus("Đợi câu trả lời hiện tại xong rồi gửi lại câu hỏi.", "error");
+        return;
+      }
+      if (!$("#source-deleted-banner").hidden) {
+        setStatus("Nguồn của cuộc trò chuyện đã bị xoá; không thể gửi câu hỏi mới.", "error");
+        return;
+      }
+      editor.hidden = true;
+      body.hidden = false;
+      submitQuestion(textarea.value.trim());
+    });
+    cancel.addEventListener("click", closeEditor);
+    editor.append(textarea, save, cancel);
+    actions.append(edit);
+    row.append(body, actions, editor);
+  } else {
+    row.append(body);
+  }
   if (pending) row.dataset.pending = "true";
   $("#conversation").append(row);
   if (scroll) scrollThreadToEnd({ onlyIfNearEnd: !forceScroll });
@@ -653,7 +911,7 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
     turn = addTurn("assistant", "", true, { scroll: false });
     scrollThreadToEnd();
   }
-  const pending = make("p", "request-status", retryTurn ? "Đang thử gửi lại câu hỏi…" : "Đang tìm trong bài giảng và tài liệu…");
+  const pending = make("p", "request-status", retryTurn ? "Đang thử gửi lại câu hỏi…" : "Đang trả lời…");
   pending.setAttribute("role", "status");
   turn.querySelector(".turn-content").replaceChildren(pending);
   state.asking = true;
@@ -696,7 +954,9 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
         if (child !== currentUserTurn && child !== turn) child.remove();
       }
       state.sourcesByTurn.clear();
+      state.answersByTurn.clear();
       state.sourcesByTurn.set(String(turn.dataset.turnId), state.sources);
+      state.answersByTurn.set(String(turn.dataset.turnId), result.answer || "Chưa có câu trả lời.");
       sessionStorage.removeItem("vskr-user-csrf");
       setAccountView(null, { preserveCurrentThread: true });
       setStatus("Phiên đăng nhập đã hết hạn. Câu trả lời này chưa được lưu; bạn vẫn có thể tiếp tục hỏi bài với tư cách khách.", "error");
@@ -815,6 +1075,7 @@ function setAccountView(session, { preserveCurrentThread = false } = {}) {
     if (lostSession && !preserveCurrentThread) {
       state.sources = [];
       state.sourcesByTurn.clear();
+      state.answersByTurn.clear();
       state.activeTurnId = null;
       state.activeSourceKey = null;
       $("#conversation").replaceChildren();
@@ -1004,6 +1265,7 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     if (updateUrl) updateConversationUrl(conversation.conversation_id);
     state.sources = [];
     state.sourcesByTurn.clear();
+    state.answersByTurn.clear();
     state.activeTurnId = null;
     state.activeSourceKey = null;
     $("#conversation").replaceChildren();
@@ -1059,6 +1321,7 @@ function resetConversationView({ updateUrl = true, replaceUrl = false, focus = t
   setStatus("");
   state.sources = [];
   state.sourcesByTurn.clear();
+  state.answersByTurn.clear();
   state.activeTurnId = null;
   state.activeSourceKey = null;
   renderTimeline();
@@ -1138,6 +1401,7 @@ async function beginConversationWithSource(source) {
   clearRetry();
   state.sources = [];
   state.sourcesByTurn.clear();
+  state.answersByTurn.clear();
   state.activeTurnId = null;
   state.activeSourceKey = null;
   state.preferredConversationVideoId = normalized.source_type === "video" ? normalized.source_id : null;

@@ -9,7 +9,7 @@ const state = {
   youtubePromise: null, pendingJump: null, retryUntil: 0, retryInterval: null,
   retryPanel: null, retryButton: null, retryTurn: null,
   installPrompt: null, asking: false, conversationLoadToken: 0, renameConversationId: null,
-  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Toàn bộ dự án" },
+  preferredConversationVideoId: null, conversationSource: { source_id: null, source_type: "library", title: "Toàn bộ thư viện" },
   segmentContext: null,
 };
 
@@ -29,10 +29,10 @@ function formatTime(value) {
   return hours ? `${hours}:${pad(minutes)}:${pad(remainder)}` : `${minutes}:${pad(remainder)}`;
 }
 
-function setConversationSource(source = { source_id: null, source_type: "library", title: "Toàn bộ dự án" }) {
+function setConversationSource(source = { source_id: null, source_type: "library", title: "Toàn bộ thư viện" }) {
   state.conversationSource = source;
   const chip = $("#conversation-source-chip");
-  chip.textContent = source.source_type === "library" ? "Toàn bộ dự án" : source.title;
+  chip.textContent = source.source_type === "library" ? "Toàn bộ thư viện" : source.title;
   chip.hidden = source.source_type === "library";
   $("#privacy-note").textContent = source.source_type === "library"
     ? "Tìm trên toàn bộ thư viện"
@@ -724,15 +724,24 @@ async function showAdminLink() {
 
 async function loadLearnerSession() {
   try {
-    const session = await request("/api/user/auth/me");
+    const session = await request("/api/user/me");
+    if (session.user_id && !state.signedIn) {
+      state.projects = [];
+      state.currentProjectId = null;
+    }
     setAccountView(session);
-    $("#user-name").textContent = session.username;
-    if (session.csrf_token) sessionStorage.setItem("vskr-user-csrf", session.csrf_token);
-    await loadConversations();
-    const requestedConversation = new URL(location.href).searchParams.get("conversation");
-    if (requestedConversation && state.conversations.some((item) => item.conversation_id === requestedConversation)) {
-      await openConversation(requestedConversation, { updateUrl: false });
-    } else if (requestedConversation) {
+    $("#user-name").textContent = session.username || "";
+    if (session.user_id) {
+      if (session.csrf_token) sessionStorage.setItem("vskr-user-csrf", session.csrf_token);
+      await loadProjects();
+      const requestedConversation = new URL(location.href).searchParams.get("conversation");
+      if (requestedConversation && state.conversations.some((item) => item.conversation_id === requestedConversation)) {
+        await openConversation(requestedConversation, { updateUrl: false });
+      } else if (requestedConversation) {
+        updateConversationUrl(null, { replace: true });
+      }
+    } else {
+      sessionStorage.removeItem("vskr-user-csrf");
       updateConversationUrl(null, { replace: true });
     }
   } catch {
@@ -960,7 +969,7 @@ async function openConversation(conversationId, { updateUrl = true } = {}) {
     setConversationSource({
       source_id: conversation.source_id || null,
       source_type: conversation.source_type || "library",
-      title: conversation.source_title || conversation.title || "Toàn bộ dự án",
+      title: conversation.source_title || conversation.title || "Toàn bộ thư viện",
     });
     if (conversation.project_id && state.projects.some((project) => project.project_id === conversation.project_id)) {
       state.currentProjectId = conversation.project_id;
@@ -1064,7 +1073,7 @@ async function beginConversationWithSource(source) {
   const normalized = {
     source_id: source.source_type === "library" ? null : source.source_id,
     source_type: source.source_type,
-    title: source.title || "Toàn bộ dự án",
+    title: source.title || "Toàn bộ thư viện",
   };
   if (state.signedIn) {
     try {
@@ -1149,7 +1158,7 @@ async function loadLibrary() {
     const badge = $("#sidebar-library-badge");
     if (badge) {
       badge.textContent = String(state.videos.length + state.documents.length);
-      badge.hidden = !(state.signedIn && state.videos.length + state.documents.length);
+      badge.hidden = state.videos.length + state.documents.length === 0;
     }
     const preferredVideoId = state.currentVideo?.video_id || state.preferredConversationVideoId;
     const initialVideo = state.videos.find((video) => video.video_id === preferredVideoId);
@@ -1183,8 +1192,7 @@ document.querySelectorAll(".welcome-suggestions button").forEach((button) => {
 $("#new-conversation").addEventListener("click", () => startNewConversation());
 $("#new-conversation-sidebar").addEventListener("click", () => startNewConversation());
 $("#sidebar-search").addEventListener("click", () => {
-  const search = $("#conversation-search");
-  search?.focus();
+  openLibrarySearch();
 });
 $("#project-select").addEventListener("change", async (event) => {
   state.currentProjectId = event.target.value || null;
@@ -1228,7 +1236,6 @@ $("#sidebar-add-content").addEventListener("click", () => {
   openContentDialog();
   closeDrawer({ restoreFocus: false });
 });
-$("#sidebar-collapse").addEventListener("click", () => closeDrawer({ restoreFocus: false }));
 $("#sidebar-account-menu").addEventListener("click", () => {
   const menu = $("#sidebar-account-actions");
   menu.hidden = !menu.hidden;
@@ -1262,7 +1269,7 @@ $("#conversation-source-dialog").addEventListener("click", (event) => {
 });
 $("#conversation-source-search").addEventListener("input", renderConversationSourcePicker);
 $("#conversation-library-choice").addEventListener("click", () => beginConversationWithSource({
-  source_type: "library", source_id: null, title: "Toàn bộ dự án",
+  source_type: "library", source_id: null, title: "Toàn bộ thư viện",
 }));
 document.querySelectorAll(".content-tab[data-content-tab]").forEach((tab) => tab.addEventListener("click", () => {
   const selected = tab.dataset.contentTab;
@@ -1448,6 +1455,10 @@ function closeSearch() {
   searchInput.setAttribute("aria-expanded", "false");
   searchInput.removeAttribute("aria-activedescendant");
 }
+function openLibrarySearch() {
+  topbar.classList.add("search-open");
+  searchInput.focus();
+}
 function updateSearch() {
   const query = searchInput.value.trim().toLocaleLowerCase("vi");
   searchResults.replaceChildren(); searchIndex = -1;
@@ -1481,7 +1492,7 @@ function updateSearch() {
       searchInput.setAttribute("aria-expanded", "false");
       searchInput.value = "";
       searchInput.removeAttribute("aria-activedescendant");
-      if (window.matchMedia("(max-width: 899px)").matches) closeSearch();
+      closeSearch();
     });
     searchResults.append(button);
   }
@@ -1514,11 +1525,11 @@ searchInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && searchIndex >= 0) { event.preventDefault(); options[searchIndex]?.click(); }
 });
 document.addEventListener("click", (event) => {
-  if (event.target instanceof Element && !event.target.closest(".global-search")) {
+  if (event.target instanceof Element && !event.target.closest(".global-search") && !event.target.closest("#sidebar-search")) {
     searchResults.hidden = true;
     searchInput.setAttribute("aria-expanded", "false");
     searchInput.removeAttribute("aria-activedescendant");
-    if (window.matchMedia("(max-width: 899px)").matches) closeSearch();
+    closeSearch();
   }
 });
 searchToggle.addEventListener("click", () => {
@@ -1528,6 +1539,14 @@ searchToggle.addEventListener("click", () => {
   else closeSearch();
 });
 const drawer = $("#library-drawer"), drawerToggle = $("#drawer-toggle"), drawerBackdrop = $("#drawer-backdrop");
+$("#sidebar-collapse").addEventListener("click", () => {
+  if (window.matchMedia("(max-width: 899px)").matches) {
+    closeDrawer({ restoreFocus: false });
+    return;
+  }
+  const collapsed = document.body.classList.toggle("sidebar-collapsed");
+  $("#sidebar-collapse").setAttribute("aria-label", collapsed ? "Mở rộng thanh bên" : "Thu gọn thanh bên");
+});
 if (!window.matchMedia("(max-width: 899px)").matches) {
   drawer.inert = false;
   drawer.setAttribute("aria-hidden", "false");
@@ -1597,7 +1616,7 @@ questionInput.addEventListener("keydown", (event) => {
 document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    $("#conversation-search")?.focus();
+    openLibrarySearch();
   }
 });
 const thread = $("#thread"), bottomButton = $("#thread-bottom");
@@ -1637,7 +1656,6 @@ window.addEventListener("popstate", () => {
 
 setNetworkStatus();
 loadLearnerSession().then(async () => {
-  await loadProjects();
   await loadLibrary();
 });
 showAdminLink();

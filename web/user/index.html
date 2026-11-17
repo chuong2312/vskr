@@ -8,7 +8,7 @@
   <link rel="icon" href="/user/assets/icons/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/shared/tokens.css">
-  <link rel="stylesheet" href="/user/assets/styles.css?v=history-context-r2">
+  <link rel="stylesheet" href="/user/assets/styles.css?v=chat-shell-r1">
   <title>VSKR — Hỏi đáp bài giảng</title>
 </head>
 <body>
@@ -44,7 +44,7 @@
       </div>
       <nav class="sidebar-nav" aria-label="Điều hướng">
         <button id="new-conversation-sidebar" type="button"><span aria-hidden="true">＋</span><span>Cuộc trò chuyện mới</span></button>
-        <button id="sidebar-search" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m13 13 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Tìm kiếm</span></button>
+        <button id="sidebar-search" type="button" aria-label="Tìm kiếm (Ctrl hoặc Cmd+K)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m13 13 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Tìm kiếm</span><kbd>Ctrl K</kbd></button>
         <button id="sidebar-add-content" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 14V3m0 0L6 7m4-4 4 4M4 12v4h12v-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Thêm nội dung</span></button>
         <button id="sidebar-library" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h3v12H4zm5 0h3v12H9zm5 0h2v12h-2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span>Thư viện</span><span id="sidebar-library-badge" class="count-badge" hidden>0</span></button>
       </nav>
@@ -285,6 +285,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/user/assets/app.js?v=history-context-r2"></script>
+  <script type="module" src="/user/assets/app.js?v=chat-shell-r1"></script>
 </body>
 </html>

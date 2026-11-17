@@ -568,3 +568,71 @@ body { background:var(--canvas); }
   }
   .privacy-note { width:calc(100% - 24px); }
 }
+
+.topbar {
+  position:fixed;
+  z-index:40;
+  inset:8px 12px auto auto;
+  display:none;
+  width:min(520px,calc(100vw - 284px));
+  height:46px;
+  padding:0;
+  border:0;
+  background:transparent;
+}
+.topbar.search-open { display:flex; }
+.topbar .brand, .topbar .top-actions { display:none; }
+.topbar .global-search {
+  display:flex;
+  width:100%;
+  height:44px;
+  border-color:var(--line);
+  background:var(--surface);
+  box-shadow:0 12px 30px #0002;
+}
+.layout {
+  position:fixed;
+  inset:0;
+  height:100dvh;
+  min-height:0;
+}
+.library-panel {
+  width:260px;
+  height:100dvh;
+  max-height:100dvh;
+  overflow:hidden;
+}
+.layout { grid-template-columns:260px minmax(0,1fr); }
+.study-panel { grid-column:2; min-width:0; }
+.chat-toolbar { min-height:48px; }
+.sidebar-nav kbd {
+  margin-left:auto;
+  color:var(--muted);
+  font:500 .68rem ui-monospace,monospace;
+  white-space:nowrap;
+}
+.signed-in-account > span:nth-child(2) { flex:1; }
+.signed-in-account .account-avatar { flex:none; }
+body.sidebar-collapsed .layout { grid-template-columns:72px minmax(0,1fr); }
+body.sidebar-collapsed .library-panel { width:72px; padding:14px 8px; }
+body.sidebar-collapsed .sidebar-brand { justify-content:center; flex-wrap:wrap; }
+body.sidebar-collapsed .sidebar-brand .brand > span:last-child,
+body.sidebar-collapsed .sidebar-nav button > span:not(:first-child),
+body.sidebar-collapsed #history-section,
+body.sidebar-collapsed .guest-account-panel,
+body.sidebar-collapsed .signed-in-account > span:nth-child(2) { display:none; }
+body.sidebar-collapsed .sidebar-nav button { justify-content:center; padding:8px; }
+body.sidebar-collapsed .sidebar-nav button:first-child > span:first-child { display:inline; }
+body.sidebar-collapsed .signed-in-account { justify-content:center; flex-wrap:wrap; }
+body.sidebar-collapsed .signed-in-account .icon-button { margin:0; }
+
+@media (max-width:899px) {
+  .topbar {
+    inset:8px 8px auto;
+    width:auto;
+    height:46px;
+  }
+  .layout { position:fixed; inset:0; height:100dvh; }
+  .library-panel { width:min(320px,88vw); height:100dvh; max-height:100dvh; }
+  .study-panel { grid-column:auto; }
+}

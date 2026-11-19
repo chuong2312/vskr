@@ -747,6 +747,8 @@ function updatePprControls() {
 $("#eval-exp-ppr").addEventListener("change", updatePprControls);
 $("#graph-ppr").addEventListener("change", updatePprControls);
 
+const evidenceLabels = { spoken: "Lời nói", screen: "Chữ trên màn hình", figure: "Hình vẽ" };
+
 function renderEvalQuestions(items) {
   $("#eval-question-count").textContent = String(items.length);
   $("#eval-run").disabled = items.length === 0;
@@ -756,7 +758,7 @@ function renderEvalQuestions(items) {
     list.innerHTML = `<p class="hint">Chưa có câu hỏi đánh giá. Hãy thêm câu hỏi thật hoặc nhập JSONL.</p>`;
     return;
   }
-  list.innerHTML = items.map((item) => `<div class="question-row"><p>${esc(item.question)}</p><span class="tag">${item.type === "fact" ? "Tra dữ kiện" : "Nhiều bước"} · ${item.relevant.length} mục đúng</span><button class="small-action danger" type="button" data-eval-delete="${esc(item.id)}" aria-label="Xóa câu hỏi">Xóa</button></div>`).join("");
+  list.innerHTML = items.map((item) => `<div class="question-row"><p>${esc(item.question)}</p><span class="tag">${item.type === "fact" ? "Tra dữ kiện" : "Nhiều bước"}${evidenceLabels[item.evidence] ? ` · ${evidenceLabels[item.evidence]}` : ""} · ${item.relevant.length} mục đúng</span><button class="small-action danger" type="button" data-eval-delete="${esc(item.id)}" aria-label="Xóa câu hỏi">Xóa</button></div>`).join("");
 }
 
 async function loadEvaluation() {

@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..config import data_dir, index_dir, load_config, video_dir, videos_dir
+from ..evaluation import score_results, validate_question
 from ..index import load_meta
 from ..ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
 from ..util import fmt_time, read_json, write_json
@@ -93,41 +94,10 @@ def _questions_fingerprint(questions):
 
 
 def _validate_eval_question(raw):
-    if not isinstance(raw, dict):
-        raise HTTPException(422, "Mỗi dòng câu hỏi cần là một object JSON.")
-    item = dict(raw)
-    item["id"] = str(item.get("id") or uuid.uuid4().hex[:12])
-    item["question"] = str(item.get("question") or "").strip()
-    if not item["question"]:
-        raise HTTPException(422, "Câu hỏi đánh giá không được để trống.")
-    if item.get("type") not in ("fact", "multihop"):
-        raise HTTPException(422, "type phải là fact hoặc multihop.")
-    refs = item.get("relevant")
-    if not isinstance(refs, list) or not refs:
-        raise HTTPException(422, "Mỗi câu hỏi cần ít nhất một mục nguồn đúng trong relevant.")
-    clean_refs = []
-    for ref in refs:
-        if not isinstance(ref, dict):
-            raise HTTPException(422, "Mỗi mục relevant phải là một object.")
-        if ref.get("document_id"):
-            try:
-                section = int(ref["section"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise HTTPException(422, "Nguồn tài liệu cần document_id và section.") from exc
-            if section < 1:
-                raise HTTPException(422, "section phải bắt đầu từ 1.")
-            clean_refs.append({"document_id": str(ref["document_id"]), "section": section})
-        elif ref.get("video_id"):
-            try:
-                start, end = float(ref["start"]), float(ref["end"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise HTTPException(422, "Nguồn video cần video_id, start và end.") from exc
-            if start < 0 or end < start:
-                raise HTTPException(422, "Khoảng thời gian video không hợp lệ.")
-            clean_refs.append({"video_id": str(ref["video_id"]), "start": start, "end": end})
-        else:
-            raise HTTPException(422, "Nguồn đúng cần video_id hoặc document_id.")
-    return {"id": item["id"], "question": item["question"], "type": item["type"], "relevant": clean_refs}
+    try:
+        return validate_question(raw)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 state = {"service": None, "error": None, "failed_at": 0.0}
@@ -1262,8 +1232,6 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
         retrieval_config = dict(service.cfg["retrieval"])
     finally:
         _release_service(service)
-    from ..evaluation import score_results
-
     scored = score_results(questions, hits, k=5)
     result = {
         "created_at": datetime.now(timezone.utc).isoformat(),

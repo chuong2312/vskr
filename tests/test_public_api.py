@@ -9,7 +9,7 @@ from unittest import mock
 
 import numpy as np
 
-from vskr.api import app, handlers, limits
+from vskr.api import app, handlers, limits, public
 from vskr.access import accounts
 from vskr.api.public import _safe_source_link
 from vskr.retrieval.bm25 import BM25, tokenize
@@ -28,6 +28,26 @@ class TestPublicCatalog(unittest.TestCase):
             accounts._registration_attempts.clear()
         with limits._lock:
             limits._ask_attempts.clear()
+
+    def test_limits_shown_to_the_ui_come_from_models_yaml(self):
+        cfg = {
+            "ingest": {"max_upload_bytes": 1 << 30, "max_duration_s": 7200},
+            "limits": {
+                "guest": {"max_upload_bytes": 50 * 1024 * 1024, "max_duration_s": 600, "max_active_jobs": 1},
+                "user": {"max_upload_bytes": 2 << 30, "max_duration_s": 3600, "max_active_jobs": 3},
+            },
+        }
+        with mock.patch("vskr.api.public.load_config", return_value=cfg):
+            guest = public.user_me_contract(SimpleNamespace(cookies={}))
+            learner = public.user_me({"user_id": "u1", "username": "u1", "csrf_token": "token"})
+        self.assertEqual(guest["limits"], {"max_upload_mb": 50, "max_duration_min": 10, "max_active_jobs": 1})
+        self.assertEqual(learner["limits"], {"max_upload_mb": 2048, "max_duration_min": 60, "max_active_jobs": 3})
+
+    def test_default_ui_limits_match_the_previous_hard_coded_values(self):
+        guest = public.user_me_contract(SimpleNamespace(cookies={}))
+        learner = public.user_me({"user_id": "u1", "username": "u1", "csrf_token": "token"})
+        self.assertEqual(guest["limits"], {"max_upload_mb": 100, "max_duration_min": 15, "max_active_jobs": 1})
+        self.assertEqual(learner["limits"], {"max_upload_mb": 1024, "max_duration_min": 120, "max_active_jobs": 2})
 
     def test_ingest_job_carries_role_specific_limits(self):
         queued_source = {}

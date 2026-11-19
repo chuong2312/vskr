@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from ..access import accounts, audit, auth
-from ..config import ROOT, data_dir, load_config
+from ..config import ROOT, data_dir, load_config, role_limit
 from ..util import is_youtube_host, read_json, write_json
 from . import handlers
 from .limits import check_ask_rate, enter_ask_slot, leave_ask_slot, rollback_ask_rate
@@ -212,6 +212,17 @@ def user_logout(request: Request, user=Depends(accounts.require_user)):
     return response
 
 
+def _display_limits(role):
+    """Hạn mức hiển thị trên giao diện cho ``role`` ("guest" hoặc "user"), tính từ ``limits`` trong models.yaml."""
+    cfg = load_config()
+    role_limits = cfg["limits"][role]
+    return {
+        "max_upload_mb": role_limit(role_limits, cfg["ingest"], "max_upload_bytes") // (1024 * 1024),
+        "max_duration_min": role_limit(role_limits, cfg["ingest"], "max_duration_s") // 60,
+        "max_active_jobs": int(role_limits["max_active_jobs"]),
+    }
+
+
 @router.get("/api/user/auth/me")
 def user_me(user=Depends(accounts.require_user)):
     """Thông tin người học đang đăng nhập, token CSRF và hạn mức hiển thị trên giao diện."""
@@ -219,8 +230,7 @@ def user_me(user=Depends(accounts.require_user)):
                      "display_name": user["username"]},
             "user_id": user["user_id"], "username": user["username"],
             "csrf_token": user["csrf_token"],
-            "limits": {"max_upload_mb": 1024, "max_duration_min": 120,
-                       "max_active_jobs": 2}}
+            "limits": _display_limits("user")}
 
 
 @router.get("/api/user/me")
@@ -229,9 +239,7 @@ def user_me_contract(request: Request):
     token = request.cookies.get(accounts.COOKIE_NAME)
     user = accounts.get_session(token)
     if not user:
-        return {"user": None, "csrf_token": None,
-                "limits": {"max_upload_mb": 100, "max_duration_min": 15,
-                           "max_active_jobs": 1}}
+        return {"user": None, "csrf_token": None, "limits": _display_limits("guest")}
     return user_me(user)
 
 

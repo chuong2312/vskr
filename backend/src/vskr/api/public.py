@@ -367,7 +367,7 @@ def public_job_status(job_id: str, user=Depends(accounts.optional_learner_or_adm
 def public_document_section(document_id: str, section: int, user=Depends(accounts.optional_learner_or_admin)):
     owner_id = user.get("user_id")
     shared_only = user.get("guest", False)
-    if not handlers.library._indexed_document(document_id, owner_id=owner_id, shared_only=shared_only):
+    if not handlers.library.indexed_and_visible("document", document_id, owner_id=owner_id, shared_only=shared_only):
         raise HTTPException(404, "Không tìm thấy mục tài liệu.")
     return handlers.library.document_section(document_id, section, owner_id=owner_id, shared_only=shared_only)
 
@@ -376,7 +376,7 @@ def public_document_section(document_id: str, section: int, user=Depends(account
 def public_video_file(video_id: str, user=Depends(accounts.optional_learner_or_admin)):
     owner_id = user.get("user_id")
     shared_only = user.get("guest", False)
-    if not handlers.library._indexed_video(video_id, owner_id=owner_id, shared_only=shared_only):
+    if not handlers.library.indexed_and_visible("video", video_id, owner_id=owner_id, shared_only=shared_only):
         raise HTTPException(404, "Không tìm thấy video.")
     return handlers.library.uploaded_video_file(video_id, owner_id=owner_id, shared_only=shared_only)
 

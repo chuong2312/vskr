@@ -223,30 +223,23 @@ def _meta_is_visible(meta, owner_id=None, *, shared_only=False):
     return is_visible(meta, owner_id, shared_only=shared_only)
 
 
-def _indexed_video(video_id: str, owner_id=None, *, shared_only=False) -> bool:
-    service = state["service"]
-    return bool(service and any(
-        chunk.get("video_id") == video_id
-        and _meta_is_visible(
-            (service.meta.get(video_id) if
-             (service.meta.get(video_id, {}).get("owner") or service.meta.get(video_id, {}).get("owner_id"))
-             else {**service.meta.get(video_id, {}), "owner_id": chunk.get("owner_id")}),
-            owner_id, shared_only=shared_only)
-        for chunk in service.index.chunks
-    ))
+def indexed_and_visible(kind: str, source_id: str, owner_id=None, *, shared_only=False) -> bool:
+    """Học liệu (``kind`` là "video" hoặc "document") đã có trong chỉ mục và người xem được phép thấy.
 
-
-def _indexed_document(document_id: str, owner_id=None, *, shared_only=False) -> bool:
+    Metadata cũ chưa ghi chủ sở hữu thì lấy ``owner_id`` từ đoạn đã lập chỉ mục.
+    """
     service = state["service"]
-    return bool(service and any(
-        chunk.get("document_id") == document_id
-        and _meta_is_visible(
-            (service.document_meta.get(document_id) if
-             (service.document_meta.get(document_id, {}).get("owner") or service.document_meta.get(document_id, {}).get("owner_id"))
-             else {**service.document_meta.get(document_id, {}), "owner_id": chunk.get("owner_id")}),
-            owner_id, shared_only=shared_only)
+    if not service:
+        return False
+    id_key = "video_id" if kind == "video" else "document_id"
+    item = (service.meta if kind == "video" else service.document_meta).get(source_id, {})
+    has_owner = bool(item.get("owner") or item.get("owner_id"))
+    return any(
+        chunk.get(id_key) == source_id
+        and _meta_is_visible(item if has_owner else {**item, "owner_id": chunk.get("owner_id")},
+                             owner_id, shared_only=shared_only)
         for chunk in service.index.chunks
-    ))
+    )
 
 
 def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *, shared_only=False) -> bool:
@@ -257,12 +250,12 @@ def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *,
     if source_type == "video":
         meta = (state["service"].meta if state["service"] else {}).get(source_id)
         return bool(meta and _meta_is_visible(meta, owner_id, shared_only=shared_only)
-                    and _indexed_video(source_id, owner_id, shared_only=shared_only))
+                    and indexed_and_visible("video", source_id, owner_id, shared_only=shared_only))
     from ...pipeline.documents import list_documents
     item = next((entry for entry in list_documents(load_config())
                  if entry.get("document_id") == source_id), None)
     return bool(item and _meta_is_visible(item, owner_id, shared_only=shared_only)
-                and _indexed_document(source_id, owner_id, shared_only=shared_only))
+                and indexed_and_visible("document", source_id, owner_id, shared_only=shared_only))
 
 
 def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project_id=None):

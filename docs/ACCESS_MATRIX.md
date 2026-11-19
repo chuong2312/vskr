@@ -23,8 +23,8 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 |---|---|---|---|
 | `GET` | `/api/videos` | Public guest, learner session hoặc admin session | Khách chỉ thấy video dùng chung; learner thấy nội dung dùng chung và của mình; admin thấy toàn bộ. Chỉ nội dung đã index sẵn sàng; bỏ job, lỗi, đường dẫn và metadata nội bộ. |
 | `GET` | `/api/catalog` *(mới)* | Public guest, learner session hoặc admin session | Khách chỉ thấy thư viện dùng chung; learner thấy nội dung dùng chung và của mình; admin thấy toàn bộ. Không trả filename nội bộ, đường dẫn, trạng thái hay job. |
-| `POST` | `/api/ingest` | Guest hoặc learner session | Nội dung mới mặc định `private`; guest nhận diện bằng cookie riêng. Hạn mức theo vai trò, URL chỉ cho phép domain cấu hình và được kiểm tra scheme/DNS/IP. Admin không dùng route này. |
-| `POST` | `/api/documents` | Guest hoặc learner session | Tài liệu mới mặc định `private`; hạn mức theo vai trò. Admin không dùng route này. |
+| `POST` | `/api/ingest` | Guest hoặc learner session | Bắt buộc truyền `project_id` thuộc owner; nội dung mới mặc định `private`. Guest ghi dữ liệu bị giới hạn 10 request/IP/giờ, ngoài hạn mức theo vai trò. URL chỉ cho phép domain cấu hình và được kiểm tra scheme/DNS/IP. Admin không dùng route này. |
+| `POST` | `/api/documents` | Guest hoặc learner session | Bắt buộc truyền `project_id` thuộc owner; tài liệu mới mặc định `private`. Guest ghi dữ liệu bị giới hạn 10 request/IP/giờ, ngoài hạn mức theo vai trò. Admin không dùng route này. |
 | `GET` | `/api/jobs/{job_id}` | Chủ job (admin session xem đầy đủ) | Người học chỉ xem job do tài khoản mình tạo, response tối thiểu; admin dùng session quản trị để xem diagnostic. |
 | `GET` | `/api/videos/{video_id}/file` | Public guest, learner session hoặc admin session | Khách chỉ mở file video dùng chung; learner mở nội dung dùng chung và của mình; admin mở toàn bộ. Kiểm tra trạng thái index và vị trí file. |
 | `GET` | `/api/documents/{document_id}/sections/{section}` | Public guest, learner session hoặc admin session | Khách chỉ mở mục tài liệu dùng chung; learner mở nội dung dùng chung và của mình; admin mở toàn bộ. |
@@ -45,6 +45,8 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 | `GET` | `/api/user/auth/me` | Learner session | Tên tài khoản và CSRF token; không trả session token. |
 | `POST` | `/api/user/auth/logout` | Learner session + CSRF | Thu hồi phiên server-side và xóa cookie. |
 | `GET` | `/api/my/jobs`, `/api/jobs/{job_id}` | Chủ job hoặc guest cookie | Chỉ trả tác vụ do danh tính hiện tại tạo; admin dùng `/api/admin/jobs`. |
+| `GET` | `/api/projects` | Guest hoặc learner session | Liệt kê project của owner hiện tại; GET không tạo project mặc định. Danh tính guest chỉ được lưu trong HttpOnly cookie, không trả owner ID. |
+| `POST` | `/api/projects` | Guest hoặc learner session | Tạo project cho owner hiện tại; giới hạn 20 project mỗi owner. Guest bị giới hạn 10 lần tạo project/IP/giờ kể cả khi tự đổi cookie. |
 | `POST` | `/api/my/content/{kind}/{id}/visibility` | Chủ nội dung | Chỉ chuyển `private` hoặc `pending`; admin duyệt sang `public`. |
 | `DELETE` | `/api/my/content/{kind}/{id}` | Chủ nội dung | Chỉ xóa nội dung do danh tính hiện tại tạo. |
 | `GET` | `/api/admin/content` | Admin session | Liệt kê nội dung theo visibility, ưu tiên nội dung chờ duyệt. |

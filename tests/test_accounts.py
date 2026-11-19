@@ -1,7 +1,9 @@
 import os
+import json
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
@@ -22,6 +24,8 @@ class TestLearnerAccounts(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         with accounts._registration_lock:
             accounts._registration_attempts.clear()
+        with accounts._guest_identity_lock:
+            accounts._guest_identity_attempts.clear()
         self.env = {
             "VSKR__PATHS__DATA_DIR": self.temp.name,
             "VSKR_USER_INVITE_CODE": "class-invite-2026",
@@ -73,6 +77,23 @@ class TestLearnerAccounts(unittest.TestCase):
         self.assertGreater(int(raised.exception.headers["Retry-After"]), 0)
         accounts.check_registration_rate("192.0.2.91", now=110)
 
+    def test_project_creation_is_capped_per_owner(self):
+        with mock.patch.dict(os.environ, self.env):
+            for number in range(accounts.PROJECTS_PER_OWNER_LIMIT):
+                accounts.create_project("g:project-owner", f"Project {number}")
+            with self.assertRaises(HTTPException) as raised:
+                accounts.create_project("g:project-owner", "One too many")
+
+        self.assertEqual(raised.exception.status_code, 429)
+
+    def test_guest_identity_creation_is_limited_per_ip(self):
+        ip = "192.0.2.93"
+        for attempt in range(accounts.GUEST_IDENTITY_LIMIT):
+            accounts.check_guest_identity_rate(ip, now=100 + attempt)
+        with self.assertRaises(HTTPException) as raised:
+            accounts.check_guest_identity_rate(ip, now=110)
+        self.assertEqual(raised.exception.status_code, 429)
+
     def test_ingest_usage_is_limited_persistently(self):
         with mock.patch.dict(os.environ, self.env):
             for _ in range(3):
@@ -80,6 +101,28 @@ class TestLearnerAccounts(unittest.TestCase):
             with self.assertRaises(HTTPException) as raised:
                 accounts.reserve_ingest_job("g:guest", 3, now=100)
         self.assertEqual(raised.exception.status_code, 429)
+
+    def test_guest_owner_migration_replaces_legacy_tokens_in_projects_and_index(self):
+        token = "legacy-guest-secret"
+        legacy_owner = f"g:{token}"
+        with mock.patch.dict(os.environ, self.env):
+            project = accounts.create_project(legacy_owner, "Legacy")
+            video_meta = Path(self.temp.name) / "videos" / "old-video" / "meta.json"
+            video_meta.parent.mkdir(parents=True)
+            video_meta.write_text(json.dumps({"owner_id": legacy_owner}), encoding="utf-8")
+            chunks = Path(self.temp.name) / "index" / "chunks.json"
+            chunks.parent.mkdir(parents=True)
+            chunks.write_text(json.dumps([{"owner_id": legacy_owner}]), encoding="utf-8")
+
+            public_owner = accounts.guest_owner_id(token)
+
+            self.assertTrue(public_owner.startswith("g:h:"))
+            self.assertNotIn(token, public_owner)
+            self.assertEqual(accounts.list_projects(public_owner)[0]["project_id"], project["project_id"])
+            self.assertNotIn(token, video_meta.read_text(encoding="utf-8"))
+            self.assertNotIn(token, chunks.read_text(encoding="utf-8"))
+            self.assertEqual(json.loads(video_meta.read_text(encoding="utf-8"))["owner_id"], public_owner)
+            self.assertEqual(json.loads(chunks.read_text(encoding="utf-8"))[0]["owner_id"], public_owner)
 
     def test_self_registration_only_requires_a_unique_username(self):
         with mock.patch.dict(os.environ, self.env):

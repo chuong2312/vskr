@@ -108,6 +108,11 @@ def _safe_source_link(source: dict) -> str | None:
     return handlers._safe_source_url(link)
 
 
+def _rate_limit_new_guest_identity(request: Request, user: dict, *, guest_write: bool = False) -> None:
+    if user.get("guest") and (guest_write or getattr(request.state, "new_guest_token", None)):
+        accounts.check_guest_identity_rate(auth.client_ip(request))
+
+
 @router.get("/")
 def user_home():
     return FileResponse(ROOT / "web" / "user" / "index.html", headers={"Cache-Control": "no-cache"})
@@ -151,11 +156,11 @@ def user_register(payload: LoginRequest, request: Request):
     ip = auth.client_ip(request)
     accounts.check_registration_rate(ip)
     identifier = payload.identifier
-    retry = auth.login_retry_after(ip, identifier)
+    retry = auth.login_retry_after(ip, identifier, scope="learner")
     if retry:
         raise HTTPException(429, "Thử lại đăng ký sau.", headers={"Retry-After": str(retry)})
     user = accounts.register(identifier, payload.password)
-    auth._clear_login_failures(ip, identifier)
+    auth._clear_login_failures(ip, identifier, scope="learner")
     token, session = accounts.create_session(identifier, payload.password)
     response = JSONResponse({"user": {"user_id": user["user_id"], "username": user["username"]}, "csrf_token": session["csrf_token"]})
     accounts.set_cookie(response, token)
@@ -169,16 +174,16 @@ def user_login(payload: LoginRequest, request: Request):
         raise HTTPException(403, "Yêu cầu đăng nhập không hợp lệ.")
     ip = auth.client_ip(request)
     identifier = payload.identifier
-    retry = auth.login_retry_after(ip, identifier)
+    retry = auth.login_retry_after(ip, identifier, scope="learner")
     if retry:
         raise HTTPException(429, "Sai tên đăng nhập hoặc mật khẩu.", headers={"Retry-After": str(retry)})
     try:
         token, session = accounts.create_session(identifier, payload.password)
     except HTTPException as exc:
         if exc.status_code == 401:
-            auth._record_login_failure(ip, identifier)
+            auth._record_login_failure(ip, identifier, scope="learner")
         raise
-    auth._clear_login_failures(ip, identifier)
+    auth._clear_login_failures(ip, identifier, scope="learner")
     response = JSONResponse({"user": {"user_id": session["user_id"], "username": session["username"]}, "csrf_token": session["csrf_token"]})
     accounts.set_cookie(response, token)
     return response
@@ -262,9 +267,10 @@ def public_videos(user=Depends(accounts.optional_learner_or_admin)):
 
 
 @router.get("/api/projects")
-def list_projects(user=Depends(accounts.require_learner_or_guest)):
+def list_projects(request: Request, user=Depends(accounts.require_learner_or_guest)):
+    _rate_limit_new_guest_identity(request, user)
     owner_id = user.get("owner") or user.get("user_id")
-    result = accounts.list_projects(owner_id) or [accounts.get_or_create_default_project(owner_id)]
+    result = accounts.list_projects(owner_id)
     response = JSONResponse(result)
     if user.get("guest_token"):
         accounts.set_guest_cookie(response, user["guest_token"])
@@ -272,7 +278,9 @@ def list_projects(user=Depends(accounts.require_learner_or_guest)):
 
 
 @router.post("/api/projects")
-def create_project(payload: CreateProjectRequest, user=Depends(accounts.require_learner_or_guest)):
+def create_project(payload: CreateProjectRequest, request: Request,
+                   user=Depends(accounts.require_learner_or_guest)):
+    _rate_limit_new_guest_identity(request, user, guest_write=True)
     response = JSONResponse(accounts.create_project(user.get("owner") or user.get("user_id"), payload.name))
     if user.get("guest_token"):
         accounts.set_guest_cookie(response, user["guest_token"])
@@ -300,6 +308,7 @@ def public_catalog(scope: str | None = Query(default=None),
 
 @router.post("/api/ingest", status_code=202)
 async def public_ingest(request: Request, user=Depends(accounts.require_learner_or_guest)):
+    _rate_limit_new_guest_identity(request, user, guest_write=True)
     owner_id = user.get("owner") or user.get("user_id")
     async with request.form(max_files=1, max_fields=2, max_part_size=64 * 1024) as form:
         project = accounts.get_project(owner_id, form.get("project_id"))
@@ -322,6 +331,7 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
 
 @router.post("/api/documents", status_code=202)
 async def public_upload_document(request: Request, user=Depends(accounts.require_learner_or_guest)):
+    _rate_limit_new_guest_identity(request, user, guest_write=True)
     owner_id = user.get("owner") or user.get("user_id")
     async with request.form(max_files=1, max_fields=2, max_part_size=64 * 1024) as form:
         project = accounts.get_project(owner_id, form.get("project_id"))
@@ -421,8 +431,12 @@ def delete_conversation(conversation_id: str, user=Depends(accounts.require_user
 @router.get("/api/my/jobs")
 def my_jobs(user=Depends(accounts.require_learner_or_guest)):
     owner = user.get("owner") or user.get("user_id")
-    return [job for job in handlers.list_jobs(200)
-            if job.get("owner_id") == owner]
+    fields = ("job_id", "status", "phase", "message", "title", "video_id", "document_id", "project_id")
+    return [
+        {key: job[key] for key in fields if key in job}
+        for job in handlers.list_jobs(200)
+        if job.get("owner_id") == owner
+    ]
 
 
 @router.delete("/api/my/content/{kind}/{item_id}")
@@ -507,7 +521,7 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
         else:
             allowed_sources = None
         result = handlers.ask(
-            handlers.AskRequest(question=question), use_request_mode=False,
+            handlers.AskRequest(question=question), use_request_mode=False, mode_override="hybrid",
             owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources,
             project_id=None,
         )

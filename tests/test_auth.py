@@ -104,6 +104,26 @@ class TestAdminAuth(unittest.TestCase):
 
         self.assertIsNotNone(auth.login_retry_after("192.0.2.10", "new-user", now=130))
 
+    def test_learner_failures_do_not_throttle_admin_login(self):
+        with mock.patch.dict(os.environ, self.env), \
+                mock.patch("vskr.auth.verify_login", return_value=True):
+            with ASGITestClient(app) as client:
+                headers = {"Origin": "http://localhost"}
+                for attempt in range(auth.LOGIN_IP_FAILURES):
+                    response = client.post(
+                        "/api/user/auth/login",
+                        json={"username": f"learner-{attempt}", "password": "wrong"},
+                        headers=headers,
+                    )
+                    self.assertEqual(response.status_code, 401, f"attempt={attempt}: {response.text}")
+
+                response = client.post(
+                    "/api/auth/login",
+                    json={"username": "test-admin", "password": "valid"},
+                    headers=headers,
+                )
+        self.assertEqual(response.status_code, 200, response.text)
+
     def test_login_rotates_session_and_logout_revokes_it(self):
         with mock.patch.dict(os.environ, self.env):
             with ASGITestClient(app) as client:

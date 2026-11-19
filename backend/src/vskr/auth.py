@@ -158,42 +158,44 @@ def _prune_failures(now: float) -> None:
         _failures.popitem(last=False)
 
 
-def _login_keys(ip: str, username: str):
+def _login_keys(ip: str, username: str, scope: str = "admin"):
     normalized_username = username.strip().casefold()
-    return ("pair", f"{ip}\0{normalized_username}"), ("ip", ip)
+    return ("pair", scope, f"{ip}\0{normalized_username}"), ("ip", scope, ip)
 
 
-def _login_failure_limit(key: tuple[str, str]) -> int:
+def _login_failure_limit(key: tuple[str, ...]) -> int:
     return LOGIN_IP_FAILURES if key[0] == "ip" else LOGIN_FAILURES
 
 
-def login_retry_after(ip: str, username: str, now: float | None = None) -> int | None:
+def login_retry_after(ip: str, username: str, now: float | None = None, *,
+                      scope: str = "admin") -> int | None:
     now = time.time() if now is None else now
     with _failures_lock:
         _prune_failures(now)
         attempts = [
             (list(_failures.get(key, ())), _login_failure_limit(key))
-            for key in _login_keys(ip, username)
+            for key in _login_keys(ip, username, scope)
         ]
     retry = [values[0] + LOGIN_WINDOW - now for values, limit in attempts if len(values) >= limit]
     return max(1, int(max(retry) + 0.999)) if retry else None
 
 
-def _record_login_failure(ip: str, username: str, now: float | None = None) -> None:
+def _record_login_failure(ip: str, username: str, now: float | None = None, *,
+                          scope: str = "admin") -> None:
     now = time.time() if now is None else now
     with _failures_lock:
         _prune_failures(now)
-        for key in _login_keys(ip, username):
+        for key in _login_keys(ip, username, scope):
             _failures.setdefault(key, deque()).append(now)
             _failures.move_to_end(key)
         _prune_failures(now)
 
 
-def _clear_login_failures(ip: str, username: str) -> None:
+def _clear_login_failures(ip: str, username: str, *, scope: str = "admin") -> None:
     with _failures_lock:
         # A successful login clears that account's pair-specific lock. Keep the
         # IP-wide spray budget so repeated failures across usernames still count.
-        pair_key = _login_keys(ip, username)[0]
+        pair_key = _login_keys(ip, username, scope)[0]
         _failures.pop(pair_key, None)
 
 

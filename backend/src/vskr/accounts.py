@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import sqlite3
 import threading
@@ -18,7 +19,8 @@ from fastapi import HTTPException, Request
 
 from . import auth
 from .auth import _same_origin, _secure_cookie_request, hash_password
-from .config import data_dir, load_config
+from .config import data_dir, index_dir, load_config
+from .util import read_json, write_json
 
 COOKIE_NAME = "vskr_user"
 GUEST_COOKIE_NAME = "vskr_guest"
@@ -26,8 +28,15 @@ SESSION_TTL = 14 * 24 * 60 * 60
 SESSION_IDLE_TTL = 7 * 24 * 60 * 60
 REGISTRATION_WINDOW = 60 * 60
 REGISTRATION_LIMIT = 5
+GUEST_IDENTITY_WINDOW = 60 * 60
+GUEST_IDENTITY_LIMIT = 10
+PROJECTS_PER_OWNER_LIMIT = 20
 _registration_attempts: OrderedDict[str, deque[float]] = OrderedDict()
 _registration_lock = threading.Lock()
+_guest_identity_attempts: OrderedDict[str, deque[float]] = OrderedDict()
+_guest_identity_lock = threading.Lock()
+_guest_owner_migration_lock = threading.Lock()
+_guest_owner_migrated_roots: set[str] = set()
 
 
 def _database_path() -> Path:
@@ -104,6 +113,10 @@ def _connect():
             owner_id TEXT NOT NULL,
             created_at INTEGER NOT NULL
         )""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS schema_migrations (
+            version TEXT PRIMARY KEY,
+            applied_at INTEGER NOT NULL
+        )""")
         connection.commit()
         yield connection
         connection.commit()
@@ -127,7 +140,23 @@ def check_registration_rate(ip: str, now: float | None = None) -> None:
             _registration_attempts.popitem(last=False)
 
 
-def reserve_ingest_job(owner_id: str, max_jobs_per_day: int, now: int | None = None) -> None:
+def check_guest_identity_rate(ip: str, now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    with _guest_identity_lock:
+        attempts = _guest_identity_attempts.setdefault(ip, deque())
+        _guest_identity_attempts.move_to_end(ip)
+        while attempts and now - attempts[0] >= GUEST_IDENTITY_WINDOW:
+            attempts.popleft()
+        if len(attempts) >= GUEST_IDENTITY_LIMIT:
+            retry_after = max(1, int(attempts[0] + GUEST_IDENTITY_WINDOW - now + 0.999))
+            raise HTTPException(429, "Đã tạo quá nhiều danh tính khách. Hãy thử lại sau.",
+                                headers={"Retry-After": str(retry_after)})
+        attempts.append(now)
+        while len(_guest_identity_attempts) > 10_000:
+            _guest_identity_attempts.popitem(last=False)
+
+
+def reserve_ingest_job(owner_id: str, max_jobs_per_day: int, now: int | None = None) -> int:
     now = int(time.time()) if now is None else int(now)
     cutoff = now - 24 * 60 * 60
     with _connect() as db:
@@ -138,10 +167,20 @@ def reserve_ingest_job(owner_id: str, max_jobs_per_day: int, now: int | None = N
         ).fetchone()[0]
         if count >= max_jobs_per_day:
             raise HTTPException(429, "Bạn đã đạt giới hạn số tác vụ trong ngày.")
-        db.execute(
+        cursor = db.execute(
             "INSERT INTO ingest_usage(owner_id, created_at) VALUES (?, ?)",
             (owner_id, now),
         )
+        return int(cursor.lastrowid)
+
+
+def release_ingest_job(owner_id: str, usage_id: int) -> bool:
+    with _connect() as db:
+        cursor = db.execute(
+            "DELETE FROM ingest_usage WHERE usage_id = ? AND owner_id = ?",
+            (usage_id, owner_id),
+        )
+    return bool(cursor.rowcount)
 
 
 def register(username: str, password: str):
@@ -189,6 +228,93 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _guest_owner_key(root: Path) -> bytes:
+    path = root / ".guest-owner-key"
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        key = path.read_bytes()
+    else:
+        key = secrets.token_bytes(32)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(key)
+            handle.flush()
+            os.fsync(handle.fileno())
+    if len(key) != 32:
+        raise RuntimeError(f"Invalid guest owner key at {path}")
+    return key
+
+
+def _hashed_guest_owner(owner_id: str, key: bytes) -> str:
+    if not owner_id.startswith("g:") or owner_id.startswith("g:h:"):
+        return owner_id
+    digest = hmac.new(key, owner_id[2:].encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"g:h:{digest}"
+
+
+def _migrate_owner_fields(path: Path, key: bytes) -> None:
+    if not path.is_file():
+        return
+    value = read_json(path)
+    changed = False
+    records = value if isinstance(value, list) else [value]
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for field in ("owner", "owner_id"):
+            owner_id = record.get(field)
+            if isinstance(owner_id, str):
+                replacement = _hashed_guest_owner(owner_id, key)
+                if replacement != owner_id:
+                    record[field] = replacement
+                    changed = True
+    if changed:
+        write_json(path, value)
+
+
+def migrate_legacy_guest_owners() -> None:
+    root = data_dir(load_config())
+    root_key = str(root.resolve())
+    with _guest_owner_migration_lock:
+        if root_key in _guest_owner_migrated_roots:
+            return
+        key = _guest_owner_key(root)
+        with _connect() as db:
+            applied = db.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 'guest-owner-hmac-v1'"
+            ).fetchone()
+        if applied:
+            _guest_owner_migrated_roots.add(root_key)
+            return
+
+        for pattern in ("videos/*/meta.json", "documents/*/meta.json"):
+            for path in root.glob(pattern):
+                _migrate_owner_fields(path, key)
+        _migrate_owner_fields(index_dir(load_config()) / "chunks.json", key)
+
+        with _connect() as db:
+            for table in ("projects", "ingest_usage"):
+                owners = [row[0] for row in db.execute(f"SELECT DISTINCT owner_id FROM {table}")]
+                for owner_id in owners:
+                    replacement = _hashed_guest_owner(owner_id, key)
+                    if replacement != owner_id:
+                        db.execute(f"UPDATE {table} SET owner_id = ? WHERE owner_id = ?",
+                                   (replacement, owner_id))
+            db.execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                ("guest-owner-hmac-v1", int(time.time())),
+            )
+        _guest_owner_migrated_roots.add(root_key)
+
+
+def guest_owner_id(token: str) -> str:
+    migrate_legacy_guest_owners()
+    root = data_dir(load_config())
+    digest = hmac.new(_guest_owner_key(root), token.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"g:h:{digest}"
+
+
 def get_session(token: str | None, *, touch=True):
     if not token:
         return None
@@ -216,7 +342,7 @@ def list_users():
 
 def _project_row(row):
     return {"project_id": row["project_id"], "name": row["name"],
-            "owner_id": row["owner_id"], "created_at": row["created_at"]}
+            "created_at": row["created_at"]}
 
 
 def list_projects(owner_id: str):
@@ -232,12 +358,16 @@ def create_project(owner_id: str, name: str):
     name = " ".join(str(name or "").split())
     if not name or len(name) > 120:
         raise HTTPException(422, "Tên project cần từ 1 đến 120 ký tự.")
-    project = {"project_id": uuid.uuid4().hex, "owner_id": owner_id,
-               "name": name, "created_at": int(time.time())}
+    project_id = uuid.uuid4().hex
+    created_at = int(time.time())
     with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        count = db.execute("SELECT COUNT(*) FROM projects WHERE owner_id = ?", (owner_id,)).fetchone()[0]
+        if count >= PROJECTS_PER_OWNER_LIMIT:
+            raise HTTPException(429, "Bạn đã đạt giới hạn số project.")
         db.execute("INSERT INTO projects(project_id, owner_id, name, created_at) VALUES (?, ?, ?, ?)",
-                   tuple(project.values()))
-    return project
+                   (project_id, owner_id, name, created_at))
+    return {"project_id": project_id, "name": name, "created_at": created_at}
 
 
 def get_project(owner_id: str, project_id: str | None):
@@ -261,11 +391,11 @@ def get_or_create_default_project(owner_id: str):
         ).fetchone()
         if row:
             return _project_row(row)
-        project = {"project_id": uuid.uuid4().hex, "owner_id": owner_id,
-                   "name": "Mặc định", "created_at": int(time.time())}
+        project_id = uuid.uuid4().hex
+        created_at = int(time.time())
         db.execute("INSERT INTO projects(project_id, owner_id, name, created_at) VALUES (?, ?, ?, ?)",
-                   tuple(project.values()))
-        return project
+                   (project_id, owner_id, "Mặc định", created_at))
+        return {"project_id": project_id, "name": "Mặc định", "created_at": created_at}
 
 
 def set_user_disabled(user_id: str, disabled: bool):
@@ -440,7 +570,7 @@ def optional_learner_or_admin(request: Request):
     if not guest:
         guest = secrets.token_urlsafe(32)
         request.state.new_guest_token = guest
-    return {"guest": True, "user_id": None, "owner": f"g:{guest}", "guest_token": guest}
+    return {"guest": True, "user_id": None, "owner": guest_owner_id(guest), "guest_token": guest}
 
 
 def require_learner_or_guest(request: Request):

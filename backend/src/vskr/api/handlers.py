@@ -141,6 +141,7 @@ _index_build_lock = threading.RLock()
 _ollama_status_lock = threading.Lock()
 _ollama_status_cache = {"checked_at": 0.0, "connected": False}
 _jobs = {}
+_job_reservations = {}
 _job_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vskr-pipeline")
 
 
@@ -198,6 +199,7 @@ def _init_service(*, force=False):
                 and time.time() - state["failed_at"] < 30):
             return
         try:
+            accounts.migrate_legacy_guest_owners()
             from ..service import Service
 
             replacement = Service(load_config())
@@ -206,7 +208,7 @@ def _init_service(*, force=False):
         except Exception as e:  # chưa có chỉ mục, thiếu thư viện...
             logging.exception("Could not initialize VSKR service")
             state["failed_at"] = time.time()
-            _replace_service(None, error=f"{type(e).__name__}: {e}")
+            state["error"] = f"{type(e).__name__}: {e}"
 
 
 def videos():
@@ -588,10 +590,6 @@ def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *,
                 and _indexed_document(source_id, owner_id, shared_only=shared_only))
 
 
-def _project_owner(owner_id):
-    return owner_id[2:] if isinstance(owner_id, str) and owner_id.startswith("u:") else owner_id
-
-
 def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project_id=None):
     if state["service"] is None:
         _init_service()
@@ -616,8 +614,6 @@ def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project
         if not _meta_is_visible(visibility_meta, owner_id, shared_only=shared_only):
             continue
         item_project = meta.get("project_id")
-        if not item_project and item_owner:
-            item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
         if project_id and item_owner and item_project != project_id:
             continue
         if owned_only and (not owner_id or not owners or
@@ -674,8 +670,6 @@ def public_catalog(owner_id=None, *, shared_only=False, owned_only=False, projec
         if not _meta_is_visible(visibility_meta, owner_id, shared_only=shared_only):
             continue
         item_project = item.get("project_id")
-        if not item_project and item_owner:
-            item_project = accounts.get_or_create_default_project(_project_owner(item_owner))["project_id"]
         if project_id and item_owner and item_project != project_id:
             continue
         if owned_only and (not owner_id or not owners or
@@ -812,9 +806,35 @@ def _rebuild_index(cfg=None, job_id=None):
             shutil.rmtree(staging, ignore_errors=True)
 
 
-def _queue_job(source, title=None):
+def _reserve_job_slot(owner_id, role_limits, ingest_cfg):
+    with _jobs_lock:
+        active = sum(
+            job.get("owner_id") == owner_id and job.get("status") in {"queued", "running"}
+            for job in _jobs.values()
+        ) + sum(reserved_owner == owner_id for reserved_owner in _job_reservations.values())
+        if active >= int(role_limits.get("max_active_jobs", 2)):
+            raise HTTPException(429, "Bạn đã đạt số tác vụ đang xử lý tối đa.")
+        queued = sum(job.get("status") in {"queued", "running"} for job in _jobs.values())
+        if queued + len(_job_reservations) >= int(ingest_cfg.get("max_queue_length", 20)):
+            raise HTTPException(503, "Hàng đợi xử lý đang đầy.", headers={"Retry-After": "30"})
+        reservation_id = uuid.uuid4().hex
+        _job_reservations[reservation_id] = owner_id
+        return reservation_id
+
+
+def _release_job_slot(reservation_id):
+    if reservation_id:
+        with _jobs_lock:
+            _job_reservations.pop(reservation_id, None)
+
+
+def _queue_job(source, title=None, *, reservation_id=None):
     job_id = uuid.uuid4().hex
     with _jobs_lock:
+        if reservation_id:
+            if _job_reservations.get(reservation_id) != source.get("owner_id"):
+                raise RuntimeError("Ingest job slot reservation was lost.")
+            _job_reservations.pop(reservation_id)
         _jobs[job_id] = {
             "job_id": job_id, "status": "queued", "phase": "queued",
             "message": "Đang chờ các tác vụ xử lý trước hoàn tất…",
@@ -825,7 +845,11 @@ def _queue_job(source, title=None):
             "created_at": datetime.now(timezone.utc).isoformat(),
             "_source": source,
         }
-    _job_executor.submit(_process_ingest_job, job_id, source)
+        try:
+            _job_executor.submit(_process_ingest_job, job_id, source)
+        except Exception:
+            _jobs.pop(job_id, None)
+            raise
     return job_id
 
 
@@ -844,23 +868,11 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
     role_limits = cfg.get("limits", {}).get("guest" if guest else "user", {})
     max_bytes = int(role_limits.get("max_upload_bytes", ingest_cfg.get("max_upload_bytes", 1_073_741_824)))
     max_duration = int(role_limits.get("max_duration_s", ingest_cfg.get("max_duration_s", 7200)))
-    with _jobs_lock:
-        active = sum(1 for job in _jobs.values()
-                     if job.get("owner_id") == owner_id and job.get("status") in {"queued", "running"})
-        if active >= int(role_limits.get("max_active_jobs", 2)):
-            raise HTTPException(429, "Bạn đã đạt số tác vụ đang xử lý tối đa.")
-        if sum(1 for job in _jobs.values() if job.get("status") in {"queued", "running"}) >= int(ingest_cfg.get("max_queue_length", 20)):
-            raise HTTPException(503, "Hàng đợi xử lý đang đầy.", headers={"Retry-After": "30"})
-    cfg = dict(cfg)
-    cfg["ingest"] = dict(ingest_cfg, max_upload_bytes=max_bytes, max_duration_s=max_duration)
-    source = None
     if clean_url:
         validate_ingest_url(clean_url)
-        video_id = f"user-{owner_id[:10]}-{uuid.uuid4().hex[:12]}" if owner_id else None
-        source = {"kind": "url", "url": clean_url, "video_id": video_id,
-                  "owner_id": owner_id, "project_id": project_id,
-                  "limits": {"max_upload_bytes": max_bytes, "max_duration_s": max_duration}}
-    else:
+    filename = None
+    suffix = None
+    if file:
         filename = Path(file.filename or "video").name
         suffix = Path(filename).suffix.lower()
         allowed = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".mpeg", ".mpg"}
@@ -868,50 +880,69 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
             await file.close()
             raise HTTPException(415, "Định dạng chưa hỗ trợ. Hãy tải MP4, MOV, MKV, WebM hoặc AVI.")
 
-        video_id = f"upload-{uuid.uuid4().hex[:12]}"
-        vdir = video_dir(cfg, video_id)
-        vdir.mkdir(parents=True, exist_ok=False)
-        destination = vdir / f"source{suffix}"
-        size = 0
-        try:
-            with destination.open("wb") as out:
-                while chunk := await file.read(1024 * 1024):
-                    size += len(chunk)
-                    if size > max_bytes:
-                        raise HTTPException(413, f"File vượt giới hạn {max_bytes // (1024 * 1024)} MB.")
-                    out.write(chunk)
-            duration = probe_duration(destination)
-            check_duration(duration, cfg)
-        except HTTPException:
-            destination.unlink(missing_ok=True)
-            vdir.rmdir()
-            raise
-        except ValueError as exc:
-            destination.unlink(missing_ok=True)
-            vdir.rmdir()
-            raise HTTPException(400, str(exc)) from exc
-        except Exception as exc:
-            logging.exception("Could not inspect uploaded video")
-            destination.unlink(missing_ok=True)
-            vdir.rmdir()
-            raise HTTPException(400, "Không đọc được video. Hãy kiểm tra định dạng và nhật ký máy chủ.") from exc
-        finally:
-            await file.close()
-        source = {
-            "kind": "upload",
-            "path": str(destination),
-            "video_id": video_id,
-            "title": Path(filename).stem or video_id,
-            "owner_id": owner_id,
-            "project_id": project_id,
-            "limits": {"max_upload_bytes": max_bytes, "max_duration_s": max_duration},
-        }
+    reservation_id = None
+    usage_id = None
+    vdir = None
+    destination = None
+    queued = False
+    cfg = dict(cfg)
+    cfg["ingest"] = dict(ingest_cfg, max_upload_bytes=max_bytes, max_duration_s=max_duration)
+    try:
+        reservation_id = _reserve_job_slot(owner_id, role_limits, ingest_cfg)
+        max_jobs_per_day = int(role_limits.get("max_jobs_per_day", 0))
+        if max_jobs_per_day > 0:
+            usage_id = accounts.reserve_ingest_job(owner_id, max_jobs_per_day)
+        if clean_url:
+            video_id = f"user-{uuid.uuid4().hex[:12]}" if owner_id else None
+            source = {"kind": "url", "url": clean_url, "video_id": video_id,
+                      "owner_id": owner_id, "project_id": project_id,
+                      "limits": {"max_upload_bytes": max_bytes, "max_duration_s": max_duration}}
+        else:
+            video_id = f"upload-{uuid.uuid4().hex[:12]}"
+            vdir = video_dir(cfg, video_id)
+            vdir.mkdir(parents=True, exist_ok=False)
+            destination = vdir / f"source{suffix}"
+            size = 0
+            try:
+                with destination.open("wb") as out:
+                    while chunk := await file.read(1024 * 1024):
+                        size += len(chunk)
+                        if size > max_bytes:
+                            raise HTTPException(413, f"File vượt giới hạn {max_bytes // (1024 * 1024)} MB.")
+                        out.write(chunk)
+                duration = probe_duration(destination)
+                check_duration(duration, cfg)
+            except HTTPException:
+                raise
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except Exception as exc:
+                logging.exception("Could not inspect uploaded video")
+                raise HTTPException(400, "Không đọc được video. Hãy kiểm tra định dạng và nhật ký máy chủ.") from exc
+            source = {
+                "kind": "upload",
+                "path": str(destination),
+                "video_id": video_id,
+                "title": Path(filename).stem or video_id,
+                "owner_id": owner_id,
+                "project_id": project_id,
+                "limits": {"max_upload_bytes": max_bytes, "max_duration_s": max_duration},
+            }
 
-    max_jobs_per_day = int(role_limits.get("max_jobs_per_day", 0))
-    if max_jobs_per_day > 0:
-        accounts.reserve_ingest_job(owner_id, max_jobs_per_day)
-    job_id = _queue_job(source, source.get("title"))
-    return {"job_id": job_id, "status": "queued", "project_id": project_id}
+        job_id = _queue_job(source, source.get("title"), reservation_id=reservation_id)
+        reservation_id = None
+        usage_id = None
+        queued = True
+        return {"job_id": job_id, "status": "queued", "project_id": project_id}
+    finally:
+        if not queued:
+            if vdir is not None:
+                shutil.rmtree(vdir, ignore_errors=True)
+            if usage_id is not None:
+                accounts.release_ingest_job(owner_id, usage_id)
+            _release_job_slot(reservation_id)
+        if file:
+            await file.close()
 
 
 async def upload_document(file: UploadFile = File(...), owner_id=None, project_id=None):
@@ -926,38 +957,48 @@ async def upload_document(file: UploadFile = File(...), owner_id=None, project_i
     cfg = load_config()
     guest = str(owner_id or "").startswith("g:")
     role_limits = cfg.get("limits", {}).get("guest" if guest else "user", {})
-    with _jobs_lock:
-        active = sum(1 for job in _jobs.values()
-                     if job.get("owner_id") == owner_id and job.get("status") in {"queued", "running"})
-        if active >= int(role_limits.get("max_active_jobs", 2)):
-            raise HTTPException(429, "Bạn đã đạt số tác vụ đang xử lý tối đa.")
+    reservation_id = None
+    usage_id = None
+    queued = False
     upload_root = data_dir(cfg) / "documents" / ".uploads"
-    upload_root.mkdir(parents=True, exist_ok=True)
     document_id = f"doc-{uuid.uuid4().hex[:12]}"
     path = upload_root / f"{document_id}{suffix}"
-    size = 0
     try:
-        with path.open("wb") as out:
-            while chunk := await file.read(1024 * 1024):
-                size += len(chunk)
-                document_limit = 20 * 1024 * 1024 if guest else 100 * 1024 * 1024
-                if size > document_limit:
-                    raise HTTPException(413, "Tài liệu vượt giới hạn cho phép.")
-                out.write(chunk)
-    except HTTPException:
-        path.unlink(missing_ok=True)
-        raise
-    except Exception as exc:
-        logging.exception("Could not save uploaded document")
-        path.unlink(missing_ok=True)
-        raise HTTPException(400, "Không lưu được tài liệu. Hãy kiểm tra dung lượng và nhật ký máy chủ.") from exc
+        reservation_id = _reserve_job_slot(owner_id, role_limits, cfg.get("ingest", {}))
+        max_jobs_per_day = int(role_limits.get("max_jobs_per_day", 0))
+        if max_jobs_per_day > 0:
+            usage_id = accounts.reserve_ingest_job(owner_id, max_jobs_per_day)
+        upload_root.mkdir(parents=True, exist_ok=True)
+        size = 0
+        try:
+            with path.open("wb") as out:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    document_limit = 20 * 1024 * 1024 if guest else 100 * 1024 * 1024
+                    if size > document_limit:
+                        raise HTTPException(413, "Tài liệu vượt giới hạn cho phép.")
+                    out.write(chunk)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logging.exception("Could not save uploaded document")
+            raise HTTPException(400, "Không lưu được tài liệu. Hãy kiểm tra dung lượng và nhật ký máy chủ.") from exc
+
+        source = {"kind": "document", "path": str(path), "document_id": document_id, "title": Path(filename).stem}
+        source["owner_id"] = owner_id
+        source["project_id"] = project_id
+        job_id = _queue_job(source, source["title"], reservation_id=reservation_id)
+        reservation_id = None
+        usage_id = None
+        queued = True
+        return {"job_id": job_id, "status": "queued", "project_id": project_id}
     finally:
+        if not queued:
+            path.unlink(missing_ok=True)
+            if usage_id is not None:
+                accounts.release_ingest_job(owner_id, usage_id)
+            _release_job_slot(reservation_id)
         await file.close()
-    source = {"kind": "document", "path": str(path), "document_id": document_id, "title": Path(filename).stem}
-    source["owner_id"] = owner_id
-    source["project_id"] = project_id
-    job_id = _queue_job(source, source["title"])
-    return {"job_id": job_id, "status": "queued", "project_id": project_id}
 
 
 def get_job(job_id: str):

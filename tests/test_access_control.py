@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from vskr.api import app
+from vskr import auth
 from vskr.auth import hash_password
 
 from tests.asgi_client import ASGITestClient
@@ -33,6 +34,8 @@ PUBLIC_API_ROUTES = {
     ("GET", "/api/user/me"),
     ("GET", "/api/user/auth/config"),
     ("GET", "/api/my/jobs"),
+    ("GET", "/api/projects"),
+    ("POST", "/api/projects"),
     ("GET", "/api/jobs/{job_id}"),
     ("DELETE", "/api/my/content/{kind}/{item_id}"),
     ("POST", "/api/my/content/{kind}/{item_id}/visibility"),
@@ -100,6 +103,10 @@ def _send_route(client, method, path, *, origin=None, csrf=None):
 class TestAccessControl(unittest.TestCase):
     def setUp(self):
         self.data_dir = tempfile.TemporaryDirectory()
+        with auth._failures_lock:
+            auth._failures.clear()
+        with auth._sessions_lock:
+            auth._sessions.clear()
         self.env = {
             "VSKR__PATHS__DATA_DIR": self.data_dir.name,
             "VSKR_ADMIN_USER": "test-admin",

@@ -1,28 +1,44 @@
+from collections import OrderedDict
+import threading
+
 import numpy as np
 
 from .bm25 import tokenize
 from .fusion import rrf_fuse
 from .knowledge_graph import search_graph
 
+ALLOWED_MASK_CACHE_SIZE = 512
+
 
 class Retriever:
     def __init__(self, index, embedder, rcfg):
         self.index, self.embedder, self.cfg = index, embedder, rcfg
         self._semantic_terms_cache = {}
-        self._allowed_mask_cache = {}
+        self._allowed_mask_cache = OrderedDict()
+        self._allowed_mask_cache_lock = threading.Lock()
 
     def _allowed_mask(self, allowed_sources):
         if allowed_sources is None:
             return None
         key = frozenset(str(item) for item in allowed_sources)
-        mask = self._allowed_mask_cache.get(key)
-        if mask is None:
-            mask = np.array([
-                str(chunk.get("video_id") or chunk.get("document_id") or "") in key
-                for chunk in self.index.chunks
-            ], dtype=bool)
+        with self._allowed_mask_cache_lock:
+            mask = self._allowed_mask_cache.get(key)
+            if mask is not None:
+                self._allowed_mask_cache.move_to_end(key)
+                return mask
+        mask = np.array([
+            str(chunk.get("video_id") or chunk.get("document_id") or "") in key
+            for chunk in self.index.chunks
+        ], dtype=bool)
+        with self._allowed_mask_cache_lock:
+            cached = self._allowed_mask_cache.get(key)
+            if cached is not None:
+                self._allowed_mask_cache.move_to_end(key)
+                return cached
             self._allowed_mask_cache[key] = mask
-        return mask
+            if len(self._allowed_mask_cache) > ALLOWED_MASK_CACHE_SIZE:
+                self._allowed_mask_cache.popitem(last=False)
+            return mask
 
     def _semantic_graph_terms(self, vector_scores, query, limit=5):
         """Use E5-near chunks to add their graph concepts as soft query anchors."""

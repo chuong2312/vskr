@@ -65,7 +65,7 @@ class TestEvalVariants(unittest.TestCase):
         self.assertEqual(self._top1(results["ocr_vlm"], "fg"), 1.0)
         self.assertEqual(results["transcript"]["chunks_with_visual_text"], 0)
         self.assertEqual(results["ocr_vlm"]["chunks_with_visual_text"], 2)
-        self.assertEqual(results["ocr"]["files_found"], {"screen_text.json": 1})
+        self.assertEqual(results["ocr"]["files_found"], {"screen_text.json": 1, "ocr_info.json": 0})
         self.assertFalse((self.tmp / "work" / "ocr" / "videos" / "v1" / "video.mp4").exists())
         self.assertEqual(set(results["ocr"]["summary"]), {"vector", "bm25", "hybrid", "graph", "hybrid_graph"})
 

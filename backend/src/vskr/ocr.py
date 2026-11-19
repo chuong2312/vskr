@@ -154,7 +154,7 @@ def run(cfg, video_ids=None, force=False):
             loading = time.time()
             engine = _engine(ocfg)
             print(f"[ocr] đã nạp {ocfg.get('engine', 'easyocr')} ({time.time() - loading:.0f}s)")
-        frame_lines, per_frame = [], []
+        frame_lines, per_frame, frame_size = [], [], None
         started = time.time()
         for n, frame in enumerate(frame_rows, start=1):
             image = vdir / frame["path"]
@@ -162,6 +162,7 @@ def run(cfg, video_ids=None, force=False):
             frame_lines.append((frame, lines))
             with Image.open(image) as img:
                 per_frame.append(frame_stats(frame, lines, img.size))
+                frame_size = frame_size or list(img.size)
             if n % 50 == 0 or n == len(frame_rows):
                 elapsed = time.time() - started
                 print(f"[ocr] {video_id}: {n}/{len(frame_rows)} frame ({elapsed:.0f}s, {elapsed / n:.2f}s/frame)", flush=True)
@@ -169,7 +170,7 @@ def run(cfg, video_ids=None, force=False):
         write_json(out, rows)
         info = {"video_id": video_id, "n_frames": len(frame_rows), "n_lines": len(rows),
                 "n_raw_lines": sum(len(lines) for _frame, lines in frame_lines),
-                "seconds": round(time.time() - started, 1),
+                "seconds": round(time.time() - started, 1), "frame_size": frame_size,
                 # Per-frame text coverage lets the VLM step skip slides/code OCR already covers.
                 "frames": per_frame}
         write_json(vdir / "ocr_info.json", info)

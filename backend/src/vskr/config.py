@@ -1,3 +1,4 @@
+import copy
 import os
 from pathlib import Path
 
@@ -43,7 +44,6 @@ def load_config(path=None):
     signature = (str(p), p.stat().st_mtime_ns, hash(env_values))
     cached = _config_cache.get(signature)
     if cached is not None:
-        import copy
         return copy.deepcopy(cached)
     with open(p, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -54,7 +54,8 @@ def load_config(path=None):
     cfg["paths"]["data_dir"] = str(d)
     _config_cache.clear()
     _config_cache[signature] = cfg
-    return cfg
+    # Luôn trả bản sao: trả chính bản trong cache thì caller nào sửa cfg cũng làm hỏng mọi lần gọi sau.
+    return copy.deepcopy(cfg)
 
 
 def data_dir(cfg):

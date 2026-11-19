@@ -78,6 +78,14 @@ chunk:
   overlap_s: 10
   min_chars: 20
   use_screen_text: true      # index các file screen_text.json (OCR) và captions.json (VLM) nếu có
+  screen_text_filter:        # lọc chữ rác OCR lúc lập chỉ mục; screen_text.json gốc giữ nguyên
+    enabled: true
+    frequent_ratio: 0.3      # một từ là "phổ biến" nếu có mặt ở ≥30% số frame (đã lọc trùng) của video
+    frequent_share: 0.6      # dòng là rác nếu ≥60% số từ của nó là từ phổ biến
+    top_band: 0.25           # ...và nằm ở 25% phía trên (menu, thanh công cụ)
+    bottom_band: 0.1         # ...hoặc 10% phía dưới màn hình (watermark, thanh trạng thái)
+    min_frames: 20           # video ít frame hơn thì không lọc theo tần suất
+    drop_long_numbers: true  # bỏ dòng có dãy ≥9 chữ số (mã số sinh viên trong khung chat)
 
 embedding:
   model: intfloat/multilingual-e5-small

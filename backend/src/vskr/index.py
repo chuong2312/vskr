@@ -10,6 +10,7 @@ from .bm25 import BM25, tokenize
 from .chunker import make_chunks, make_scene_chunks
 from .config import data_dir, index_dir, video_dir, videos_dir
 from .knowledge_graph import build_graph
+from .screen_filter import filter_screen_text, frame_height
 from .util import read_json, write_json
 
 
@@ -68,6 +69,23 @@ class Index:
     graph: dict
 
 
+def _screen_text(video_id, vdir, filter_options):
+    """screen_text.json đã lọc chữ rác (menu, watermark, mã số sinh viên); file gốc không bị sửa."""
+    path = vdir / "screen_text.json"
+    if not path.is_file():
+        return []
+    rows = read_json(path)
+    info_path = vdir / "ocr_info.json"
+    info = read_json(info_path) if info_path.is_file() else {}
+    frame_times = [frame["t"] for frame in info.get("frames", [])]
+    height = frame_height(rows, info.get("frame_size"))
+    kept, stats = filter_screen_text(rows, frame_times, height, filter_options)
+    if stats["kept"] != stats["rows"]:
+        print(f"[index] {video_id}: OCR giữ {stats['kept']}/{stats['rows']} dòng "
+              f"(bỏ {stats['boilerplate']} dòng lặp ở mép màn hình, {stats['long_number']} dòng có dãy số dài)")
+    return kept
+
+
 def list_video_ids(cfg):
     d = videos_dir(cfg)
     if not d.exists():
@@ -94,10 +112,9 @@ def build(cfg, embedder, progress=None, output_dir=None):
         segs = read_json(tp)["segments"]
         extras = []
         if ch.get("use_screen_text", True):
-            for artifact_name in ("screen_text.json", "captions.json"):
-                artifact_path = vdir / artifact_name
-                if artifact_path.is_file():
-                    extras.extend(read_json(artifact_path))
+            extras.extend(_screen_text(vid, vdir, ch.get("screen_text_filter") or {}))
+            if (vdir / "captions.json").is_file():
+                extras.extend(read_json(vdir / "captions.json"))
         if not extras:
             extras = None
         scene_file = vdir / "scenes.json"

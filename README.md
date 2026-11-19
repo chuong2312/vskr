@@ -45,6 +45,7 @@ Hai bước tùy chọn giúp tìm được cả nội dung **trên màn hình**
 
 - **OCR** (EasyOCR, `['vi', 'en']`) đọc chữ trên slide và code. PaddleOCR không được dùng vì từ điển model của nó thiếu chữ tiếng Việt hai dấu (ấ, ữ, ệ, ớ…): "Truy vấn dữ liệu" bị đọc thành "Truy vn d liu".
 - **VLM** (Qwen2.5-VL-3B, nén 4-bit, khoảng 2,5 GB VRAM) mô tả sơ đồ, biểu đồ và hình minh họa bằng lời.
+- **Lọc chữ rác OCR** khi lập chỉ mục (`chunk.screen_text_filter`). Bỏ các dòng mà phần lớn từ lặp lại ở nhiều frame của video và nằm ở mép trên/dưới màn hình, như menu phần mềm, watermark kênh hay thanh trạng thái. Bỏ cả dòng có dãy từ 9 chữ số trở lên, thường là mã số sinh viên trong khung chat họp trực tuyến. File `screen_text.json` gốc giữ nguyên; muốn đổi ngưỡng thì chỉ cần chạy lại `vskr index`. `python scripts/eval_variants.py` so sánh được OCR trước và sau khi lọc (`ocr_raw` với `ocr`).
 
 Cả hai cần torch bản CUDA, còn `.venv` chính giữ torch CPU cho embedding, nên chúng dùng chung một venv riêng:
 

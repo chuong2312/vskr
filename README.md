@@ -1,6 +1,6 @@
 # VSKR — hỏi đáp bài giảng và quản trị học liệu
 
-VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp tiếng Việt có trích dẫn. Khách mở app Người học ở `/` và hỏi trên thư viện chung mà không cần tài khoản; đăng nhập để lưu và xem lịch sử, hoặc thêm học liệu riêng. Bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. SQLite lưu tài khoản, phiên đăng nhập và lịch sử hội thoại; học liệu, job và index vẫn nằm trên filesystem. OCR/VLM là bước tùy chọn, chưa chạy tự động trong luồng MVP; frontend dùng HTML/CSS/JavaScript thuần.
+VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp tiếng Việt có trích dẫn. Khách mở app Người học ở `/` và hỏi trên thư viện chung mà không cần tài khoản; đăng nhập để lưu và xem lịch sử, hoặc thêm học liệu riêng. Bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. SQLite lưu tài khoản, phiên đăng nhập và lịch sử hội thoại; học liệu, job và index vẫn nằm trên filesystem. Job ingest tự chạy OCR rồi VLM sau ASR, trong venv riêng `.venv-vlm`; muốn tắt thì đặt `ocr.enabled`/`vlm.enabled` trong `configs/models.yaml` thành `false`. Frontend dùng HTML/CSS/JavaScript thuần.
 
 ## Thành phần đang dùng
 
@@ -32,11 +32,34 @@ source scripts/activate-venv.sh
 uv pip install -r backend/requirements/base.txt -r backend/requirements/video.txt
 uv pip install torch --index-url https://download.pytorch.org/whl/cpu
 uv pip install -r backend/requirements/asr.txt -r backend/requirements/embedding.txt
+uv pip install -r backend/requirements/docs.txt   # đọc PDF/DOCX cho `vskr doc`
 uv pip install --editable backend --no-deps
 vskr doctor --gpu-test
 ```
 
 Các thư viện CUDA tải lần đầu khá lớn. Script kích hoạt venv đặt `HF_HOME`, `PYTHONPATH` và đường dẫn cuBLAS/cuDNN cần cho faster-whisper. Chỉ tiếp tục khi `doctor --gpu-test` báo `OK`.
+
+### OCR và VLM (venv riêng `.venv-vlm`)
+
+Hai bước tùy chọn giúp tìm được cả nội dung **trên màn hình** bài giảng chứ không chỉ lời giảng viên nói:
+
+- **OCR** (EasyOCR, `['vi', 'en']`) đọc chữ trên slide và code. PaddleOCR không được dùng vì từ điển model của nó thiếu chữ tiếng Việt hai dấu (ấ, ữ, ệ, ớ…): "Truy vấn dữ liệu" bị đọc thành "Truy vn d liu".
+- **VLM** (Qwen2.5-VL-3B, nén 4-bit, khoảng 2,5 GB VRAM) mô tả sơ đồ, biểu đồ và hình minh họa bằng lời.
+
+Cả hai cần torch bản CUDA, còn `.venv` chính giữ torch CPU cho embedding, nên chúng dùng chung một venv riêng:
+
+```bash
+uv venv --python 3.12 .venv-vlm
+uv pip install --python .venv-vlm/bin/python -r backend/requirements/vlm.txt
+```
+
+Vẫn chạy lệnh bằng `.venv` chính; `vskr ocr` và `vskr vlm` tự gọi sang `.venv-vlm` theo `ocr.python`/`vlm.python` trong `configs/models.yaml`. Lần chạy đầu tải model EasyOCR (khoảng 100 MB) vào `cache/easyocr` và model VLM (khoảng 7,5 GB) vào `cache/huggingface`.
+
+Khi `ocr.enabled`/`vlm.enabled` bật, job ingest chạy thêm trích frame → OCR → VLM sau ASR. Bước nào lỗi (ví dụ chưa cài `.venv-vlm`) chỉ thành cảnh báo, video vẫn được lập chỉ mục bằng transcript. Tắt hai cờ này để ingest nhanh hơn. Chạy tay cho video đã có: `vskr frames --video <id>`, `vskr ocr --video <id>`, `vskr vlm --video <id>`, rồi `vskr index`.
+
+- `frames` dùng lại `scenes.json` nếu đã dò cảnh với cùng tham số, trích frame song song theo `frames.workers` và bỏ frame trùng bằng dHash.
+- OCR ghép các từ cùng hàng thành dòng, gộp dòng lặp lại qua các frame liên tiếp thành một khoảng thời gian, và ghi tỷ lệ diện tích chữ của từng frame vào `ocr_info.json`.
+- VLM chỉ mô tả frame **ít chữ**: frame mà chữ chiếm từ `vlm.max_text_area` (mặc định 15%) trở lên là slide/code đã được OCR đọc nên bị bỏ qua; frame gần giống frame đã chọn (`vlm.min_hash_dist`) cũng bị bỏ; số còn lại rải đều tối đa `vlm.max_frames`. Chữ OCR của frame được đưa vào prompt làm ngữ cảnh, và frame chỉ có người nói bị loại khỏi chỉ mục.
 
 ## Chạy pipeline trong venv
 
@@ -63,6 +86,8 @@ vskr serve --host 127.0.0.1
 Thêm tài liệu TXT, MD, RST, PDF hoặc DOCX bằng `vskr doc <đường_dẫn_tệp>` hoặc thư viện Người học. Khách và người học có thể thêm video/tài liệu qua giao diện; nội dung mới mặc định là `private`, chủ sở hữu có thể đề xuất `pending`, rồi admin duyệt thành `public`. Admin không thêm nội dung qua API ingest; màn **Kiểm duyệt học liệu** chỉ dùng để duyệt, từ chối hoặc xóa. Tài liệu được chia mục, lập chỉ mục và có thể truy xuất cùng video.
 
 Màn **Đánh giá** nhận bộ câu hỏi qua giao diện hoặc `data/eval/questions.jsonl`; mỗi dòng có dạng `{"id":"...","question":"...","type":"fact","relevant":[{"video_id":"...","start":12,"end":28}]}` hoặc dùng `document_id` và `section`. `multihop` có thể có nhiều mục đúng. Recall@5 tính một câu fact là tìm thấy nếu có ít nhất một mục đúng; với multihop là tỷ lệ mục đúng được phủ. MRR là trung bình nghịch đảo thứ hạng của kết quả đúng đầu tiên. Đánh giá chỉ chạy retrieval, không gọi LLM; nó không đo tính đúng của câu trả lời, mức độ trung thực hay độ chính xác của trích dẫn. Bộ câu hỏi và kết quả lưu trong `data/`, vốn bị Git bỏ qua; checkout mới không có ground truth cho tới khi người quản trị nhập câu hỏi và kiểm chứng nguồn đúng. Không dùng kết quả trên bộ nhỏ hoặc chưa được rà soát để kết luận graph hay phương thức nào tốt hơn. Tối thiểu nên có 20 câu đã được người hiểu học liệu kiểm tra, gồm câu fact và multihop, trước khi so sánh retrieval; cần đánh giá riêng câu trả lời và citation trước khi kết luận về chất lượng RAG. Nếu bộ câu hỏi thay đổi, giao diện sẽ đánh dấu kết quả cũ; admin cần chạy lại để có số liệu khớp. Kết quả mới được lưu tại `data/eval/results.json`.
+
+Mỗi câu có thể ghi thêm `"evidence"` để cho biết đáp án nằm ở đâu: `spoken` (giảng viên nói ra), `screen` (chữ trên màn hình nhưng không được đọc ra) hoặc `figure` (chỉ có trong sơ đồ/hình). Kết quả đánh giá có thêm `by_evidence`, chia điểm theo ba nhóm này. Muốn đo OCR/VLM giúp được bao nhiêu thì chạy `python scripts/eval_variants.py`. Script dựng index tạm cho ba biến thể (chỉ transcript, + OCR, + OCR + VLM) từ bản sao các file JSON trong `data/videos`, nên không đụng `data/index`. Sau đó nó in Recall@5 / MRR theo từng chế độ tìm kiếm và từng nhóm `evidence`, đồng thời ghi bản đầy đủ vào `data/eval/variants.json`. Mặc định script không gọi Ollama để trích quan hệ cho đồ thị, vì đầu ra của LLM thay đổi giữa các lần dựng; thêm `--relations` nếu muốn bật. Biến thể nào chưa có `screen_text.json`/`captions.json` thì script sẽ cảnh báo, vì khi đó kết quả giống hệt biến thể chỉ transcript.
 
 `min_vector_score` vẫn mặc định `null`, tức là chưa bật bộ lọc ngưỡng. Sau khi có ground truth retrieval do con người xác minh, có thể chạy `python scripts/calibrate_retrieval_threshold.py --questions data/eval/questions.jsonl` để xem phân phối điểm và ngưỡng ứng viên theo phân vị 5% của điểm tốt nhất trên nguồn liên quan. Đây chỉ là ứng viên thiên về recall; nếu chưa có câu hỏi không thể trả lời đã được gán nhãn thì chưa đo được tỷ lệ nhận nhầm, vì vậy không bật ngưỡng chỉ dựa trên báo cáo này.
 
@@ -118,6 +143,9 @@ có thể gọi Ollama theo cấu hình hiện tại.
 `python scripts/benchmark_ask_lock.py --question "..." --hold-seconds 12 --ask-timeout 10`
 đo retrieval và thời gian chờ của `Service.ask` khi benchmark giữ shared lock.
 Lock trong script được giả lập, không đại diện cho thời lượng ASR hoặc GPU thực.
+`python scripts/benchmark_bm25_scopes.py --chunks 10000 --scopes 200 --repeats 3`
+đo tốc độ chấm BM25 khi lọc theo nhiều tập quyền khác nhau; dùng dữ liệu tổng hợp,
+không đọc `data/`.
 
 ### Tài khoản quản trị
 
@@ -170,7 +198,7 @@ Không xóa `data/` hoặc `cache/` nếu còn cần video, transcript, index ha
 
 ## Phạm vi hiện tại
 
-Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect, không dùng LLM để sửa theo mạch bài giảng; trích quan hệ bằng Ollama có giới hạn số đoạn; liên kết video–tài liệu dựa trên embedding và khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; cần bộ câu hỏi đủ lớn, có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite cho job/index và frontend SvelteKit chưa bật mặc định. Docker sẽ được cấu hình ở giai đoạn đóng gói.
+Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect, không dùng LLM để sửa theo mạch bài giảng; trích quan hệ bằng Ollama có giới hạn số đoạn; liên kết video–tài liệu dựa trên embedding và khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh. Điểm của một đoạn là tổng trọng số IDF của các khái niệm trong câu hỏi mà đoạn đó chạm tới (khái niệm chạm gián tiếp bị giảm theo từng bước), và khái niệm chỉ được khớp trọn từ. Cần bộ câu hỏi đủ lớn, có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite cho job/index và frontend SvelteKit chưa bật mặc định. Docker sẽ được cấu hình ở giai đoạn đóng gói.
 
 ## Cấu trúc dự án
 

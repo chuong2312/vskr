@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..config import data_dir, index_dir, load_config, video_dir, videos_dir
+from ..evaluation import score_results, validate_question
 from ..index import load_meta
 from ..ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
 from ..util import fmt_time, read_json, write_json
@@ -93,41 +94,10 @@ def _questions_fingerprint(questions):
 
 
 def _validate_eval_question(raw):
-    if not isinstance(raw, dict):
-        raise HTTPException(422, "Mỗi dòng câu hỏi cần là một object JSON.")
-    item = dict(raw)
-    item["id"] = str(item.get("id") or uuid.uuid4().hex[:12])
-    item["question"] = str(item.get("question") or "").strip()
-    if not item["question"]:
-        raise HTTPException(422, "Câu hỏi đánh giá không được để trống.")
-    if item.get("type") not in ("fact", "multihop"):
-        raise HTTPException(422, "type phải là fact hoặc multihop.")
-    refs = item.get("relevant")
-    if not isinstance(refs, list) or not refs:
-        raise HTTPException(422, "Mỗi câu hỏi cần ít nhất một mục nguồn đúng trong relevant.")
-    clean_refs = []
-    for ref in refs:
-        if not isinstance(ref, dict):
-            raise HTTPException(422, "Mỗi mục relevant phải là một object.")
-        if ref.get("document_id"):
-            try:
-                section = int(ref["section"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise HTTPException(422, "Nguồn tài liệu cần document_id và section.") from exc
-            if section < 1:
-                raise HTTPException(422, "section phải bắt đầu từ 1.")
-            clean_refs.append({"document_id": str(ref["document_id"]), "section": section})
-        elif ref.get("video_id"):
-            try:
-                start, end = float(ref["start"]), float(ref["end"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise HTTPException(422, "Nguồn video cần video_id, start và end.") from exc
-            if start < 0 or end < start:
-                raise HTTPException(422, "Khoảng thời gian video không hợp lệ.")
-            clean_refs.append({"video_id": str(ref["video_id"]), "start": start, "end": end})
-        else:
-            raise HTTPException(422, "Nguồn đúng cần video_id hoặc document_id.")
-    return {"id": item["id"], "question": item["question"], "type": item["type"], "relevant": clean_refs}
+    try:
+        return validate_question(raw)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 state = {"service": None, "error": None, "failed_at": 0.0}
@@ -540,10 +510,6 @@ def admin_status():
     return full
 
 
-def _owner_is_visible(item_owner_id, owner_id=None, *, shared_only=False):
-    return is_visible({"owner_id": item_owner_id}, owner_id, shared_only=shared_only)
-
-
 def _meta_is_visible(meta, owner_id=None, *, shared_only=False):
     return is_visible(meta, owner_id, shared_only=shared_only)
 
@@ -746,6 +712,7 @@ def _process_ingest_job(job_id, source):
             vdir = video_dir(cfg, video_id)
             if not (vdir / "transcript.json").is_file():
                 raise RuntimeError("ASR chưa tạo transcript; kiểm tra file audio và cấu hình ASR.")
+            _run_visual_steps(cfg, job_id, video_id, warnings)
 
         _update_job(job_id, phase="index", message="Đang chia đoạn và lập chỉ mục…")
         _rebuild_index(cfg, job_id=job_id)
@@ -771,6 +738,50 @@ def _process_ingest_job(job_id, source):
             _error_detail=_safe_diagnostic(exc),
         )
         audit.write_event("ingest.complete", target_id=job_id, kind=source.get("kind"), result="error")
+
+
+def _run_visual_steps(cfg, job_id, video_id, warnings):
+    """Extract frames, then OCR, then VLM, each when enabled; failures only add warnings.
+
+    On-screen text and figure captions improve search, but a lecture stays
+    usable from its transcript, so these steps must not fail the ingest job.
+    VLM runs after OCR because it uses OCR's per-frame text coverage to
+    caption only figure-like frames.
+    """
+    ocr_on = bool(cfg.get("ocr", {}).get("enabled"))
+    vlm_on = bool(cfg.get("vlm", {}).get("enabled"))
+    if not (ocr_on or vlm_on):
+        return
+    meta = read_json(video_dir(cfg, video_id) / "meta.json")
+    if not meta.get("has_video_file"):
+        return
+    from ..steps import run_step
+
+    try:
+        _update_job(job_id, phase="frames", message="Đang trích frame từ video…")
+        from ..frames import run as extract_frames
+
+        extract_frames(cfg, video_id)
+    except Exception as exc:
+        logging.warning("Frame extraction failed for %s; indexing transcript only (%s: %s)",
+                        video_id, type(exc).__name__, exc)
+        warnings.append("Không trích được frame; đã lập chỉ mục bằng transcript.")
+        return
+    steps = []
+    if ocr_on:
+        steps.append(("ocr", "Đang đọc chữ trên màn hình (OCR)…",
+                      "Không đọc được chữ trên màn hình (OCR); đã lập chỉ mục bằng transcript."))
+    if vlm_on:
+        steps.append(("vlm", "Đang mô tả sơ đồ/hình minh họa (VLM)…",
+                      "Không mô tả được hình minh họa (VLM); phần còn lại vẫn được lập chỉ mục."))
+    for step, running, failed in steps:
+        try:
+            _update_job(job_id, phase=step, message=running)
+            with _gpu_model_lock:
+                run_step(cfg, step, [video_id])
+        except Exception as exc:
+            logging.warning("%s step failed for %s (%s: %s)", step.upper(), video_id, type(exc).__name__, exc)
+            warnings.append(failed)
 
 
 def _rebuild_index(cfg=None, job_id=None):
@@ -1221,8 +1232,6 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
         retrieval_config = dict(service.cfg["retrieval"])
     finally:
         _release_service(service)
-    from ..evaluation import score_results
-
     scored = score_results(questions, hits, k=5)
     result = {
         "created_at": datetime.now(timezone.utc).isoformat(),

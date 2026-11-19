@@ -1,7 +1,7 @@
 """Kiểm tra môi trường (giai đoạn 0). Không sửa gì, chỉ báo cáo.
 
-    python -m vskr.cli doctor              # kiểm tra nhanh
-    python -m vskr.cli doctor --gpu-test   # thêm: chạy thử faster-whisper thật trên GPU (tải model 'tiny' ~75MB)
+    vskr doctor              # kiểm tra nhanh
+    vskr doctor --gpu-test   # thêm: chạy thử faster-whisper thật trên GPU (tải model 'tiny' ~75MB)
 """
 import os
 import platform

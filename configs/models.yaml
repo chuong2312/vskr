@@ -45,22 +45,32 @@ frames:                      # dò phân cảnh và lấy frame cho OCR/VLM; c�
   hash_dist: 4               # lọc frame trùng (dHash, số bit khác); đếm số frame còn lại rồi chỉnh
   max_frames: 2000
   max_width: 1280
+  workers: 6                 # số ffmpeg trích frame song song (máy 20 luồng; để dư CPU cho server/Ollama)
 
 ocr:
-  provider: paddleocr
-  lang: vi
+  enabled: true              # job ingest tự chạy frames → OCR sau ASR; false để ingest nhanh hơn
+  python: .venv-vlm/bin/python   # chạy chung venv với VLM (torch CUDA); để trống = chạy trong venv hiện tại
+  timeout_s: 3600            # giới hạn thời gian cho một lần chạy OCR (giây)
+  engine: easyocr            # đọc đủ dấu tiếng Việt; PaddleOCR thiếu chữ hai dấu (ấ, ữ, ệ…)
+  lang: [vi, en]             # song ngữ: chữ Việt trên slide + từ khoá code tiếng Anh
   device: gpu
+  batch_size: 8              # số vùng chữ nhận dạng mỗi lượt trên GPU
   max_frames: 2000
-  score_threshold: 0.5
+  score_threshold: 0.4       # bỏ từ có độ tin cậy thấp trước khi ghép dòng (EasyOCR chấm điểm thấp hơn Paddle)
   unload_ollama_first: true
 
-vlm:
-  provider: transformers
+vlm:                         # mô tả sơ đồ/hình; chạy sau OCR, chỉ trên frame ít chữ
+  enabled: true              # job ingest tự chạy VLM sau OCR; false để ingest nhanh hơn
+  python: .venv-vlm/bin/python   # venv riêng chứa torch CUDA + transformers (xem README)
+  timeout_s: 3600
   model: Qwen/Qwen2.5-VL-3B-Instruct
   device: cuda
-  load_in_4bit: true
+  load_in_4bit: true         # ~3 GB VRAM thay vì ~7 GB; vừa GPU 8 GB cùng phần dư cho ảnh
   max_new_tokens: 96
-  max_frames: 200
+  max_frames: 120            # tối đa sau khi lọc, rải đều cả bài giảng
+  max_text_area: 0.15        # bỏ frame mà chữ chiếm ≥15% diện tích (slide/code: OCR đã đủ)
+  min_hash_dist: 10          # bỏ frame gần giống frame đã chọn (dHash; frames.hash_dist là 4)
+  max_pixels: 602112         # thu ảnh về ≤ ~1024×588 trước khi đưa vào model: ít token ảnh hơn, nhanh hơn
   unload_ollama_first: true
 
 chunk:
@@ -91,7 +101,6 @@ knowledge_graph:
   max_relation_chunks: 24    # tối đa 12 đoạn video + 12 mục tài liệu gửi qua Ollama mỗi lần lập chỉ mục
 
 llm:
-  provider: ollama
   base_url: http://localhost:11434   # Ollama local; đổi bằng VSKR__LLM__BASE_URL nếu cần
   model: qwen3.5:4b             # mặc định nhẹ hơn cho máy 24 GB RAM; 9b vẫn có thể chọn lại
   temperature: 0.1

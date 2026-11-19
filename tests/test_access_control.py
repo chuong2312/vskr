@@ -65,7 +65,7 @@ def _has_admin_dependency(route):
 
 def _has_learner_dependency(route):
     dependencies = getattr(getattr(route, "dependant", None), "dependencies", [])
-    return any(getattr(dependency.call, "__name__", "") in {"require_learner_or_admin", "require_user"} for dependency in dependencies)
+    return any(getattr(dependency.call, "__name__", "") == "require_user" for dependency in dependencies)
 
 
 def _concrete_path(path):

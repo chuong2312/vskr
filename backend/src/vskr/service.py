@@ -25,7 +25,7 @@ class Service:
         if built_with and built_with != cfg["embedding"]["model"]:
             raise RuntimeError(
                 f"Chỉ mục được tạo bằng embedding '{built_with}' nhưng cấu hình hiện là "
-                f"'{cfg['embedding']['model']}'. Chạy lại: python -m vskr.cli index"
+                f"'{cfg['embedding']['model']}'. Chạy lại: vskr index"
             )
         built_embedding = self.index.info.get("embedding") or {}
         keys = ("model", "query_prefix", "passage_prefix", "max_seq_length")

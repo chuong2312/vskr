@@ -32,6 +32,7 @@ source scripts/activate-venv.sh
 uv pip install -r backend/requirements/base.txt -r backend/requirements/video.txt
 uv pip install torch --index-url https://download.pytorch.org/whl/cpu
 uv pip install -r backend/requirements/asr.txt -r backend/requirements/embedding.txt
+uv pip install -r backend/requirements/docs.txt   # đọc PDF/DOCX cho `vskr doc`
 uv pip install --editable backend --no-deps
 vskr doctor --gpu-test
 ```

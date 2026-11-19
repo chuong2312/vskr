@@ -88,7 +88,7 @@ class TestValidateQuestion(unittest.TestCase):
     def test_api_wrapper_maps_errors_to_422(self):
         from fastapi import HTTPException
 
-        from vskr.api.handlers import _validate_eval_question
+        from vskr.api.handlers.evaluation import _validate_eval_question
 
         with self.assertRaises(HTTPException) as ctx:
             _validate_eval_question({**self.BASE, "type": "other"})

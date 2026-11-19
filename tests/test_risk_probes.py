@@ -79,13 +79,13 @@ class TestRiskProbes(unittest.TestCase):
             FakeEmbedder.embed_seconds.clear()
             with mock.patch("vskr.retrieval.embedder.Embedder", FakeEmbedder), \
                     mock.patch("vskr.retrieval.index.build_graph", return_value={"nodes": [], "edges": []}):
-                handlers._rebuild_index(cfg)
+                handlers.jobs._rebuild_index(cfg)
                 chunks.extend([
                     {"chunk_id": f"doc:{i}", "document_id": "doc", "section": i, "text": f"chunk {i}"}
                     for i in range(2, 10)
                 ])
                 section_file.write_text(json.dumps({"chunks": chunks}), encoding="utf-8")
-                handlers._rebuild_index(cfg)
+                handlers.jobs._rebuild_index(cfg)
 
         self.assertEqual(FakeEmbedder.batch_sizes, [2, 10])
         self.assertGreater(FakeEmbedder.embed_seconds[1], FakeEmbedder.embed_seconds[0])
@@ -104,9 +104,9 @@ class TestRiskProbes(unittest.TestCase):
         service.embedder = embedder
         service.retriever = Retriever(index, embedder, service.cfg["retrieval"])
 
-        with handlers._gpu_model_lock:
+        with handlers.runtime._gpu_model_lock:
             with self.assertRaises(ModelBusyError):
-                service.ask("Bài học?", llm_lock=handlers._gpu_model_lock, lock_timeout=0)
+                service.ask("Bài học?", llm_lock=handlers.runtime._gpu_model_lock, lock_timeout=0)
 
     def test_live_stream_without_duration_is_rejected_before_download(self):
         class FakeYDL:

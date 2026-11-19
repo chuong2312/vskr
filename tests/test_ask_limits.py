@@ -27,7 +27,7 @@ class TestAskLimits(unittest.TestCase):
             "ý vừa rồi nghĩa là gì",
             "cái đó là gì",
         )
-        with mock.patch.dict(handlers.state, {"service": service, "error": None}):
+        with mock.patch.dict(handlers.runtime.state, {"service": service, "error": None}):
             with ASGITestClient(app) as client:
                 for question in questions:
                     with self.subTest(question=question):
@@ -49,7 +49,7 @@ class TestAskLimits(unittest.TestCase):
             "Regularization là gì?",
             "LASSO khác Ridge ở điểm nào?",
         )
-        with mock.patch.dict(handlers.state, {"service": service, "error": None}):
+        with mock.patch.dict(handlers.runtime.state, {"service": service, "error": None}):
             with ASGITestClient(app) as client:
                 for question in questions:
                     with self.subTest(question=question):
@@ -76,7 +76,7 @@ class TestAskLimits(unittest.TestCase):
         service = SimpleNamespace(ask=mock.Mock(return_value={
             "answer": "Trả lời [1]", "found": True, "cited": True, "sources": [],
         }))
-        with mock.patch.dict(handlers.state, {"service": service, "error": None}):
+        with mock.patch.dict(handlers.runtime.state, {"service": service, "error": None}):
             with ASGITestClient(app) as client:
                 response = client.post("/api/ask", json={"question": "x" * 500})
         self.assertEqual(response.status_code, 200)
@@ -106,7 +106,7 @@ class TestAskLimits(unittest.TestCase):
 
     def test_public_ask_hides_unexpected_model_errors(self):
         service = SimpleNamespace(ask=mock.Mock(side_effect=TimeoutError("/srv/private/model-state")))
-        with mock.patch.dict(handlers.state, {"service": service, "error": None}):
+        with mock.patch.dict(handlers.runtime.state, {"service": service, "error": None}):
             with ASGITestClient(app) as client:
                 response = client.post("/api/ask", json={"question": "Câu hỏi?"})
         self.assertEqual(response.status_code, 502)
@@ -165,12 +165,12 @@ class TestAskLimits(unittest.TestCase):
 
         service = SimpleNamespace(ask=ask)
         def run_ask():
-            return handlers.ask(
-                handlers.AskRequest(question="Hàm sigmoid là gì?"),
+            return handlers.ask.ask(
+                handlers.ask.AskRequest(question="Hàm sigmoid là gì?"),
                 mode_override="hybrid", use_request_mode=False,
             )
 
-        with mock.patch.dict(handlers.state, {"service": service, "error": None}):
+        with mock.patch.dict(handlers.runtime.state, {"service": service, "error": None}):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 results = list(pool.map(lambda _index: run_ask(), range(2)))
 
@@ -180,33 +180,33 @@ class TestAskLimits(unittest.TestCase):
     def test_index_reload_keeps_active_service_alive_until_its_users_finish(self):
         old_service = SimpleNamespace(embedder=SimpleNamespace(close=mock.Mock()))
         new_service = SimpleNamespace(embedder=SimpleNamespace(close=mock.Mock()))
-        with handlers._service_use_lock:
-            handlers._active_service_users.clear()
-        with mock.patch.dict(handlers.state, {"service": old_service, "error": None}), \
+        with handlers.runtime._service_use_lock:
+            handlers.runtime._active_service_users.clear()
+        with mock.patch.dict(handlers.runtime.state, {"service": old_service, "error": None}), \
                 mock.patch("vskr.service.Service", return_value=new_service), \
-                mock.patch.object(handlers, "load_config", return_value={}):
-            leased = handlers._acquire_service()
-            handlers._init_service()
+                mock.patch.object(handlers.runtime, "load_config", return_value={}):
+            leased = handlers.runtime._acquire_service()
+            handlers.runtime._init_service()
             old_service.embedder.close.assert_not_called()
-            self.assertIs(handlers.state["service"], new_service)
-            handlers._release_service(leased)
+            self.assertIs(handlers.runtime.state["service"], new_service)
+            handlers.runtime._release_service(leased)
             old_service.embedder.close.assert_called_once_with()
 
     def test_gpu_lock_wait_expires_with_friendly_503_and_retry_after(self):
         data_dir = tempfile.TemporaryDirectory()
-        old_service = handlers.state["service"]
-        old_error = handlers.state["error"]
-        old_timeout = handlers.GPU_LOCK_TIMEOUT_S
+        old_service = handlers.runtime.state["service"]
+        old_error = handlers.runtime.state["error"]
+        old_timeout = handlers.ask.GPU_LOCK_TIMEOUT_S
         service = object.__new__(Service)
         service.retriever = SimpleNamespace(search=lambda *_args, **_kwargs: [])
         service.index = SimpleNamespace(chunks=[])
         service.cfg = {"llm": {}}
         service.meta = {}
         service.document_meta = {}
-        handlers.state["service"] = service
-        handlers.state["error"] = None
-        handlers.GPU_LOCK_TIMEOUT_S = 0.02
-        handlers._gpu_model_lock.acquire()
+        handlers.runtime.state["service"] = service
+        handlers.runtime.state["error"] = None
+        handlers.ask.GPU_LOCK_TIMEOUT_S = 0.02
+        handlers.runtime._gpu_model_lock.acquire()
         try:
             ip = "198.51.100.32"
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": data_dir.name}), \
@@ -222,8 +222,8 @@ class TestAskLimits(unittest.TestCase):
             with _lock:
                 self.assertFalse(_ask_attempts.get(ip))
         finally:
-            handlers._gpu_model_lock.release()
-            handlers.GPU_LOCK_TIMEOUT_S = old_timeout
-            handlers.state["service"] = old_service
-            handlers.state["error"] = old_error
+            handlers.runtime._gpu_model_lock.release()
+            handlers.ask.GPU_LOCK_TIMEOUT_S = old_timeout
+            handlers.runtime.state["service"] = old_service
+            handlers.runtime.state["error"] = old_error
             data_dir.cleanup()

@@ -105,7 +105,7 @@ def _safe_source_link(source: dict) -> str | None:
         elif not source.get("youtube_id"):
             youtube_id = video_id
         return f"https://www.youtube.com/watch?v={quote(youtube_id, safe='')}&t={start}s"
-    return handlers._safe_source_url(link)
+    return handlers.library._safe_source_url(link)
 
 
 def _rate_limit_new_guest_identity(request: Request, user: dict, *, guest_write: bool = False) -> None:
@@ -262,7 +262,7 @@ def admin_login_asset(asset_path: str):
 
 @router.get("/api/videos")
 def public_videos(user=Depends(accounts.optional_learner_or_admin)):
-    return handlers.public_videos(owner_id=user.get("owner") or user.get("user_id"),
+    return handlers.library.public_videos(owner_id=user.get("owner") or user.get("user_id"),
                                   shared_only=bool(user.get("guest")))
 
 
@@ -297,12 +297,12 @@ def public_catalog(scope: str | None = Query(default=None),
     if scope == "mine":
         if not user.get("user_id"):
             return {"videos": [], "documents": []}
-        return handlers.public_catalog(owner_id=user["user_id"], owned_only=True, project_id=project_id)
+        return handlers.library.public_catalog(owner_id=user["user_id"], owned_only=True, project_id=project_id)
     if scope == "public":
-        return handlers.public_catalog(owner_id=owner_id, shared_only=True, project_id=project_id)
+        return handlers.library.public_catalog(owner_id=owner_id, shared_only=True, project_id=project_id)
     if scope is not None:
         raise HTTPException(422, "Phạm vi thư viện không hợp lệ.")
-    return handlers.public_catalog(owner_id=owner_id, shared_only=bool(user.get("guest")),
+    return handlers.library.public_catalog(owner_id=owner_id, shared_only=bool(user.get("guest")),
                                    project_id=project_id)
 
 
@@ -330,7 +330,7 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
             url = validate_learner_ingest_url(
                 url, allowed_domains=cfg.get("ingest", {}).get("allowed_domains")
             )
-        result = await handlers.start_ingest(url=url, file=file,
+        result = await handlers.jobs.start_ingest(url=url, file=file,
                                              owner_id=owner_id, project_id=project["project_id"])
     audit.write_event("ingest.start", target_id=result.get("job_id"), kind="upload" if file else "url")
     response = JSONResponse(result, status_code=202)
@@ -346,7 +346,7 @@ async def public_upload_document(request: Request, user=Depends(accounts.require
     async with request.form(max_files=1, max_fields=2, max_part_size=64 * 1024) as form:
         project = accounts.get_project(owner_id, form.get("project_id"))
         file = _form_upload(form, "file", required=True)
-        result = await handlers.upload_document(file=file,
+        result = await handlers.jobs.upload_document(file=file,
                                                 owner_id=owner_id, project_id=project["project_id"])
     audit.write_event("document.upload", target_id=result.get("job_id"), kind="document")
     response = JSONResponse(result, status_code=202)
@@ -357,7 +357,7 @@ async def public_upload_document(request: Request, user=Depends(accounts.require
 
 @router.get("/api/jobs/{job_id}")
 def public_job_status(job_id: str, user=Depends(accounts.optional_learner_or_admin)):
-    job = handlers.get_job(job_id)
+    job = handlers.jobs.get_job(job_id)
     owner_id = user.get("owner") or user.get("user_id")
     if not user.get("admin") and job.get("owner_id") != owner_id:
         raise HTTPException(404, "Không tìm thấy tác vụ.")
@@ -370,23 +370,23 @@ def public_job_status(job_id: str, user=Depends(accounts.optional_learner_or_adm
 def public_document_section(document_id: str, section: int, user=Depends(accounts.optional_learner_or_admin)):
     owner_id = user.get("user_id")
     shared_only = user.get("guest", False)
-    if not handlers._indexed_document(document_id, owner_id=owner_id, shared_only=shared_only):
+    if not handlers.library._indexed_document(document_id, owner_id=owner_id, shared_only=shared_only):
         raise HTTPException(404, "Không tìm thấy mục tài liệu.")
-    return handlers.document_section(document_id, section, owner_id=owner_id, shared_only=shared_only)
+    return handlers.library.document_section(document_id, section, owner_id=owner_id, shared_only=shared_only)
 
 
 @router.get("/api/videos/{video_id}/file")
 def public_video_file(video_id: str, user=Depends(accounts.optional_learner_or_admin)):
     owner_id = user.get("user_id")
     shared_only = user.get("guest", False)
-    if not handlers._indexed_video(video_id, owner_id=owner_id, shared_only=shared_only):
+    if not handlers.library._indexed_video(video_id, owner_id=owner_id, shared_only=shared_only):
         raise HTTPException(404, "Không tìm thấy video.")
-    return handlers.uploaded_video_file(video_id, owner_id=owner_id, shared_only=shared_only)
+    return handlers.library.uploaded_video_file(video_id, owner_id=owner_id, shared_only=shared_only)
 
 
 @router.get("/api/status")
 def public_status(user=Depends(accounts.optional_learner_or_admin)):
-    return {"ready": handlers.state["service"] is not None}
+    return {"ready": handlers.runtime.state["service"] is not None}
 
 
 @router.get("/api/conversations")
@@ -406,7 +406,7 @@ def create_conversation(payload: CreateConversationRequest, user=Depends(account
         raise HTTPException(422, "Loại nguồn không hợp lệ.")
     source_type = payload.source_type if scope_type == "source" else "library"
     source_id = payload.source_id if scope_type == "source" else None
-    if scope_type == "source" and not handlers.source_is_visible(source_type, source_id, user["user_id"]):
+    if scope_type == "source" and not handlers.library.source_is_visible(source_type, source_id, user["user_id"]):
         raise HTTPException(404, "Không tìm thấy nguồn.")
     project = (accounts.get_project(user["user_id"], payload.project_id)
                if payload.project_id else accounts.get_or_create_default_project(user["user_id"]))
@@ -419,7 +419,7 @@ def get_conversation(conversation_id: str, user=Depends(accounts.require_user)):
     conversation = accounts.get_conversation(user["user_id"], conversation_id)
     conversation["source_deleted"] = (
         conversation["scope_type"] == "source"
-        and not handlers.source_is_visible(
+        and not handlers.library.source_is_visible(
             conversation["source_type"], conversation["source_id"], user["user_id"]
         )
     )
@@ -444,7 +444,7 @@ def my_jobs(user=Depends(accounts.require_learner_or_guest)):
     fields = ("job_id", "status", "phase", "message", "title", "video_id", "document_id", "project_id")
     return [
         {key: job[key] for key in fields if key in job}
-        for job in handlers.list_jobs(200)
+        for job in handlers.jobs.list_jobs(200)
         if job.get("owner_id") == owner
     ]
 
@@ -460,7 +460,7 @@ def delete_my_content(kind: str, item_id: str, user=Depends(accounts.require_lea
     owner = user.get("owner") or user.get("user_id")
     if (meta.get("owner") or meta.get("owner_id")) != owner:
         raise HTTPException(404, "Không tìm thấy nội dung.")
-    return handlers.delete_video(item_id) if kind == "video" else handlers.delete_document(item_id)
+    return handlers.library.delete_video(item_id) if kind == "video" else handlers.library.delete_document(item_id)
 
 
 @router.post("/api/my/content/{kind}/{item_id}/visibility")
@@ -478,7 +478,7 @@ def request_visibility(kind: str, item_id: str, payload: VisibilityPayload,
         raise HTTPException(404, "Không tìm thấy nội dung.")
     meta["visibility"] = payload.visibility
     write_json(meta_path, meta)
-    service = handlers.state.get("service")
+    service = handlers.runtime.state.get("service")
     if service is not None:
         target = service.meta if kind == "video" else service.document_meta
         target[item_id] = {**target.get(item_id, {}), **meta}
@@ -516,7 +516,7 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
             raise HTTPException(422, "Loại nguồn không hợp lệ.")
         owner_id = user.get("owner") or user.get("user_id")
         shared_only = False
-        if scope_type == "source" and not handlers.source_is_visible(
+        if scope_type == "source" and not handlers.library.source_is_visible(
                 source_type, source_id, owner_id, shared_only=shared_only):
             if payload.conversation_id and user.get("user_id"):
                 raise HTTPException(410, detail={
@@ -530,8 +530,8 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
             allowed_sources = None
         else:
             allowed_sources = None
-        result = handlers.ask(
-            handlers.AskRequest(question=question), use_request_mode=False, mode_override="hybrid",
+        result = handlers.ask.ask(
+            handlers.ask.AskRequest(question=question), use_request_mode=False, mode_override="hybrid",
             owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources,
             project_id=None,
         )

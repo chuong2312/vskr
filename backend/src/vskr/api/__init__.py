@@ -12,7 +12,7 @@ from . import admin, handlers, public
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     warn_if_unconfigured()
-    handlers._init_service()
+    handlers.runtime._init_service()
     yield
 
 
@@ -169,10 +169,3 @@ class SecurityHeadersMiddleware:
 app.add_middleware(UploadBodyLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
-
-def __getattr__(name):
-    """Keep the historic ``vskr.api`` import path while implementation lives in handlers."""
-    try:
-        return getattr(handlers, name)
-    except AttributeError:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None

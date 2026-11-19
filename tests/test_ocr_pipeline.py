@@ -143,7 +143,7 @@ class TestIngestVisualSteps(unittest.TestCase):
             cfg = self._cfg(temp_dir, ocr=False, vlm=False)
             warnings = []
             with mock.patch("vskr.pipeline.frames.run") as extract, mock.patch("vskr.pipeline.steps.run_step") as run_step:
-                handlers._run_visual_steps(cfg, "job1", "vid1", warnings)
+                handlers.jobs._run_visual_steps(cfg, "job1", "vid1", warnings)
         extract.assert_not_called()
         run_step.assert_not_called()
         self.assertEqual(warnings, [])
@@ -154,7 +154,7 @@ class TestIngestVisualSteps(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = self._cfg(temp_dir, vlm=True, has_video=False)
             with mock.patch("vskr.pipeline.frames.run") as extract:
-                handlers._run_visual_steps(cfg, "job1", "vid1", [])
+                handlers.jobs._run_visual_steps(cfg, "job1", "vid1", [])
         extract.assert_not_called()
 
     def test_frames_then_ocr_then_vlm_each_under_gpu_lock(self):
@@ -165,8 +165,8 @@ class TestIngestVisualSteps(unittest.TestCase):
             calls = []
             with mock.patch("vskr.pipeline.frames.run") as extract, \
                  mock.patch("vskr.pipeline.steps.run_step",
-                            side_effect=lambda _cfg, step, ids: calls.append((step, ids, handlers._gpu_model_lock.locked()))):
-                handlers._run_visual_steps(cfg, "job1", "vid1", [])
+                            side_effect=lambda _cfg, step, ids: calls.append((step, ids, handlers.runtime._gpu_model_lock.locked()))):
+                handlers.jobs._run_visual_steps(cfg, "job1", "vid1", [])
         extract.assert_called_once_with(cfg, "vid1")
         self.assertEqual(calls, [("ocr", ["vid1"], True), ("vlm", ["vid1"], True)])
 
@@ -183,11 +183,11 @@ class TestIngestVisualSteps(unittest.TestCase):
             with mock.patch("vskr.pipeline.frames.run"), \
                  mock.patch("vskr.pipeline.steps.run_step", side_effect=fake) as run_step, \
                  self.assertLogs(level="WARNING"):
-                handlers._run_visual_steps(cfg, "job1", "vid1", warnings)
+                handlers.jobs._run_visual_steps(cfg, "job1", "vid1", warnings)
         self.assertEqual([c.args[1] for c in run_step.call_args_list], ["ocr", "vlm"])
         self.assertEqual(len(warnings), 1)
         self.assertIn("OCR", warnings[0])
-        self.assertFalse(handlers._gpu_model_lock.locked())
+        self.assertFalse(handlers.runtime._gpu_model_lock.locked())
 
     def test_frame_extraction_failure_skips_ocr_and_vlm(self):
         from vskr.api import handlers
@@ -198,7 +198,7 @@ class TestIngestVisualSteps(unittest.TestCase):
             with mock.patch("vskr.pipeline.frames.run", side_effect=RuntimeError("ffmpeg")), \
                  mock.patch("vskr.pipeline.steps.run_step") as run_step, \
                  self.assertLogs(level="WARNING"):
-                handlers._run_visual_steps(cfg, "job1", "vid1", warnings)
+                handlers.jobs._run_visual_steps(cfg, "job1", "vid1", warnings)
         run_step.assert_not_called()
         self.assertEqual(len(warnings), 1)
 

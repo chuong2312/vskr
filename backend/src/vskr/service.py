@@ -17,7 +17,7 @@ class Service:
     def __init__(self, cfg):
         self.cfg = cfg
         self.meta = index_mod.load_meta(cfg)
-        from .documents import list_documents
+        from .pipeline.documents import list_documents
 
         self.document_meta = {item["document_id"]: item for item in list_documents(cfg)}
         self.index = index_mod.load(cfg)

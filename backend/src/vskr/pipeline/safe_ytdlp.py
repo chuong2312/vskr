@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
-from .api.ssrf import resolve_ingest_target, validate_ingest_url
+from .url_safety import resolve_ingest_target, validate_ingest_url
 
 
 class UnsafeNetworkDownloaderError(RuntimeError):

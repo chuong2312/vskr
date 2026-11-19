@@ -3,8 +3,8 @@ import re
 import uuid
 from pathlib import Path
 
-from .config import data_dir
-from .util import read_json, write_json
+from ..config import data_dir
+from ..util import read_json, write_json
 
 
 def _extract(path):

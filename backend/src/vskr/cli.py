@@ -58,29 +58,29 @@ def main():
 
         doctor.main(cfg, gpu_test=args.gpu_test)
     elif args.cmd == "ingest":
-        from .ingest import ingest
+        from .pipeline.ingest import ingest
 
         for u in args.urls:
             m = ingest(u, cfg, with_video=not args.audio_only)
             if not args.audio_only:
-                from .frames import detect_scenes_only
+                from .pipeline.frames import detect_scenes_only
 
                 detected = detect_scenes_only(cfg, m["video_id"])
                 print(f"[scenes] {detected['scene_count']} phân cảnh")
             print(f"[ingest] {m['video_id']} | {m['title']} | {m['duration']}s")
     elif args.cmd == "asr":
-        from . import asr
+        from .pipeline import asr
         from .index import list_video_ids
 
         asr.run(cfg, args.video or list_video_ids(cfg), force=args.force)
     elif args.cmd == "frames":
-        from . import frames
+        from .pipeline import frames
         from .index import list_video_ids
 
         for vid in args.video or list_video_ids(cfg):
             frames.run(cfg, vid, force=args.force)
     elif args.cmd in ("ocr", "vlm"):
-        from .steps import run_step
+        from .pipeline.steps import run_step
 
         video_ids = args.video
         if not video_ids:
@@ -100,7 +100,7 @@ def main():
             emb.close()
     elif args.cmd == "doc":
         from . import index
-        from .documents import ingest_document
+        from .pipeline.documents import ingest_document
         from .embedder import Embedder
 
         meta = ingest_document(args.file, cfg)

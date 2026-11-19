@@ -2,8 +2,8 @@
 import subprocess
 from pathlib import Path
 
-from .config import video_dir
-from .util import safe_video_id, write_json
+from ..config import video_dir
+from ..util import safe_video_id, write_json
 
 
 def probe_duration(path):

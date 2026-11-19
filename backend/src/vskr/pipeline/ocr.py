@@ -7,8 +7,8 @@ came out as "Truy vn d liu". The engine is imported only when this step runs.
 """
 import time
 
-from .config import ROOT, video_dir
-from .util import read_json, write_json
+from ..config import ROOT, video_dir
+from ..util import read_json, write_json
 
 
 def group_lines(words, overlap=0.5):
@@ -148,7 +148,7 @@ def run(cfg, video_ids=None, force=False):
         frame_rows = cap_evenly(read_json(fp).get("frames", []), int(ocfg.get("max_frames", 2000)))
         if engine is None:
             if ocfg.get("unload_ollama_first", True):
-                from .qa import unload_ollama
+                from ..qa import unload_ollama
 
                 unload_ollama(cfg.get("llm", {}))
             loading = time.time()

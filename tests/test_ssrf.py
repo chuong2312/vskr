@@ -4,13 +4,13 @@ from unittest import mock
 
 from fastapi import HTTPException
 
-from vskr.api.ssrf import validate_ingest_url, validate_learner_ingest_url
+from vskr.pipeline.url_safety import validate_ingest_url, validate_learner_ingest_url
 
 
 class TestIngestUrlValidation(unittest.TestCase):
     def test_learner_url_ingest_is_limited_to_youtube_hosts(self):
         youtube = "https://youtu.be/abc123"
-        with mock.patch("vskr.api.ssrf.validate_ingest_url", return_value=youtube) as validate:
+        with mock.patch("vskr.pipeline.url_safety.validate_ingest_url", return_value=youtube) as validate:
             self.assertEqual(validate_learner_ingest_url(youtube), youtube)
             validate.assert_called_once_with(youtube)
 
@@ -24,7 +24,7 @@ class TestIngestUrlValidation(unittest.TestCase):
 
     def test_learner_url_ingest_uses_configured_domains(self):
         lecture = "https://lectures.example/video"
-        with mock.patch("vskr.api.ssrf.validate_ingest_url", return_value=lecture):
+        with mock.patch("vskr.pipeline.url_safety.validate_ingest_url", return_value=lecture):
             self.assertEqual(
                 validate_learner_ingest_url(lecture, allowed_domains=["lectures.example"]),
                 lecture,
@@ -48,21 +48,21 @@ class TestIngestUrlValidation(unittest.TestCase):
 
     def test_resolves_hostname_and_rejects_any_private_answer(self):
         private = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.10.4", 80))
-        with mock.patch("vskr.api.ssrf.socket.getaddrinfo", return_value=[private]):
+        with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", return_value=[private]):
             with self.assertRaises(HTTPException):
                 validate_ingest_url("https://lecture.example/video")
 
         public = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))
-        with mock.patch("vskr.api.ssrf.socket.getaddrinfo", return_value=[public]):
+        with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", return_value=[public]):
             self.assertEqual(validate_ingest_url("https://lecture.example/video"), "https://lecture.example/video")
 
         mixed = [public, private]
-        with mock.patch("vskr.api.ssrf.socket.getaddrinfo", return_value=mixed):
+        with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", return_value=mixed):
             with self.assertRaises(HTTPException):
                 validate_ingest_url("https://lecture.example/video")
 
     def test_dns_failure_is_rejected(self):
-        with mock.patch("vskr.api.ssrf.socket.getaddrinfo", side_effect=socket.gaierror("unresolvable")):
+        with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", side_effect=socket.gaierror("unresolvable")):
             with self.assertRaises(HTTPException):
                 validate_ingest_url("https://missing.example/video")
 

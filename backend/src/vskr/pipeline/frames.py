@@ -7,9 +7,9 @@ import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from .config import video_dir
+from ..config import video_dir
 from .ingest import resolve_source
-from .util import read_json, write_json
+from ..util import read_json, write_json
 
 
 # ---------- logic thuần (có test) ----------

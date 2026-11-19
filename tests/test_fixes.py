@@ -11,7 +11,7 @@ from unittest import mock
 
 from vskr import qa
 from vskr.config import load_config
-from vskr.ingest import check_duration, resolve_source
+from vskr.pipeline.ingest import check_duration, resolve_source
 from vskr.util import fmt_srt_time, source_link, to_srt
 
 

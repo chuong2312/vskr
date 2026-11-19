@@ -11,7 +11,7 @@ import yt_dlp
 
 from vskr import auth, qa
 from vskr.api import handlers
-from vskr.api.ssrf import validate_ingest_url
+from vskr.pipeline.url_safety import validate_ingest_url
 from vskr.bm25 import BM25, tokenize
 from vskr.index import Index
 from vskr.retriever import Retriever
@@ -132,9 +132,9 @@ class TestRiskProbes(unittest.TestCase):
             cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900}}
             FakeYDL.calls.clear()
             with mock.patch.object(yt_dlp, "YoutubeDL", FakeYDL), \
-                    mock.patch("vskr.ingest._extract_audio"), \
-                    mock.patch("vskr.ingest.probe_duration", return_value=60):
-                from vskr.ingest import ingest
+                    mock.patch("vskr.pipeline.ingest._extract_audio"), \
+                    mock.patch("vskr.pipeline.ingest.probe_duration", return_value=60):
+                from vskr.pipeline.ingest import ingest
 
                 with self.assertRaisesRegex(ValueError, "livestream"):
                     ingest("https://youtube.com/watch?v=live-id", cfg)
@@ -166,9 +166,9 @@ class TestRiskProbes(unittest.TestCase):
             source_path = Path(temp_dir) / "source.mp4"
             cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900}}
             with mock.patch.object(yt_dlp, "YoutubeDL", FakeYDL), \
-                    mock.patch("vskr.ingest._extract_audio"), \
-                    mock.patch("vskr.ingest.probe_duration", return_value=60):
-                from vskr.ingest import ingest
+                    mock.patch("vskr.pipeline.ingest._extract_audio"), \
+                    mock.patch("vskr.pipeline.ingest.probe_duration", return_value=60):
+                from vskr.pipeline.ingest import ingest
 
                 FakeYDL.info = {"id": "unknown-duration", "duration": None, "is_live": False}
                 FakeYDL.downloads.clear()
@@ -271,7 +271,7 @@ class TestRiskProbes(unittest.TestCase):
     def test_dns_answer_can_change_after_url_validation(self):
         public = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
         private = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))]
-        with mock.patch("vskr.api.ssrf.socket.getaddrinfo", side_effect=[public, private]):
+        with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", side_effect=[public, private]):
             self.assertEqual(validate_ingest_url("https://youtube.com/watch?v=abc"),
                              "https://youtube.com/watch?v=abc")
             downloader_resolution = socket.getaddrinfo("youtube.com", 443, type=socket.SOCK_STREAM)

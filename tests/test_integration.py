@@ -139,7 +139,7 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(res["sources"], [])
 
     def test_service_handles_document_chunks_created_by_documents_module(self):
-        from vskr.documents import ingest_document
+        from vskr.pipeline.documents import ingest_document
         from vskr.service import Service
 
         doc = self.tmp / "python-notes.txt"
@@ -161,7 +161,7 @@ class TestPipeline(unittest.TestCase):
                 self.assertIn("/api/documents/doc-real/sections/1", source["link"])
 
     def test_service_returns_video_and_document_sources_together(self):
-        from vskr.documents import ingest_document
+        from vskr.pipeline.documents import ingest_document
         from vskr.service import Service
 
         doc = self.tmp / "python-reference.txt"

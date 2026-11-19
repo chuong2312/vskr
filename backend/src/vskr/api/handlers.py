@@ -21,11 +21,11 @@ from pydantic import BaseModel, Field
 from ..config import data_dir, index_dir, load_config, video_dir, videos_dir
 from ..evaluation import score_results, validate_question
 from ..index import load_meta
-from ..ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
+from ..pipeline.ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
 from ..util import fmt_time, read_json, write_json
 from .. import audit, accounts
 from ..visibility import is_visible
-from .ssrf import validate_ingest_url
+from ..pipeline.url_safety import validate_ingest_url
 
 
 class AskRequest(BaseModel):
@@ -243,7 +243,7 @@ def library():
         video_items.append({"id": item["video_id"], "kind": "video", "title": item.get("title") or item["video_id"],
                             "status": item["status"], "source_type": item["source_type"], "duration": item.get("duration"),
                             "file_url": item.get("file_url"), "url": item.get("url"), "job_id": item.get("job_id")})
-    from ..documents import list_documents
+    from ..pipeline.documents import list_documents
     doc_items = []
     for item in list_documents(cfg):
         section_file = data_dir(cfg) / "documents" / item["document_id"] / "sections.json"
@@ -549,7 +549,7 @@ def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *,
         meta = (state["service"].meta if state["service"] else {}).get(source_id)
         return bool(meta and _meta_is_visible(meta, owner_id, shared_only=shared_only)
                     and _indexed_video(source_id, owner_id, shared_only=shared_only))
-    from ..documents import list_documents
+    from ..pipeline.documents import list_documents
     item = next((entry for entry in list_documents(load_config())
                  if entry.get("document_id") == source_id), None)
     return bool(item and _meta_is_visible(item, owner_id, shared_only=shared_only)
@@ -614,7 +614,7 @@ def public_catalog(owner_id=None, *, shared_only=False, owned_only=False, projec
     videos = public_videos(owner_id=owner_id, shared_only=shared_only, owned_only=owned_only,
                            project_id=project_id)
     cfg = load_config()
-    from ..documents import list_documents
+    from ..pipeline.documents import list_documents
 
     documents = []
     service = state["service"]
@@ -669,7 +669,7 @@ def _process_ingest_job(job_id, source):
     try:
         if source["kind"] == "document":
             _update_job(job_id, status="running", phase="document", message="Đang đọc và chia mục tài liệu…")
-            from ..documents import ingest_document
+            from ..pipeline.documents import ingest_document
 
             meta = ingest_document(source["path"], cfg, document_id=source["document_id"])
             if source.get("owner_id"):
@@ -691,14 +691,14 @@ def _process_ingest_job(job_id, source):
                 meta["project_id"] = source["project_id"]
             write_json(video_dir(cfg, video_id) / "meta.json", meta)
             _update_job(job_id, phase="scenes", message="Đang quét phân cảnh; video dài có thể mất vài phút…")
-            from ..frames import detect_scenes_only
+            from ..pipeline.frames import detect_scenes_only
 
             scene_result = detect_scenes_only(cfg, video_id)
             if scene_result.get("detection_status") == "fallback":
                 warnings.append("Không đọc được phân cảnh; đã tiếp tục lập chỉ mục bằng transcript.")
             _update_job(job_id, video_id=video_id, title=meta.get("title"), phase="asr", message="Đang nhận dạng lời nói…")
 
-            from .. import asr
+            from ..pipeline import asr
 
             def report_asr_progress(_video_id, part, total, start, end):
                 _update_job(
@@ -755,11 +755,11 @@ def _run_visual_steps(cfg, job_id, video_id, warnings):
     meta = read_json(video_dir(cfg, video_id) / "meta.json")
     if not meta.get("has_video_file"):
         return
-    from ..steps import run_step
+    from ..pipeline.steps import run_step
 
     try:
         _update_job(job_id, phase="frames", message="Đang trích frame từ video…")
-        from ..frames import run as extract_frames
+        from ..pipeline.frames import run as extract_frames
 
         extract_frames(cfg, video_id)
     except Exception as exc:

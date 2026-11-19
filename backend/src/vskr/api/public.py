@@ -16,7 +16,7 @@ from ..config import ROOT, data_dir, load_config
 from ..util import read_json, write_json
 from . import handlers
 from .limits import check_ask_rate, enter_ask_slot, leave_ask_slot, rollback_ask_rate
-from .ssrf import validate_learner_ingest_url
+from ..pipeline.url_safety import validate_learner_ingest_url
 
 router = APIRouter()
 

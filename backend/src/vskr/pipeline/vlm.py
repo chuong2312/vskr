@@ -9,8 +9,8 @@ without copying text verbatim.
 import re
 import time
 
-from .config import video_dir
-from .util import read_json, write_json
+from ..config import video_dir
+from ..util import read_json, write_json
 
 EMPTY_ANSWERS = {"KHÔNG", "KHONG", "NONE", "NO"}
 
@@ -94,7 +94,7 @@ def _load(cfg, vcfg):
     from transformers import AutoProcessor, BitsAndBytesConfig, Qwen2_5_VLForConditionalGeneration
 
     if vcfg.get("unload_ollama_first", True):
-        from .qa import unload_ollama
+        from ..qa import unload_ollama
 
         unload_ollama(cfg.get("llm", {}))
     name = vcfg.get("model", "Qwen/Qwen2.5-VL-3B-Instruct")

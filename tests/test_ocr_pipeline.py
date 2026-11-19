@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from vskr import steps
+from vskr.pipeline import steps
 from vskr.config import ROOT
-from vskr.ocr import merge_runs
+from vskr.pipeline.ocr import merge_runs
 
 
 def _frame(t):
@@ -42,7 +42,7 @@ class TestStepDelegation(unittest.TestCase):
         core_lib = str(ROOT / ".venv" / "lib" / "python3.12" / "site-packages" / "nvidia" / "cudnn" / "lib")
         cfg = {"ocr": {"python": sys.executable, "timeout_s": 120}}
         env = {"LD_LIBRARY_PATH": os.pathsep.join([core_lib, "/usr/lib/wsl/lib"]), "PYTHONPATH": "/extra"}
-        with mock.patch.dict(os.environ, env), mock.patch("vskr.steps.subprocess.run") as run:
+        with mock.patch.dict(os.environ, env), mock.patch("vskr.pipeline.steps.subprocess.run") as run:
             steps.run_external(cfg, "ocr", ["vid1", "vid2"], force=True)
         cmd = run.call_args.args[0]
         kwargs = run.call_args.kwargs
@@ -54,7 +54,7 @@ class TestStepDelegation(unittest.TestCase):
         self.assertEqual(kwargs["env"]["LD_LIBRARY_PATH"], "/usr/lib/wsl/lib")
 
     def test_without_venv_the_step_runs_in_process(self):
-        with mock.patch("vskr.ocr.run") as run, mock.patch.dict(os.environ, {}, clear=False):
+        with mock.patch("vskr.pipeline.ocr.run") as run, mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop(steps.IN_STEP_ENV, None)
             steps.run_step({"ocr": {}}, "ocr", ["vid1"])
         run.assert_called_once_with({"ocr": {}}, ["vid1"], force=False)
@@ -98,7 +98,7 @@ class TestFramesReuseScenes(unittest.TestCase):
         return vdir
 
     def test_cached_scene_starts_require_complete_run_with_same_params(self):
-        from vskr.frames import _cached_scene_starts
+        from vskr.pipeline.frames import _cached_scene_starts
 
         fc = {"scene_threshold": 27.0, "frame_skip": 4}
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -110,7 +110,7 @@ class TestFramesReuseScenes(unittest.TestCase):
             self.assertIsNone(_cached_scene_starts(vdir, fc))
 
     def test_run_reuses_scenes_and_keeps_frames_in_time_order_with_workers(self):
-        from vskr import frames
+        from vskr.pipeline import frames
 
         fc = {"scene_threshold": 27.0, "frame_skip": 4, "interval_s": 8, "workers": 4, "hash_dist": 0}
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -118,9 +118,9 @@ class TestFramesReuseScenes(unittest.TestCase):
                                           "detection_status": "complete", "scene_starts": [0.0, 20.0]})
             cfg = {"paths": {"data_dir": temp_dir}, "frames": fc}
             hashes = iter(range(1, 10_000, 997))
-            with mock.patch("vskr.frames.detect_scene_starts") as detect, \
-                 mock.patch("vskr.frames.grab_frame"), \
-                 mock.patch("vskr.frames.dhash", side_effect=lambda _p: next(hashes) << 20):
+            with mock.patch("vskr.pipeline.frames.detect_scene_starts") as detect, \
+                 mock.patch("vskr.pipeline.frames.grab_frame"), \
+                 mock.patch("vskr.pipeline.frames.dhash", side_effect=lambda _p: next(hashes) << 20):
                 frames.run(cfg, "vid1")
             detect.assert_not_called()
             saved = json.loads((vdir / "frames.json").read_text(encoding="utf-8"))
@@ -142,7 +142,7 @@ class TestIngestVisualSteps(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = self._cfg(temp_dir, ocr=False, vlm=False)
             warnings = []
-            with mock.patch("vskr.frames.run") as extract, mock.patch("vskr.steps.run_step") as run_step:
+            with mock.patch("vskr.pipeline.frames.run") as extract, mock.patch("vskr.pipeline.steps.run_step") as run_step:
                 handlers._run_visual_steps(cfg, "job1", "vid1", warnings)
         extract.assert_not_called()
         run_step.assert_not_called()
@@ -153,7 +153,7 @@ class TestIngestVisualSteps(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = self._cfg(temp_dir, vlm=True, has_video=False)
-            with mock.patch("vskr.frames.run") as extract:
+            with mock.patch("vskr.pipeline.frames.run") as extract:
                 handlers._run_visual_steps(cfg, "job1", "vid1", [])
         extract.assert_not_called()
 
@@ -163,8 +163,8 @@ class TestIngestVisualSteps(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = self._cfg(temp_dir, vlm=True)
             calls = []
-            with mock.patch("vskr.frames.run") as extract, \
-                 mock.patch("vskr.steps.run_step",
+            with mock.patch("vskr.pipeline.frames.run") as extract, \
+                 mock.patch("vskr.pipeline.steps.run_step",
                             side_effect=lambda _cfg, step, ids: calls.append((step, ids, handlers._gpu_model_lock.locked()))):
                 handlers._run_visual_steps(cfg, "job1", "vid1", [])
         extract.assert_called_once_with(cfg, "vid1")
@@ -180,8 +180,8 @@ class TestIngestVisualSteps(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = self._cfg(temp_dir, vlm=True)
             warnings = []
-            with mock.patch("vskr.frames.run"), \
-                 mock.patch("vskr.steps.run_step", side_effect=fake) as run_step, \
+            with mock.patch("vskr.pipeline.frames.run"), \
+                 mock.patch("vskr.pipeline.steps.run_step", side_effect=fake) as run_step, \
                  self.assertLogs(level="WARNING"):
                 handlers._run_visual_steps(cfg, "job1", "vid1", warnings)
         self.assertEqual([c.args[1] for c in run_step.call_args_list], ["ocr", "vlm"])
@@ -195,8 +195,8 @@ class TestIngestVisualSteps(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = self._cfg(temp_dir, vlm=True)
             warnings = []
-            with mock.patch("vskr.frames.run", side_effect=RuntimeError("ffmpeg")), \
-                 mock.patch("vskr.steps.run_step") as run_step, \
+            with mock.patch("vskr.pipeline.frames.run", side_effect=RuntimeError("ffmpeg")), \
+                 mock.patch("vskr.pipeline.steps.run_step") as run_step, \
                  self.assertLogs(level="WARNING"):
                 handlers._run_visual_steps(cfg, "job1", "vid1", warnings)
         run_step.assert_not_called()
@@ -205,7 +205,7 @@ class TestIngestVisualSteps(unittest.TestCase):
 
 class TestOcrFrameStats(unittest.TestCase):
     def test_polygon_area_and_text_coverage(self):
-        from vskr.ocr import frame_stats, polygon_area
+        from vskr.pipeline.ocr import frame_stats, polygon_area
 
         self.assertEqual(polygon_area([[0, 0], [100, 0], [100, 20], [0, 20]]), 2000.0)
         self.assertEqual(polygon_area(None), 0.0)
@@ -225,7 +225,7 @@ class TestVlmSelection(unittest.TestCase):
                 for i in range(n)]
 
     def test_skips_text_heavy_frames_and_keeps_figures(self):
-        from vskr.vlm import select_frames
+        from vskr.pipeline.vlm import select_frames
 
         frames = self._frames(3)
         ocr = [{"path": frames[0]["path"], "text_area": 0.4},
@@ -235,13 +235,13 @@ class TestVlmSelection(unittest.TestCase):
         self.assertEqual([f["path"] for f in picked], [frames[1]["path"]])
 
     def test_without_ocr_every_distinct_frame_is_a_candidate(self):
-        from vskr.vlm import select_frames
+        from vskr.pipeline.vlm import select_frames
 
         frames = self._frames(4)
         self.assertEqual(len(select_frames(frames, None, {"min_hash_dist": 1})), 4)
 
     def test_near_duplicate_frames_are_captioned_once(self):
-        from vskr.vlm import select_frames
+        from vskr.pipeline.vlm import select_frames
 
         frames = [{"t": 0.0, "path": "a.jpg", "hash": "00000000000000ff"},
                   {"t": 8.0, "path": "b.jpg", "hash": "00000000000000fe"},
@@ -250,7 +250,7 @@ class TestVlmSelection(unittest.TestCase):
         self.assertEqual([f["path"] for f in picked], ["a.jpg", "c.jpg"])
 
     def test_cap_spreads_over_the_whole_lecture(self):
-        from vskr.vlm import select_frames
+        from vskr.pipeline.vlm import select_frames
 
         frames = [{"t": float(i), "path": f"{i}.jpg"} for i in range(100)]
         picked = select_frames(frames, None, {"max_frames": 5})
@@ -259,7 +259,7 @@ class TestVlmSelection(unittest.TestCase):
         self.assertGreaterEqual(picked[-1]["t"], 80)
 
     def test_prompt_includes_ocr_context_and_empty_answer_is_detected(self):
-        from vskr.vlm import build_prompt, is_empty_caption
+        from vskr.pipeline.vlm import build_prompt, is_empty_caption
 
         self.assertIn("users, orders", build_prompt("users, orders"))
         self.assertNotIn("for reference", build_prompt(""))
@@ -270,7 +270,7 @@ class TestVlmSelection(unittest.TestCase):
         self.assertFalse(is_empty_caption("Đồ thị này hiển thị số lượng truy vấn mỗi giây của MySQL, PostgreSQL và SQLite."))
 
     def test_clean_caption_drops_paragraphs_copied_from_ocr(self):
-        from vskr.vlm import clean_caption
+        from vskr.pipeline.vlm import clean_caption
 
         ocr = "Bài 3: Truy vấn dữ liệu với JOIN SELECT u.name FROM users"
         caption = "Bài 3: Truy vấn dữ liệu với JOIN\n\nCâu truy vấn nối bảng users với orders."
@@ -279,7 +279,7 @@ class TestVlmSelection(unittest.TestCase):
 
     def test_fit_pixels_downscales_large_frames_only(self):
         from PIL import Image
-        from vskr.vlm import fit_pixels
+        from vskr.pipeline.vlm import fit_pixels
 
         big = fit_pixels(Image.new("RGB", (1280, 720)), 602112)
         self.assertLessEqual(big.size[0] * big.size[1], 602112)
@@ -293,7 +293,7 @@ class TestOcrGroupLines(unittest.TestCase):
         return {"text": text, "score": score, "box": [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]}
 
     def test_words_on_one_row_join_left_to_right_and_rows_stay_separate(self):
-        from vskr.ocr import group_lines
+        from vskr.pipeline.ocr import group_lines
 
         words = [
             self._word("FROM", 300, 102, 380, 128, 0.8),
@@ -307,7 +307,7 @@ class TestOcrGroupLines(unittest.TestCase):
         self.assertEqual(lines[1]["box"][0], [60.0, 100.0])
 
     def test_no_words_gives_no_lines(self):
-        from vskr.ocr import group_lines
+        from vskr.pipeline.ocr import group_lines
 
         self.assertEqual(group_lines([]), [])
 

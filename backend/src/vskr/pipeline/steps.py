@@ -5,12 +5,13 @@ they live in ``.venv-vlm`` instead of the core venv. The core process starts
 ``<venv>/bin/python -m vskr.cli <step>`` as a child; the child sees
 ``VSKR_STEP_INPROCESS=1`` and runs the step directly.
 """
+import importlib
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-from .config import ROOT
+from ..config import ROOT
 
 IN_STEP_ENV = "VSKR_STEP_INPROCESS"
 
@@ -71,5 +72,5 @@ def run_step(cfg, step, video_ids, force=False):
     if should_delegate(cfg, step):
         run_external(cfg, step, video_ids, force=force)
         return
-    module = __import__(f"vskr.{step}", fromlist=["run"])
+    module = importlib.import_module(f"{__package__}.{step}")  # vskr.pipeline.ocr / vskr.pipeline.vlm
     module.run(cfg, video_ids, force=force)

@@ -6,9 +6,9 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .config import video_dir
+from ..config import video_dir
 from .ingest import probe_duration
-from .util import fmt_time, to_srt, write_json
+from ..util import fmt_time, to_srt, write_json
 
 
 @contextmanager
@@ -59,7 +59,7 @@ def run(cfg, video_ids, force=False, progress=None):
         return
 
     if a.get("unload_ollama_first", True):
-        from .qa import unload_ollama
+        from ..qa import unload_ollama
 
         if unload_ollama(cfg["llm"]):
             print("[asr] đã yêu cầu Ollama nhả model khỏi VRAM")

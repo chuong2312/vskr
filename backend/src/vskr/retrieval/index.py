@@ -26,6 +26,10 @@ def _relation_extractor(cfg):
     available = True
 
     def extract(chunk):
+        """Nhờ Ollama trích các quan hệ được nêu rõ trong một đoạn (JSON); lỗi hoặc hết hạn mức thì trả về rỗng.
+
+        Gọi lỗi một lần là tắt hẳn cho cả lượt dựng chỉ mục, để chỉ mục vẫn xong khi Ollama không chạy.
+        """
         nonlocal available
         if not available:
             return []
@@ -62,6 +66,7 @@ def _relation_extractor(cfg):
 
 @dataclass
 class Index:
+    """Chỉ mục đã nạp: các đoạn, ma trận vector, BM25, thông tin lúc dựng và đồ thị tri thức."""
     chunks: list
     vectors: np.ndarray
     bm25: BM25
@@ -87,6 +92,7 @@ def _screen_text(video_id, vdir, filter_options):
 
 
 def list_video_ids(cfg):
+    """Id của mọi video đã có ``meta.json``, theo thứ tự tên."""
     d = videos_dir(cfg)
     if not d.exists():
         return []
@@ -94,10 +100,17 @@ def list_video_ids(cfg):
 
 
 def load_meta(cfg):
+    """Metadata của mọi video: ``{video_id: meta}``."""
     return {vid: read_json(video_dir(cfg, vid) / "meta.json") for vid in list_video_ids(cfg)}
 
 
 def build(cfg, embedder, progress=None, output_dir=None):
+    """Dựng lại toàn bộ chỉ mục từ lời giảng, chữ OCR, mô tả VLM và tài liệu.
+
+    Chia đoạn theo cảnh (nếu có ``scenes.json``) hoặc cửa sổ trượt, lọc chữ rác OCR, nhúng vector,
+    dựng đồ thị tri thức rồi ghi ``chunks.json``, ``vectors.npy``, ``knowledge_graph.json`` và
+    ``index_info.json`` vào thư mục chỉ mục (hoặc ``output_dir``).
+    """
     ch = cfg["chunk"]
     chunks = []
     for vid in list_video_ids(cfg):
@@ -184,6 +197,7 @@ def build(cfg, embedder, progress=None, output_dir=None):
 
 
 def load(cfg):
+    """Nạp chỉ mục từ đĩa (BM25 được dựng lại trong RAM); ném ``FileNotFoundError`` nếu chưa chạy ``vskr index``."""
     idir = index_dir(cfg)
     if not (idir / "chunks.json").exists():
         raise FileNotFoundError("Chưa có chỉ mục. Chạy: vskr index")

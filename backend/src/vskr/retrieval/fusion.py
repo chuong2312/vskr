@@ -1,3 +1,4 @@
+"""Hợp nhất nhiều bảng xếp hạng (vector, BM25, graph) bằng Reciprocal Rank Fusion."""
 def rrf_fuse(rankings, k=60):
     """Reciprocal Rank Fusion. rankings: list các danh sách id đã xếp hạng (tốt nhất trước).
     Trả về [(id, score)] giảm dần theo score."""

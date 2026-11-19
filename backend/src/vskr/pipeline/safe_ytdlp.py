@@ -35,6 +35,7 @@ def create_pinned_connection(http_class, pinned_ip, host, *args, source_address=
         connection.source_address = (source_address, 0)
 
     def connect(_address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, local_address=None):
+        """Mở socket tới IP đã ghim, bỏ qua địa chỉ mà thư viện HTTP truyền vào."""
         return socket.create_connection(
             (pinned_ip, connection.port), timeout=timeout, source_address=local_address,
         )
@@ -51,6 +52,7 @@ def make_pinned_redirect_handler():
     class PinnedRedirectHandler(RedirectHandler):
         """Chuyển hướng tới URL không an toàn thì dừng tải bằng ``RequestError``."""
         def redirect_request(self, request, fp, code, message, headers, new_url):
+            """Kiểm tra URL đích trước khi đi theo chuyển hướng."""
             try:
                 validate_ingest_url(new_url)
             except UnsafeUrlError as exc:
@@ -96,9 +98,11 @@ def make_safe_youtube_dl(yt_dlp):
             return self.do_open(factory, request, context=context)
 
         def http_open(self, request):
+            """Mở kết nối HTTP tới IP đã ghim."""
             return self._open(request, http.client.HTTPConnection)
 
         def https_open(self, request):
+            """Mở kết nối HTTPS tới IP đã ghim; chứng chỉ vẫn được kiểm tra theo tên miền."""
             return self._open(request, http.client.HTTPSConnection, context=self._context)
 
     class PinnedUrllibRH(UrllibRH):

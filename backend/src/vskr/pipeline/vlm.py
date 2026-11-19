@@ -85,7 +85,7 @@ def is_empty_caption(text):
 
 
 def fit_pixels(image, max_pixels):
-    """Downscale so width*height <= max_pixels; fewer visual tokens = faster, less VRAM."""
+    """Thu nhỏ ảnh để rộng × cao không quá ``max_pixels``: ít token hình hơn nên nhanh hơn và tốn ít VRAM hơn."""
     width, height = image.size
     if not max_pixels or width * height <= max_pixels:
         return image

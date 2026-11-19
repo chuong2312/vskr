@@ -1183,8 +1183,8 @@ def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment(
     modes = ("vector", "bm25", "hybrid", "graph", "hybrid_graph")
     hits = {mode: {} for mode in modes}
     method_labels = {
-        "hybrid_graph": "Kết hợp + đồ thị (mặc định)",
-        "hybrid": "Ngữ nghĩa + từ khóa",
+        "hybrid_graph": "Kết hợp + đồ thị",
+        "hybrid": "Ngữ nghĩa + từ khóa (mặc định)",
         "vector": "Ngữ nghĩa (vector)",
         "bm25": "Từ khóa (BM25)",
         "graph": "Đồ thị tri thức (graph)",

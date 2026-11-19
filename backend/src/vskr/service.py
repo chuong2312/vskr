@@ -128,6 +128,6 @@ class Service:
             "no_sources": res.get("no_sources", not res["found"]),
             "sources": sources,
             "matched_concepts": sorted({term for hit in hits for term in hit.get("matched_concepts", [])}),
-            "mode": mode or self.cfg["retrieval"].get("mode", "hybrid_graph"),
+            "mode": mode or self.cfg["retrieval"].get("mode", "hybrid"),
             "timing": {"retrieve_s": round(t1 - t0, 3), "llm_s": round(t2 - t1, 2)},
         }

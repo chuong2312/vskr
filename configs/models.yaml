@@ -96,7 +96,7 @@ embedding:
   max_seq_length: 512
 
 retrieval:
-  mode: hybrid_graph         # kết hợp vector + BM25 + truy xuất đồ thị bằng RRF
+  mode: hybrid               # kết hợp vector + BM25 bằng RRF; hybrid_graph (thêm đồ thị) thấp hơn trên bộ 36 câu đã duyệt
   top_k: 5
   candidate_k: 20
   rrf_k: 60

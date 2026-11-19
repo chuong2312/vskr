@@ -68,11 +68,16 @@ class TestPipeline(unittest.TestCase):
             self.assertTrue(hits, mode)
             self.assertEqual(hits[0]["chunk"]["start"], 0, mode)
 
-    def test_default_mode_combines_graph_and_text_retrieval(self):
-        self.assertEqual(self.cfg["retrieval"]["mode"], "hybrid_graph")
+    def test_default_mode_is_hybrid_text_retrieval(self):
+        self.assertEqual(self.cfg["retrieval"]["mode"], "hybrid")
         hits = self._retriever().search("khai báo biến python")
         self.assertTrue(hits)
         self.assertEqual(hits[0]["chunk"]["start"], 0)
+
+    def test_admin_page_preselects_the_configured_default_mode(self):
+        # Trang admin luôn gửi giá trị đang chọn, nên mặc định thật nằm ở thẻ <option selected>.
+        html = (Path(__file__).resolve().parents[1] / "web" / "admin" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(f'<option value="{self.cfg["retrieval"]["mode"]}" selected>', html)
 
     def test_bm25_no_match_returns_empty(self):
         self.assertEqual(self._retriever().search("zzzz qqqq", mode="bm25"), [])

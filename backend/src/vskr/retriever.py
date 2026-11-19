@@ -75,7 +75,7 @@ class Retriever:
         return semantic_terms
 
     def search(self, query, mode=None, top_k=None, experiment=None, allowed_sources=None):
-        mode = mode or self.cfg.get("mode", "hybrid_graph")
+        mode = mode or self.cfg.get("mode", "hybrid")
         top_k = top_k or self.cfg.get("top_k", 5)
         cand = self.cfg.get("candidate_k", 20)
         idx = self.index

@@ -7,22 +7,41 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from vskr.api import app, handlers
+import numpy as np
+
+from vskr.api import app, handlers, limits
 from vskr import accounts
 from vskr.api.public import _safe_source_link
+from vskr.bm25 import BM25, tokenize
+from vskr.index import Index
+from vskr.retriever import Retriever
+from vskr.service import Service
 
 from tests.asgi_client import ASGITestClient
 
 
 class TestPublicCatalog(unittest.TestCase):
+    def setUp(self):
+        with accounts._guest_identity_lock:
+            accounts._guest_identity_attempts.clear()
+        with accounts._registration_lock:
+            accounts._registration_attempts.clear()
+        with limits._lock:
+            limits._ask_attempts.clear()
+
     def test_ingest_job_carries_role_specific_limits(self):
         queued_source = {}
-        with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": tempfile.gettempdir()}), \
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}), \
                 mock.patch.object(handlers, "validate_ingest_url"), \
-                mock.patch.object(handlers, "_queue_job", side_effect=lambda source, _title: queued_source.update(source) or "job"):
+                mock.patch.object(
+                    handlers, "_queue_job",
+                    side_effect=lambda source, _title, **_kwargs: queued_source.update(source) or "job",
+                ) as queue_job:
             result = asyncio.run(handlers.start_ingest(
                 url="https://example.com/video", file=None, owner_id="g:guest", project_id="project",
             ))
+            handlers._release_job_slot(queue_job.call_args.kwargs["reservation_id"])
         self.assertEqual(result["job_id"], "job")
         self.assertEqual(queued_source["limits"]["max_duration_s"], 900)
         self.assertEqual(queued_source["limits"]["max_upload_bytes"], 100 * 1024 * 1024)
@@ -38,6 +57,16 @@ class TestPublicCatalog(unittest.TestCase):
             handlers._init_service(force=True)
             self.assertEqual(service_ctor.call_count, 1)
             self.assertIs(handlers.state["service"], fake_service)
+
+    def test_failed_index_reload_keeps_the_last_ready_service(self):
+        previous = SimpleNamespace(meta={"ready": {}}, document_meta={})
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}), \
+                mock.patch.dict(handlers.state, {"service": previous, "failed_at": 0.0, "error": None}), \
+                mock.patch("vskr.service.Service", side_effect=RuntimeError("index unavailable")):
+            handlers._init_service(force=True)
+            self.assertIs(handlers.state["service"], previous)
+            self.assertIn("index unavailable", handlers.state["error"])
 
     def test_approved_owned_content_is_visible_to_other_learners_and_guests(self):
         service = SimpleNamespace(
@@ -58,7 +87,8 @@ class TestPublicCatalog(unittest.TestCase):
     def test_project_filter_keeps_shared_material(self):
         service = SimpleNamespace(
             meta={
-                "shared": {"video_id": "shared", "title": "Chung", "url": "https://youtu.be/shared"},
+                "shared": {"video_id": "shared", "title": "Chung", "visibility": "public",
+                           "url": "https://youtu.be/shared"},
                 "owned": {"video_id": "owned", "title": "Riêng", "owner_id": "u1", "project_id": "p1",
                           "url": "https://youtu.be/owned"},
             },
@@ -69,7 +99,7 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual({item["video_id"] for item in videos}, {"shared", "owned"})
 
     def test_guest_can_poll_own_job_but_not_another_guests_job(self):
-        job = {"job_id": "job-a", "owner_id": "g:guest-a", "status": "running",
+        job = {"job_id": "job-a", "owner_id": accounts.guest_owner_id("guest-a"), "status": "running",
                "phase": "download", "message": "Đang tải", "title": "Bài học"}
         with mock.patch.object(handlers, "get_job", return_value=job):
             with ASGITestClient(app, authenticated_learner=False) as first:
@@ -94,6 +124,103 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.json()[0]["project_id"], project["project_id"])
         self.assertEqual(catalog.status_code, 200)
+
+    def test_get_projects_does_not_create_a_default_project(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {
+                    "VSKR__PATHS__DATA_DIR": temp_dir,
+                    "VSKR_COOKIE_SECURE": "false",
+                }):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                response = client.get("/api/projects")
+                token = client.cookies.get(accounts.GUEST_COOKIE_NAME)
+
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json(), [])
+            owner_id = accounts.guest_owner_id(token)
+            self.assertEqual(accounts.list_projects(owner_id), [])
+            with accounts._connect() as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM projects").fetchone()[0], 0)
+
+    def test_clearing_guest_cookie_is_rate_limited_without_project_growth(self):
+        with accounts._guest_identity_lock:
+            accounts._guest_identity_attempts.clear()
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {
+                    "VSKR__PATHS__DATA_DIR": temp_dir,
+                    "VSKR_COOKIE_SECURE": "false",
+                }):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                responses = []
+                for _ in range(accounts.GUEST_IDENTITY_LIMIT):
+                    client.cookies.clear()
+                    responses.append(client.get("/api/projects"))
+                client.cookies.clear()
+                limited = client.get("/api/projects")
+
+            self.assertTrue(all(response.status_code == 200 for response in responses))
+            self.assertEqual(limited.status_code, 429, limited.text)
+            with accounts._connect() as db:
+                project_count = db.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+            self.assertEqual(project_count, 0)
+        with accounts._guest_identity_lock:
+            accounts._guest_identity_attempts.clear()
+
+    def test_guest_cookie_rotation_cannot_bypass_project_creation_rate_limit(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {
+                    "VSKR__PATHS__DATA_DIR": temp_dir,
+                    "VSKR_COOKIE_SECURE": "false",
+                }):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                responses = []
+                for index in range(accounts.GUEST_IDENTITY_LIMIT + 2):
+                    client.cookies.set(accounts.GUEST_COOKIE_NAME, f"attacker-chosen-{index}")
+                    responses.append(client.post("/api/projects", json={"name": "Flood"}))
+
+            self.assertEqual(
+                [response.status_code for response in responses],
+                [200] * accounts.GUEST_IDENTITY_LIMIT + [429, 429],
+            )
+            with accounts._connect() as db:
+                project_count = db.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+            self.assertEqual(project_count, accounts.GUEST_IDENTITY_LIMIT)
+
+    def test_guest_token_is_not_exposed_in_project_or_job_responses(self):
+        token = "guest-secret-token"
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {
+                    "VSKR__PATHS__DATA_DIR": temp_dir,
+                    "VSKR_COOKIE_SECURE": "false",
+                    "VSKR_EGRESS_FIREWALL_CONFIRMED": "true",
+                }), \
+                mock.patch("vskr.api.public.load_config", return_value={
+                    "ingest": {"allowed_domains": ["youtube.com"], "guest_url_ingest_enabled": True},
+                }), \
+                mock.patch("vskr.api.public.validate_learner_ingest_url", side_effect=lambda url, **_kwargs: url), \
+                mock.patch.object(handlers, "validate_ingest_url"), \
+                mock.patch.object(handlers._job_executor, "submit"):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                client.cookies.set(accounts.GUEST_COOKIE_NAME, token)
+                project_response = client.post("/api/projects", json={"name": "Guest"})
+                self.assertEqual(project_response.status_code, 200, project_response.text)
+                project = project_response.json()
+                self.assertNotIn(token, project_response.text)
+                self.assertNotIn("owner_id", project)
+
+                queued = client.post("/api/ingest", data={
+                    "url": "https://youtube.com/watch?v=example",
+                    "project_id": project["project_id"],
+                })
+                self.assertEqual(queued.status_code, 202, queued.text)
+                self.assertNotIn(token, queued.text)
+                jobs = client.get("/api/my/jobs")
+                self.assertEqual(jobs.status_code, 200, jobs.text)
+                self.assertNotIn(token, jobs.text)
+                job = handlers._jobs[queued.json()["job_id"]]
+                self.assertNotIn(token, str(job["owner_id"]))
+                self.assertNotIn("user-" + str(job["owner_id"])[:10], job["video_id"])
+                handlers._jobs.pop(queued.json()["job_id"], None)
 
     def test_project_upload_requires_project_id(self):
         with self.assertRaises(Exception) as raised:
@@ -149,7 +276,8 @@ class TestPublicCatalog(unittest.TestCase):
     def test_guest_catalog_contains_shared_but_not_account_owned_material(self):
         service = SimpleNamespace(
             meta={
-                "shared-video": {"video_id": "shared-video", "title": "Bài chung", "url": "https://youtu.be/shared"},
+                "shared-video": {"video_id": "shared-video", "title": "Bài chung", "visibility": "public",
+                                 "url": "https://youtu.be/shared"},
                 "private-video": {"video_id": "private-video", "title": "Bài riêng", "owner_id": "student-a", "url": "https://youtu.be/private"},
                 "mixed-video": {"video_id": "mixed-video", "title": "Metadata thiếu chủ", "url": "https://youtu.be/mixed"},
             },
@@ -168,8 +296,13 @@ class TestPublicCatalog(unittest.TestCase):
                 metadata = {"document_id": document_id, "title": document_id}
                 if owner_id:
                     metadata["owner_id"] = owner_id
+                elif document_id == "shared-doc":
+                    metadata["visibility"] = "public"
                 (root / "meta.json").write_text(json.dumps(metadata), encoding="utf-8")
                 (root / "sections.json").write_text(json.dumps({"chunks": [{"section": 1}]}), encoding="utf-8")
+            index_dir = Path(temp_dir) / "index"
+            index_dir.mkdir()
+            (index_dir / "chunks.json").write_text(json.dumps(service.index.chunks), encoding="utf-8")
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}), \
                     mock.patch.dict(handlers.state, {"service": service}):
                 with ASGITestClient(app, authenticated_learner=False) as client:
@@ -199,6 +332,7 @@ class TestPublicCatalog(unittest.TestCase):
                 "video-ready": {
                     "video_id": "video-ready", "title": "Bài giảng", "duration": 180,
                     "url": "https://lectures.example/watch?id=123&token=private", "source_type": "url",
+                    "visibility": "public",
                 },
                 "video-processing": {
                     "video_id": "video-processing", "title": "Đang xử lý", "url": "https://example.com/",
@@ -222,6 +356,7 @@ class TestPublicCatalog(unittest.TestCase):
                 root.mkdir(parents=True)
                 (root / "meta.json").write_text(json.dumps({
                     "document_id": document_id, "title": document_id, "filename": f"{document_id}.pdf",
+                    "visibility": "public",
                 }), encoding="utf-8")
                 (root / "sections.json").write_text(json.dumps({"chunks": [{"section": 1}, {"section": 2}]}), encoding="utf-8")
             service = SimpleNamespace(
@@ -254,6 +389,7 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(ask.call_args.args[0].mode)
         self.assertFalse(ask.call_args.kwargs["use_request_mode"])
+        self.assertEqual(ask.call_args.kwargs["mode_override"], "hybrid")
         result = response.json()
         self.assertNotIn("timing", result)
         self.assertNotIn("matched_concepts", result)
@@ -261,6 +397,36 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertNotIn("score", result["sources"][0])
         self.assertEqual(result["sources"][0]["link"], "https://lectures.example/watch")
         self.assertNotIn("token", response.text)
+
+    def test_public_ask_passes_hybrid_mode_to_retriever(self):
+        chunks = [{"chunk_id": "doc:1", "document_id": "doc", "section": 1, "text": "Bài học."}]
+        index = Index(
+            chunks, np.asarray([[1.0, 0.0]]),
+            BM25([tokenize(chunks[0]["text"])]), {},
+            {"version": 1, "nodes": [], "edges": []},
+        )
+        embedder = mock.Mock()
+        embedder.encode_query.return_value = np.asarray([1.0, 0.0])
+        service = object.__new__(Service)
+        service.index = index
+        service.meta = {}
+        service.document_meta = {}
+        service.cfg = {"retrieval": {"mode": "hybrid_graph", "top_k": 1}, "llm": {}}
+        service.embedder = embedder
+        service.retriever = Retriever(index, embedder, service.cfg["retrieval"])
+        search = mock.Mock(wraps=service.retriever.search)
+        service.retriever.search = search
+        answer = {"answer": "Bài học.", "found": True, "cited": False,
+                  "no_sources": False, "source_ns": []}
+
+        with mock.patch.dict(handlers.state, {"service": service}), \
+                mock.patch("vskr.service.answer_question", return_value=answer), \
+                ASGITestClient(app, authenticated_learner=False) as client:
+            response = client.post("/api/ask", json={"question": "Hỏi bài", "mode": "graph"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(search.call_args.kwargs["mode"], "hybrid")
+        self.assertEqual(response.json()["sources"], [])
 
     def test_guest_can_ask_without_a_session_and_does_not_create_history(self):
         fake_result = {"answer": "Dựa trên bài giảng [1].", "found": True, "cited": True, "sources": []}
@@ -274,7 +440,7 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(answer.status_code, 200, answer.text)
         self.assertNotIn("conversation_id", answer.json())
         self.assertEqual(history.status_code, 401)
-        self.assertTrue(ask.call_args.kwargs["shared_only"])
+        self.assertFalse(ask.call_args.kwargs["shared_only"])
         self.assertTrue(ask.call_args.kwargs["owner_id"].startswith("g:"))
 
     def test_conversation_source_is_forwarded_as_an_index_scope(self):
@@ -312,6 +478,85 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(public_response.status_code, 200, public_response.text)
         self.assertEqual(private_response.status_code, 404)
         self.assertEqual(ask.call_args.kwargs["allowed_sources"], {"public-video"})
+
+    def test_guest_can_query_own_private_source_but_not_another_guests(self):
+        token = "guest-own-private-test"
+        fake_result = {"answer": "A", "found": True, "cited": False, "sources": []}
+
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir, "VSKR_COOKIE_SECURE": "false"}):
+            owner_id = accounts.guest_owner_id(token)
+
+            def visible(_kind, source_id, viewer_id, *, shared_only=False):
+                return (source_id == "own-private" and viewer_id == owner_id and not shared_only)
+
+            with mock.patch("vskr.api.public.handlers.source_is_visible", side_effect=visible), \
+                    mock.patch("vskr.api.public.handlers.ask", return_value=fake_result) as ask:
+                with ASGITestClient(app, authenticated_learner=False) as client:
+                    client.cookies.set(accounts.GUEST_COOKIE_NAME, token)
+                    own_response = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung riêng", "source_id": "own-private", "source_type": "video",
+                    })
+                    other_response = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung khách khác", "source_id": "other-private", "source_type": "video",
+                    })
+
+        self.assertEqual(own_response.status_code, 200, own_response.text)
+        self.assertEqual(other_response.status_code, 404)
+        self.assertFalse(ask.call_args.kwargs["shared_only"])
+        self.assertEqual(ask.call_args.kwargs["owner_id"], owner_id)
+
+    def test_missing_or_forged_guest_cookie_cannot_read_private_source(self):
+        private_token = "guest-private-owner-token"
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir, "VSKR_COOKIE_SECURE": "false"}):
+            owner_id = accounts.guest_owner_id(private_token)
+
+            def visible(_kind, _source_id, viewer_id, *, shared_only=False):
+                return viewer_id == owner_id and not shared_only
+
+            with mock.patch("vskr.api.public.handlers.source_is_visible", side_effect=visible), \
+                    mock.patch("vskr.api.public.handlers.ask") as ask:
+                with ASGITestClient(app, authenticated_learner=False) as client:
+                    lost_cookie = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung riêng", "source_id": "private-video", "source_type": "video",
+                    })
+                    client.cookies.set(accounts.GUEST_COOKIE_NAME, "forged-token")
+                    forged_cookie = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung riêng", "source_id": "private-video", "source_type": "video",
+                    })
+                    client.cookies.clear()
+                    missing_cookie = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung riêng", "source_id": "private-video", "source_type": "video",
+                    })
+
+        self.assertEqual(
+            [lost_cookie.status_code, forged_cookie.status_code, missing_cookie.status_code],
+            [404, 404, 404],
+        )
+        ask.assert_not_called()
+        self.assertNotIn(owner_id, lost_cookie.text + forged_cookie.text + missing_cookie.text)
+
+    def test_guest_private_queries_remain_rate_limited_by_client_ip(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir, "VSKR_COOKIE_SECURE": "false"}), \
+                mock.patch("vskr.api.public.auth.client_ip", return_value="198.51.100.87"), \
+                mock.patch("vskr.api.public.handlers.source_is_visible", return_value=True), \
+                mock.patch("vskr.api.public.handlers.ask",
+                           return_value={"answer": "A", "found": True, "cited": False, "sources": []}):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                responses = [
+                    client.post("/api/ask", json={
+                        "question": f"Hỏi riêng {number}", "source_id": "own-private", "source_type": "video",
+                    })
+                    for number in range(10)
+                ]
+                limited = client.post("/api/ask", json={
+                    "question": "Hỏi riêng vượt hạn mức", "source_id": "own-private", "source_type": "video",
+                })
+
+        self.assertTrue(all(response.status_code == 200 for response in responses))
+        self.assertEqual(limited.status_code, 429)
 
     def test_source_links_only_allow_safe_hosts_and_strip_query_tokens(self):
         self.assertEqual(

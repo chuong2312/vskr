@@ -34,6 +34,61 @@ class TestAdminAuth(unittest.TestCase):
     def tearDown(self):
         self.data_dir.cleanup()
 
+    def test_startup_warns_when_egress_firewall_is_not_confirmed(self):
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertLogs("root", level="WARNING") as logs:
+            auth.warn_if_unconfigured()
+        self.assertTrue(any("VSKR_EGRESS_FIREWALL_CONFIRMED" in line for line in logs.output))
+
+    def test_startup_does_not_warn_about_egress_when_operator_confirmed(self):
+        with mock.patch.dict(os.environ, {"VSKR_EGRESS_FIREWALL_CONFIRMED": "true"}, clear=True), \
+                self.assertLogs("root", level="WARNING") as logs:
+            auth.warn_if_unconfigured()
+        self.assertFalse(any("Egress firewall is not confirmed" in line for line in logs.output))
+
+    def test_secure_cookie_trusts_forwarded_https_only_from_configured_proxy(self):
+        from starlette.requests import Request
+
+        def request_from(peer, forwarded_headers):
+            headers = [(b"host", b"vskr-internal:8000"), *forwarded_headers]
+            return Request({
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                "method": "GET", "scheme": "http", "path": "/api/user/me",
+                "raw_path": b"/api/user/me", "query_string": b"", "root_path": "",
+                "headers": headers, "server": ("vskr", 8000), "client": (peer, 1234),
+            })
+
+        forwarded = [(b"x-forwarded-proto", b"https"), (b"x-forwarded-host", b"learn.example.test")]
+        with mock.patch.dict(os.environ, {
+            "VSKR_COOKIE_SECURE": "true", "VSKR_TRUSTED_PROXIES": "10.0.0.0/8",
+        }):
+            trusted = auth._secure_cookie_request(request_from("10.2.3.4", forwarded))
+            untrusted = auth._secure_cookie_request(request_from("192.0.2.5", forwarded))
+        self.assertTrue(trusted)
+        self.assertFalse(untrusted)
+
+    def test_secure_cookie_accepts_trusted_ipv6_proxy_and_rejects_bad_forwarded_proto(self):
+        from starlette.requests import Request
+
+        def request_with(proto):
+            return Request({
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                "method": "GET", "scheme": "http", "path": "/", "raw_path": b"/",
+                "query_string": b"", "root_path": "",
+                "headers": [
+                    (b"host", b"internal:8000"), (b"x-forwarded-host", b"app.example.test"),
+                    (b"x-forwarded-proto", proto),
+                ],
+                "server": ("app", 8000), "client": ("2001:db8::1", 443),
+            })
+
+        with mock.patch.dict(os.environ, {
+            "VSKR_COOKIE_SECURE": "true", "VSKR_TRUSTED_PROXIES": "2001:db8::/32",
+        }):
+            trusted = auth._secure_cookie_request(request_with(b"https"))
+            malformed = auth._secure_cookie_request(request_with(b"https,http"))
+        self.assertTrue(trusted)
+        self.assertFalse(malformed)
+
     def test_login_sets_http_only_same_site_cookie_and_returns_only_csrf(self):
         with mock.patch.dict(os.environ, self.env):
             with ASGITestClient(app) as client:
@@ -103,6 +158,26 @@ class TestAdminAuth(unittest.TestCase):
             auth._record_login_failure("192.0.2.10", f"user-{attempt}", now=100 + attempt)
 
         self.assertIsNotNone(auth.login_retry_after("192.0.2.10", "new-user", now=130))
+
+    def test_learner_failures_do_not_throttle_admin_login(self):
+        with mock.patch.dict(os.environ, self.env), \
+                mock.patch("vskr.auth.verify_login", return_value=True):
+            with ASGITestClient(app) as client:
+                headers = {"Origin": "http://localhost"}
+                for attempt in range(auth.LOGIN_IP_FAILURES):
+                    response = client.post(
+                        "/api/user/auth/login",
+                        json={"username": f"learner-{attempt}", "password": "wrong"},
+                        headers=headers,
+                    )
+                    self.assertEqual(response.status_code, 401, f"attempt={attempt}: {response.text}")
+
+                response = client.post(
+                    "/api/auth/login",
+                    json={"username": "test-admin", "password": "valid"},
+                    headers=headers,
+                )
+        self.assertEqual(response.status_code, 200, response.text)
 
     def test_login_rotates_session_and_logout_revokes_it(self):
         with mock.patch.dict(os.environ, self.env):

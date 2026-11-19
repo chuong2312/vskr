@@ -65,6 +65,11 @@ def cookie_secure() -> bool:
     return value not in {"false", "0", "no", "off"}
 
 
+def egress_firewall_confirmed() -> bool:
+    value = os.environ.get("VSKR_EGRESS_FIREWALL_CONFIRMED", "").strip().lower()
+    return value in {"true", "1", "yes", "on"}
+
+
 def warn_if_unconfigured(host: str | None = None) -> None:
     if not admin_is_configured():
         logging.warning(
@@ -73,6 +78,12 @@ def warn_if_unconfigured(host: str | None = None) -> None:
         )
     if host == "0.0.0.0" and not admin_is_configured():
         logging.warning("VSKR is bound to 0.0.0.0 with admin authentication unconfigured.")
+    if not egress_firewall_confirmed():
+        logging.warning(
+            "Egress firewall is not confirmed; guest URL ingest remains disabled. "
+            "Configure VSKR_EGRESS_FIREWALL_CONFIRMED=true only after enforcing "
+            "non-public IPv4 and IPv6 egress restrictions."
+        )
 
 
 def _is_local_host(value: str | None) -> bool:
@@ -85,6 +96,31 @@ def _is_local_host(value: str | None) -> bool:
     return bool(hostname and hostname.lower() in {"localhost", "127.0.0.1", "::1"})
 
 
+def _trusted_forwarded_request(request: Request) -> tuple[str | None, str | None]:
+    peer = request.client.host if request.client else ""
+    trusted_value = os.environ.get("VSKR_TRUSTED_PROXIES", "").strip()
+    try:
+        peer_ip = ipaddress.ip_address(peer.split("%", 1)[0])
+        trusted_ranges = [
+            ipaddress.ip_network(item.strip(), strict=False)
+            for item in trusted_value.split(",") if item.strip()
+        ]
+        if not trusted_ranges or not any(peer_ip in network for network in trusted_ranges):
+            return None, None
+        proto_values = [value.strip().lower() for value in request.headers.get("x-forwarded-proto", "").split(",")]
+        host_values = [value.strip() for value in request.headers.get("x-forwarded-host", "").split(",")]
+        if len(proto_values) != 1 or len(host_values) != 1 or proto_values[0] not in {"http", "https"}:
+            return None, None
+        forwarded_host = host_values[0]
+        parsed_host = urlsplit("//" + forwarded_host)
+        if (not parsed_host.hostname or parsed_host.username is not None or parsed_host.password is not None
+                or parsed_host.path or parsed_host.query or parsed_host.fragment):
+            return None, None
+        return proto_values[0], forwarded_host
+    except ValueError:
+        return None, None
+
+
 def _secure_cookie_request(request: Request) -> bool:
     origin = request.headers.get("origin")
     try:
@@ -92,11 +128,10 @@ def _secure_cookie_request(request: Request) -> bool:
         local_origin = bool(parsed_origin and _is_local_host(parsed_origin.netloc))
     except ValueError:
         return False
-    local_host = _is_local_host(request.headers.get("host"))
+    forwarded_scheme, forwarded_host = _trusted_forwarded_request(request)
+    local_host = _is_local_host(forwarded_host or request.headers.get("host"))
     if cookie_secure():
-        if parsed_origin is not None:
-            return parsed_origin.scheme == "https" or local_origin
-        return local_host or request.url.scheme == "https"
+        return local_origin or local_host or forwarded_scheme == "https" or request.url.scheme == "https"
     return local_host and (not parsed_origin or local_origin)
 
 
@@ -158,42 +193,44 @@ def _prune_failures(now: float) -> None:
         _failures.popitem(last=False)
 
 
-def _login_keys(ip: str, username: str):
+def _login_keys(ip: str, username: str, scope: str = "admin"):
     normalized_username = username.strip().casefold()
-    return ("pair", f"{ip}\0{normalized_username}"), ("ip", ip)
+    return ("pair", scope, f"{ip}\0{normalized_username}"), ("ip", scope, ip)
 
 
-def _login_failure_limit(key: tuple[str, str]) -> int:
+def _login_failure_limit(key: tuple[str, ...]) -> int:
     return LOGIN_IP_FAILURES if key[0] == "ip" else LOGIN_FAILURES
 
 
-def login_retry_after(ip: str, username: str, now: float | None = None) -> int | None:
+def login_retry_after(ip: str, username: str, now: float | None = None, *,
+                      scope: str = "admin") -> int | None:
     now = time.time() if now is None else now
     with _failures_lock:
         _prune_failures(now)
         attempts = [
             (list(_failures.get(key, ())), _login_failure_limit(key))
-            for key in _login_keys(ip, username)
+            for key in _login_keys(ip, username, scope)
         ]
     retry = [values[0] + LOGIN_WINDOW - now for values, limit in attempts if len(values) >= limit]
     return max(1, int(max(retry) + 0.999)) if retry else None
 
 
-def _record_login_failure(ip: str, username: str, now: float | None = None) -> None:
+def _record_login_failure(ip: str, username: str, now: float | None = None, *,
+                          scope: str = "admin") -> None:
     now = time.time() if now is None else now
     with _failures_lock:
         _prune_failures(now)
-        for key in _login_keys(ip, username):
+        for key in _login_keys(ip, username, scope):
             _failures.setdefault(key, deque()).append(now)
             _failures.move_to_end(key)
         _prune_failures(now)
 
 
-def _clear_login_failures(ip: str, username: str) -> None:
+def _clear_login_failures(ip: str, username: str, *, scope: str = "admin") -> None:
     with _failures_lock:
         # A successful login clears that account's pair-specific lock. Keep the
         # IP-wide spray budget so repeated failures across usernames still count.
-        pair_key = _login_keys(ip, username)[0]
+        pair_key = _login_keys(ip, username, scope)[0]
         _failures.pop(pair_key, None)
 
 

@@ -62,7 +62,9 @@ def ingest_document(path, cfg, document_id=None):
          "text": section, "source_types": ["doc"]}
         for i, section in enumerate(sections)
     ]
-    write_json(root / "meta.json", {"document_id": doc_id, "title": title, "filename": source.name})
+    write_json(root / "meta.json", {
+        "document_id": doc_id, "title": title, "filename": source.name, "visibility": "public",
+    })
     write_json(root / "sections.json", {"chunks": chunks})
     return read_json(root / "meta.json")
 

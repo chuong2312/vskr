@@ -1,28 +1,44 @@
+from collections import OrderedDict
+import threading
+
 import numpy as np
 
 from .bm25 import tokenize
 from .fusion import rrf_fuse
 from .knowledge_graph import search_graph
 
+ALLOWED_MASK_CACHE_SIZE = 512
+
 
 class Retriever:
     def __init__(self, index, embedder, rcfg):
         self.index, self.embedder, self.cfg = index, embedder, rcfg
         self._semantic_terms_cache = {}
-        self._allowed_mask_cache = {}
+        self._allowed_mask_cache = OrderedDict()
+        self._allowed_mask_cache_lock = threading.Lock()
 
     def _allowed_mask(self, allowed_sources):
         if allowed_sources is None:
             return None
         key = frozenset(str(item) for item in allowed_sources)
-        mask = self._allowed_mask_cache.get(key)
-        if mask is None:
-            mask = np.array([
-                str(chunk.get("video_id") or chunk.get("document_id") or "") in key
-                for chunk in self.index.chunks
-            ], dtype=bool)
+        with self._allowed_mask_cache_lock:
+            mask = self._allowed_mask_cache.get(key)
+            if mask is not None:
+                self._allowed_mask_cache.move_to_end(key)
+                return mask
+        mask = np.array([
+            str(chunk.get("video_id") or chunk.get("document_id") or "") in key
+            for chunk in self.index.chunks
+        ], dtype=bool)
+        with self._allowed_mask_cache_lock:
+            cached = self._allowed_mask_cache.get(key)
+            if cached is not None:
+                self._allowed_mask_cache.move_to_end(key)
+                return cached
             self._allowed_mask_cache[key] = mask
-        return mask
+            if len(self._allowed_mask_cache) > ALLOWED_MASK_CACHE_SIZE:
+                self._allowed_mask_cache.popitem(last=False)
+            return mask
 
     def _semantic_graph_terms(self, vector_scores, query, limit=5):
         """Use E5-near chunks to add their graph concepts as soft query anchors."""
@@ -91,27 +107,21 @@ class Retriever:
                 vec_scores = vec_scores.copy()
                 vec_scores[~allowed_mask] = -np.inf
             thr = self.cfg.get("min_vector_score")
-            if mode == "vector" and thr is not None and float(vec_scores.max()) < thr:
+            if (mode in ("vector", "hybrid", "hybrid_graph") and thr is not None
+                    and vec_scores.size and float(vec_scores.max()) < thr):
                 return []
         if mode == "vector":
             order = [int(i) for i in np.argsort(-vec_scores)[:top_k]
                      if np.isfinite(vec_scores[i])]
             pairs = [(int(i), float(vec_scores[i])) for i in order]
         elif mode == "bm25":
-            s = np.array(idx.bm25.scores(tokenize(query)))
-            if allowed_mask is not None:
-                s[~allowed_mask] = 0
+            s = np.array(idx.bm25.scores(tokenize(query), allowed_docs=allowed_mask))
             order = [int(i) for i in np.argsort(-s)[:top_k] if s[i] > 0]
             pairs = [(i, float(s[i])) for i in order]
         elif mode in ("hybrid", "hybrid_graph"):
             vr = [int(i) for i in np.argsort(-vec_scores)[:cand]
                   if np.isfinite(vec_scores[i])]
-            thr = self.cfg.get("min_vector_score")
-            if mode == "hybrid_graph" and thr is not None and float(vec_scores.max()) < thr:
-                vr = []
-            s = np.array(idx.bm25.scores(tokenize(query)))
-            if allowed_mask is not None:
-                s[~allowed_mask] = 0
+            s = np.array(idx.bm25.scores(tokenize(query), allowed_docs=allowed_mask))
             br = [int(i) for i in np.argsort(-s)[:cand] if s[i] > 0]
             rankings = [vr, br]
             if mode == "hybrid_graph":

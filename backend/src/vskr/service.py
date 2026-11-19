@@ -57,27 +57,29 @@ class Service:
         ]
 
     def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, owner_id=None,
-            shared_only=False, allowed_sources=None, project_id=None):
+            shared_only=False, allowed_sources=None, project_id=None, admin=False):
         t0 = time.time()
         retriever = self.retriever
         if retriever is None:
             retriever = Retriever(self.index, self.embedder, self.cfg["retrieval"])
-        if project_id:
-            allowed_sources = {
-                chunk.get("video_id") or chunk.get("document_id")
-                for chunk in self.index.chunks if chunk.get("project_id") == project_id
-            }
-        elif allowed_sources is None and (owner_id is not None or shared_only):
-            allowed_sources = set()
-            for chunk in self.index.chunks:
-                source_id = chunk.get("video_id") or chunk.get("document_id")
-                if not source_id:
-                    continue
-                metadata = (self.meta if chunk.get("video_id") else self.document_meta).get(source_id, {})
-                if not metadata.get("owner") and not metadata.get("owner_id") and chunk.get("owner_id"):
-                    metadata = {**metadata, "owner_id": chunk["owner_id"]}
-                if is_visible(metadata, owner_id, shared_only=shared_only):
-                    allowed_sources.add(source_id)
+        visible_sources = set()
+        for chunk in self.index.chunks:
+            source_id = chunk.get("video_id") or chunk.get("document_id")
+            if not source_id or (project_id is not None and chunk.get("project_id") != project_id):
+                continue
+            metadata = (self.meta if chunk.get("video_id") else self.document_meta).get(source_id, {})
+            if not metadata.get("owner") and not metadata.get("owner_id") and chunk.get("owner_id"):
+                metadata = {**metadata, "owner_id": chunk["owner_id"]}
+            if is_visible(metadata, owner_id, shared_only=shared_only, admin=admin):
+                visible_sources.add(source_id)
+        if project_id is not None:
+            allowed_sources = visible_sources if allowed_sources is None else set(allowed_sources) & visible_sources
+        elif admin:
+            pass
+        elif allowed_sources is None:
+            allowed_sources = visible_sources
+        else:
+            allowed_sources = set(allowed_sources) & visible_sources
         hits = retriever.search(question, mode=mode, allowed_sources=allowed_sources)
         t1 = time.time()
         if llm_lock is not None and not llm_lock.acquire(timeout=lock_timeout):

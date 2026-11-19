@@ -121,7 +121,7 @@ def main():
         warn_if_unconfigured(host=args.host)
         if args.host == "0.0.0.0" and not admin_is_configured():
             print("Cảnh báo: server bind 0.0.0.0 nhưng xác thực quản trị chưa được cấu hình.")
-        uvicorn.run("vskr.api:app", host=args.host, port=args.port)
+        uvicorn.run("vskr.api:app", host=args.host, port=args.port, proxy_headers=False)
 
 
 if __name__ == "__main__":

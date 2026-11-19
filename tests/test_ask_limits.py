@@ -199,6 +199,7 @@ class TestAskLimits(unittest.TestCase):
         old_timeout = handlers.GPU_LOCK_TIMEOUT_S
         service = object.__new__(Service)
         service.retriever = SimpleNamespace(search=lambda *_args, **_kwargs: [])
+        service.index = SimpleNamespace(chunks=[])
         service.cfg = {"llm": {}}
         service.meta = {}
         service.document_meta = {}

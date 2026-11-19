@@ -69,6 +69,7 @@ def ingest_file(path, cfg, video_id, title=None):
         "source_type": "upload",
         "has_video_file": True,
         "source_file": src.name,
+        "visibility": "public",
     }
     write_json(vdir / "meta.json", meta)
     return meta
@@ -90,9 +91,14 @@ def resolve_source(vdir, meta):
 
 def ingest(url, cfg, with_video=False, video_id=None):
     import yt_dlp
+    from .safe_ytdlp import make_safe_youtube_dl
 
-    with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
+    youtube_dl = make_safe_youtube_dl(yt_dlp)
+
+    with youtube_dl({"quiet": True, "noplaylist": True}) as ydl:
         info = ydl.extract_info(url, download=False)
+    if info.get("is_live") or info.get("duration") is None:
+        raise ValueError("Không hỗ trợ livestream hoặc video không xác định được thời lượng.")
     check_duration(info.get("duration"), cfg)
     youtube_id = str(info["id"])
     vid = video_id or youtube_id
@@ -110,7 +116,7 @@ def ingest(url, cfg, with_video=False, video_id=None):
     if with_video:
         opts["format"] = "bv*[height<=720]+ba/b[height<=720]"
         opts["merge_output_format"] = "mp4"
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    with youtube_dl(opts) as ydl:
         res = ydl.extract_info(url, download=True)
     src = Path(res["requested_downloads"][0]["filepath"])
     duration = info.get("duration") or probe_duration(src)
@@ -127,6 +133,7 @@ def ingest(url, cfg, with_video=False, video_id=None):
         "source_type": "url",
         "has_video_file": bool(with_video),
         "source_file": src.name,
+        "visibility": "public",
     }
     write_json(vdir / "meta.json", meta)
     return meta

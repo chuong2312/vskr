@@ -1,11 +1,15 @@
 import os
+import json
 import sqlite3
 import tempfile
 import unittest
+from http.cookies import SimpleCookie
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
 from fastapi import HTTPException
+from fastapi.responses import Response
 
 from vskr import accounts
 from vskr.accounts import COOKIE_NAME
@@ -22,6 +26,8 @@ class TestLearnerAccounts(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         with accounts._registration_lock:
             accounts._registration_attempts.clear()
+        with accounts._guest_identity_lock:
+            accounts._guest_identity_attempts.clear()
         self.env = {
             "VSKR__PATHS__DATA_DIR": self.temp.name,
             "VSKR_USER_INVITE_CODE": "class-invite-2026",
@@ -30,6 +36,27 @@ class TestLearnerAccounts(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_guest_owner_ids_are_token_opaque_and_distinct(self):
+        with mock.patch.dict(os.environ, self.env):
+            token_a = "guest-token-a"
+            token_b = "guest-token-b"
+            owner_a = accounts.guest_owner_id(token_a)
+            owner_b = accounts.guest_owner_id(token_b)
+
+        self.assertNotEqual(owner_a, owner_b)
+        self.assertNotIn(token_a, owner_a)
+        self.assertNotIn(token_b, owner_b)
+
+    def test_guest_cookie_expiry_is_set_for_browsers(self):
+        response = Response()
+        with mock.patch.dict(os.environ, self.env):
+            accounts.set_guest_cookie(response, "guest-cookie-token")
+
+        cookie = SimpleCookie()
+        cookie.load(response.headers["set-cookie"])
+        self.assertEqual(cookie[accounts.GUEST_COOKIE_NAME]["max-age"], str(30 * 24 * 60 * 60))
+        self.assertTrue(cookie[accounts.GUEST_COOKIE_NAME]["httponly"])
 
     def test_self_registration_ignores_legacy_invite_setting_and_logout_revokes_session(self):
         with mock.patch.dict(os.environ, self.env):
@@ -73,6 +100,23 @@ class TestLearnerAccounts(unittest.TestCase):
         self.assertGreater(int(raised.exception.headers["Retry-After"]), 0)
         accounts.check_registration_rate("192.0.2.91", now=110)
 
+    def test_project_creation_is_capped_per_owner(self):
+        with mock.patch.dict(os.environ, self.env):
+            for number in range(accounts.PROJECTS_PER_OWNER_LIMIT):
+                accounts.create_project("g:project-owner", f"Project {number}")
+            with self.assertRaises(HTTPException) as raised:
+                accounts.create_project("g:project-owner", "One too many")
+
+        self.assertEqual(raised.exception.status_code, 429)
+
+    def test_guest_identity_creation_is_limited_per_ip(self):
+        ip = "192.0.2.93"
+        for attempt in range(accounts.GUEST_IDENTITY_LIMIT):
+            accounts.check_guest_identity_rate(ip, now=100 + attempt)
+        with self.assertRaises(HTTPException) as raised:
+            accounts.check_guest_identity_rate(ip, now=110)
+        self.assertEqual(raised.exception.status_code, 429)
+
     def test_ingest_usage_is_limited_persistently(self):
         with mock.patch.dict(os.environ, self.env):
             for _ in range(3):
@@ -80,6 +124,56 @@ class TestLearnerAccounts(unittest.TestCase):
             with self.assertRaises(HTTPException) as raised:
                 accounts.reserve_ingest_job("g:guest", 3, now=100)
         self.assertEqual(raised.exception.status_code, 429)
+
+    def test_guest_owner_migration_replaces_legacy_tokens_in_projects_and_index(self):
+        token = "legacy-guest-secret"
+        legacy_owner = f"g:{token}"
+        with mock.patch.dict(os.environ, self.env):
+            project = accounts.create_project(legacy_owner, "Legacy")
+            video_meta = Path(self.temp.name) / "videos" / "old-video" / "meta.json"
+            video_meta.parent.mkdir(parents=True)
+            video_meta.write_text(json.dumps({"owner_id": legacy_owner}), encoding="utf-8")
+            legacy_public_meta = Path(self.temp.name) / "videos" / "legacy-public" / "meta.json"
+            legacy_public_meta.parent.mkdir(parents=True)
+            legacy_public_meta.write_text(json.dumps({"video_id": "legacy-public"}), encoding="utf-8")
+            legacy_owned_meta = Path(self.temp.name) / "videos" / "legacy-owned" / "meta.json"
+            legacy_owned_meta.parent.mkdir(parents=True)
+            legacy_owned_meta.write_text(json.dumps({"video_id": "legacy-owned"}), encoding="utf-8")
+            chunks = Path(self.temp.name) / "index" / "chunks.json"
+            chunks.parent.mkdir(parents=True)
+            chunks.write_text(json.dumps([
+                {"owner_id": legacy_owner},
+                {"video_id": "legacy-owned", "owner_id": legacy_owner},
+            ]), encoding="utf-8")
+
+            public_owner = accounts.guest_owner_id(token)
+            accounts.migrate_legacy_guest_owners()
+            stable_files = (
+                video_meta.read_bytes(),
+                legacy_public_meta.read_bytes(),
+                legacy_owned_meta.read_bytes(),
+                chunks.read_bytes(),
+            )
+            accounts.migrate_legacy_guest_owners()
+
+            self.assertTrue(public_owner.startswith("g:h:"))
+            self.assertNotIn(token, public_owner)
+            self.assertEqual(accounts.list_projects(public_owner)[0]["project_id"], project["project_id"])
+            self.assertNotIn(token, video_meta.read_text(encoding="utf-8"))
+            self.assertNotIn(token, chunks.read_text(encoding="utf-8"))
+            self.assertEqual(json.loads(video_meta.read_text(encoding="utf-8"))["owner_id"], public_owner)
+            self.assertEqual(json.loads(video_meta.read_text(encoding="utf-8"))["visibility"], "private")
+            self.assertEqual(json.loads(legacy_public_meta.read_text(encoding="utf-8"))["visibility"], "public")
+            owned_meta = json.loads(legacy_owned_meta.read_text(encoding="utf-8"))
+            self.assertEqual(owned_meta["owner_id"], public_owner)
+            self.assertEqual(owned_meta["visibility"], "private")
+            self.assertEqual(json.loads(chunks.read_text(encoding="utf-8"))[0]["owner_id"], public_owner)
+            self.assertEqual(stable_files, (
+                video_meta.read_bytes(),
+                legacy_public_meta.read_bytes(),
+                legacy_owned_meta.read_bytes(),
+                chunks.read_bytes(),
+            ))
 
     def test_self_registration_only_requires_a_unique_username(self):
         with mock.patch.dict(os.environ, self.env):
@@ -193,7 +287,11 @@ class TestLearnerAccounts(unittest.TestCase):
                       {"version": 1, "nodes": [], "edges": []})
         service = object.__new__(Service)
         service.index = index
-        service.meta = {"shared": {"title": "Shared"}, "mine": {"title": "Mine"}, "theirs": {"title": "Theirs"}}
+        service.meta = {
+            "shared": {"title": "Shared", "visibility": "public"},
+            "mine": {"title": "Mine", "visibility": "private"},
+            "theirs": {"title": "Theirs", "visibility": "private"},
+        }
         service.document_meta = {}
         service.cfg = {"retrieval": {"mode": "hybrid", "top_k": 3}, "llm": {}}
         service.embedder = mock.Mock()
@@ -248,3 +346,43 @@ class TestLearnerAccounts(unittest.TestCase):
         with mock.patch("vskr.service.answer_question", side_effect=answer):
             service.ask("public topic", owner_id="g:guest", shared_only=True)
         self.assertEqual(observed["chunks"], ["public:1"])
+
+    def test_anonymous_service_queries_fail_closed_and_project_scope_checks_visibility(self):
+        chunks = [
+            {"chunk_id": "public:1", "video_id": "public", "project_id": "p1", "text": "public topic"},
+            {"chunk_id": "private:1", "video_id": "private", "owner_id": "user-a",
+             "project_id": "p1", "text": "private topic"},
+        ]
+        index = Index(chunks, np.asarray([[1., 0.], [0., 1.]]),
+                      BM25([tokenize(chunk["text"]) for chunk in chunks]), {},
+                      {"version": 1, "nodes": [], "edges": []})
+        service = object.__new__(Service)
+        service.index = index
+        service.meta = {
+            "public": {"video_id": "public", "visibility": "public"},
+            "private": {"video_id": "private", "owner_id": "user-a", "visibility": "private"},
+        }
+        service.document_meta = {}
+        service.cfg = {"retrieval": {"mode": "hybrid", "top_k": 3}, "llm": {}}
+        service.embedder = mock.Mock()
+        service.embedder.encode_query.return_value = np.asarray([1., 0.])
+        service.retriever = None
+        observed = {}
+
+        def answer(_question, hits, _cfg):
+            observed["chunks"] = [hit["chunk"]["chunk_id"] for hit in hits]
+            return {"answer": "ok", "found": bool(hits), "cited": False, "source_ns": []}
+
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("topic")
+        self.assertEqual(observed["chunks"], ["public:1"])
+
+        observed.clear()
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("topic", project_id="p1")
+        self.assertEqual(observed["chunks"], ["public:1"])
+
+        observed.clear()
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("topic", admin=True)
+        self.assertEqual(set(observed["chunks"]), {"public:1", "private:1"})

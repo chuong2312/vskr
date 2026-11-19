@@ -64,6 +64,16 @@ class TestEnvOverride(unittest.TestCase):
         self.assertEqual(cfg["llm"]["base_url"], "http://localhost:11434")
 
 
+class TestConfigCache(unittest.TestCase):
+    def test_first_call_does_not_hand_out_the_cached_object(self):
+        from vskr import config
+
+        config._config_cache.clear()
+        first = load_config()
+        first["chunk"]["window_s"] = -1
+        self.assertNotEqual(load_config()["chunk"]["window_s"], -1)
+
+
 class TestSrt(unittest.TestCase):
     def test_time(self):
         self.assertEqual(fmt_srt_time(3661.5), "01:01:01,500")

@@ -69,5 +69,7 @@ Package: `backend/src/vskr/`.
 ## Tests
 Tests don't use Starlette's TestClient. Use `tests/asgi_client.ASGITestClient(app, authenticated_learner=...)`, which overrides `optional_learner_or_admin`. Tests reset module-level state (e.g. `auth._sessions`, `auth._failures` under their locks) and use temp data dirs. Visual-step tests mock `vskr.frames.run` / `vskr.steps.run_step`, so they need neither GPU nor the step venvs.
 
+`tests/__init__.py` points `VSKR__PATHS__DATA_DIR` at a temp dir for the whole suite. This is needed because `accounts`/`audit` call `load_config()` themselves and once rewrote the real `data/` from a test. `tests/test_data_isolation.py` fails if that breaks. Never build data paths as `ROOT / "data"`; use `data_dir(cfg)`.
+
 ## Security notes
 `SECURITY-REVIEW.md`: yt-dlp URL ingest can bypass SSRF checks (redirects, HLS→ffmpeg). Egress firewalling is required before exposing ingest to untrusted users. Keep SSRF/visibility/CSRF checks server-side when touching these paths.

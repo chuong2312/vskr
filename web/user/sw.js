@@ -1,3 +1,7 @@
+/**
+ * Service worker của app người học: cache phần vỏ giao diện (HTML, JS, CSS, icon) để mở nhanh và dùng
+ * được khi mất mạng. Không bao giờ cache các lời gọi API; luôn thử mạng trước rồi mới dùng bản cache.
+ */
 const CACHE_NAME = "vskr-user-shell-v22";
 const AUTH_PAGES = new Set(["/login", "/register"]);
 const SHELL = [

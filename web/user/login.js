@@ -1,3 +1,4 @@
+/** Trang đăng nhập và đăng ký người học: chuyển giữa hai chế độ và gửi form tới API tài khoản. */
 const form = document.querySelector("#auth-form");
 const status = document.querySelector("#auth-status");
 const loginTab = document.querySelector("#login-tab");

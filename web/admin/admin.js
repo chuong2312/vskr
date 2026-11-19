@@ -1,3 +1,9 @@
+/**
+ * Trang quản trị: tổng quan hệ thống, tác vụ, duyệt nội dung, tài khoản, nhật ký audit, hỏi thử,
+ * đánh giá truy hồi và xem đồ thị tri thức.
+ *
+ * Mọi lời gọi API đi qua adminFetch để tự gắn token CSRF; phiên hết hạn thì chuyển về trang đăng nhập.
+ */
 const nativeFetch = window.fetch.bind(window);
 let adminCsrf = "";
 let authReady = nativeFetch("/api/auth/me", { credentials: "same-origin" })
@@ -15,6 +21,7 @@ let authReady = nativeFetch("/api/auth/me", { credentials: "same-origin" })
     throw error;
   });
 
+/** fetch cho API quản trị: đợi phiên sẵn sàng, gắn token CSRF vào request ghi; gặp 401 thì về trang đăng nhập. */
 async function adminFetch(input, init = {}) {
   const url = new URL(typeof input === "string" ? input : input.url, location.href);
   if (!url.pathname.startsWith("/api/") || url.pathname === "/api/auth/me" || url.pathname === "/api/auth/login") {
@@ -85,6 +92,7 @@ function displayTime(value) {
   return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "medium" }).format(date);
 }
 
+/** Tổng quan: trạng thái chỉ mục, GPU, Ollama và số học liệu. */
 async function loadDashboard() {
   const status = $("#dashboard-status");
   status.textContent = "Đang tải trạng thái hệ thống…";
@@ -111,6 +119,7 @@ async function loadDashboard() {
   }
 }
 
+/** Danh sách tác vụ gần nhất, kèm nút chạy lại hoặc xoá tác vụ lỗi. */
 async function loadTasks() {
   const list = $("#tasks-list");
   const status = $("#tasks-status");
@@ -138,6 +147,7 @@ async function loadTasks() {
   }
 }
 
+/** Nhật ký audit gần nhất. */
 async function loadAudit() {
   const list = $("#audit-list");
   const status = $("#audit-status");
@@ -177,6 +187,7 @@ $("#tasks-list").addEventListener("click", async (event) => {
   }
 });
 
+/** Danh sách tài khoản người học, kèm nút khoá và mở khoá. */
 async function loadUsers() {
   const status = $("#users-status"), tbody = $("#users-list");
   status.textContent = "Đang tải tài khoản…";
@@ -277,6 +288,7 @@ function setupPlayer() {
   });
 }
 
+/** Khởi tạo khu hỏi thử (chỉ chạy một lần): tải các video đã sẵn sàng để chọn và phát. */
 async function init() {
   if (qaInitialized) return;
   qaInitialized = true;
@@ -387,6 +399,7 @@ function linkify(text, sources) {
   });
 }
 
+/** Hiển thị câu trả lời hỏi thử kèm nguồn, chủ đề khớp và thời gian từng bước. */
 function renderResult(d) {
   lastSources = d.sources;
   const box = $("#result");
@@ -469,6 +482,7 @@ async function refreshVideos(selectVideoId = null) {
   setupPlayer();
 }
 
+/** Hỏi lại trạng thái một tác vụ nạp học liệu cho tới khi xong hoặc lỗi. */
 async function waitForIngest(jobId) {
   while (true) {
     const r = await adminFetch(`/api/jobs/${encodeURIComponent(jobId)}`);
@@ -539,6 +553,7 @@ function renderLibraryTable() {
   }).join("");
   list.innerHTML = `<div class="library-table-head" aria-hidden="true"><span>Tiêu đề</span><span>Loại</span><span>Trạng thái</span><span>Thời lượng / Số mục</span><span>Thao tác</span></div>${rows}`;
 }
+/** Bảng duyệt nội dung: mọi video/tài liệu kèm chủ sở hữu và quyền xem; đổi quyền xem hoặc xoá ngay tại bảng. */
 async function loadLibrary(showLoading = true) {
   const list = $("#library-list");
   if (showLoading) list.innerHTML = `<p class="hint">Đang tải thư viện…</p>`;
@@ -667,6 +682,7 @@ function fmtMetric(value, percent = false) {
   return percent ? `${(value * 100).toFixed(1)}%` : value.toFixed(3);
 }
 
+/** Bảng kết quả đánh giá (Recall@5, MRR) theo từng chế độ; báo khi kết quả đã cũ so với bộ câu hỏi. */
 function renderEvalResults(result) {
   const body = $("#eval-results");
   if (!result || !result.summary) {
@@ -761,6 +777,7 @@ function renderEvalQuestions(items) {
   list.innerHTML = items.map((item) => `<div class="question-row"><p>${esc(item.question)}</p><span class="tag">${item.type === "fact" ? "Tra dữ kiện" : "Nhiều bước"}${evidenceLabels[item.evidence] ? ` · ${evidenceLabels[item.evidence]}` : ""} · ${item.relevant.length} mục đúng</span><button class="small-action danger" type="button" data-eval-delete="${esc(item.id)}" aria-label="Xóa câu hỏi">Xóa</button></div>`).join("");
 }
 
+/** Tải bộ câu hỏi và kết quả đánh giá gần nhất. */
 async function loadEvaluation() {
   try {
     const [questionsResponse, resultsResponse] = await Promise.all([adminFetch("/api/eval/questions"), adminFetch("/api/eval/results")]);
@@ -849,6 +866,7 @@ function svgElement(name, attrs = {}) {
   return el;
 }
 
+/** Vẽ phần đồ thị tri thức mà truy vấn tìm được (SVG) và danh sách đường đi. */
 function renderGraph(data) {
   lastGraphData = data;
   const canvas = $("#graph-canvas");

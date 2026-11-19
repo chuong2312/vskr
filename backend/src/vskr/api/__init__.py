@@ -58,7 +58,7 @@ class UploadBodyLimitMiddleware:
         if self._test_limits is not None:
             return self._test_limits.get(path)
         from ..access import accounts
-        from ..config import load_config
+        from ..config import load_config, role_limit
 
         cfg = load_config()
         limits = cfg.get("limits", {})
@@ -67,12 +67,11 @@ class UploadBodyLimitMiddleware:
         role = limits.get("user" if learner else "guest", {})
         overhead = UploadBodyLimitMiddleware.OVERHEAD_BYTES
         if path == "/api/ingest":
-            default = cfg.get("ingest", {}).get("max_upload_bytes", 1_073_741_824)
-            return int(role.get("max_upload_bytes", default)) + overhead
+            return role_limit(role, cfg["ingest"], "max_upload_bytes") + overhead
         if path == "/api/documents":
-            return (100 if learner else 20) * 1024 * 1024 + overhead
+            return int(role["max_document_bytes"]) + overhead
         if path == "/api/eval/questions/import":
-            return 5 * 1024 * 1024 + overhead
+            return int(limits["eval_import_bytes"]) + overhead
         return None
 
     async def __call__(self, scope, receive, send):

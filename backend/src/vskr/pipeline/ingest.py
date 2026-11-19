@@ -27,7 +27,7 @@ def probe_duration(path):
 
 
 def check_duration(duration, cfg):
-    limit = int(cfg.get("ingest", {}).get("max_duration_s", 7200))
+    limit = int(cfg["ingest"]["max_duration_s"])
     if duration is not None and float(duration) > limit:
         limit_label = f"{limit // 3600} giờ" if limit >= 3600 and limit % 3600 == 0 else f"{limit // 60} phút"
         raise ValueError(
@@ -111,7 +111,7 @@ def ingest(url, cfg, with_video=False, video_id=None):
         "noplaylist": True,
         "outtmpl": str(vdir / "source.%(ext)s"),
         "format": "bestaudio/best",
-        "max_filesize": int(cfg.get("ingest", {}).get("max_upload_bytes", 1_073_741_824)),
+        "max_filesize": int(cfg["ingest"]["max_upload_bytes"]),
     }
     if with_video:
         opts["format"] = "bv*[height<=720]+ba/b[height<=720]"

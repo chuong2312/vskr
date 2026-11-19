@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from ...config import load_config
+from ...qa import ollama_url
 from ...retrieval.index import load_meta
 from ...access import accounts
 
@@ -140,8 +141,7 @@ def admin_status():
             try:
                 import httpx
 
-                base_url = load_config().get("llm", {}).get("base_url", "http://localhost:11434").rstrip("/")
-                connected = httpx.get(base_url + "/api/tags", timeout=1.0).is_success
+                connected = httpx.get(ollama_url(load_config()["llm"], "/api/tags"), timeout=1.0).is_success
             except Exception:
                 pass
             _ollama_status_cache.update({"checked_at": now, "connected": connected})

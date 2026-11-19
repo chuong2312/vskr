@@ -466,7 +466,7 @@ class TestIngestApi(unittest.TestCase):
         config = {
             "paths": {"data_dir": str(self.tmp)},
             "ingest": {"max_queue_length": 20},
-            "limits": {"guest": {"max_active_jobs": 4, "max_jobs_per_day": 1}},
+            "limits": {"guest": {"max_active_jobs": 4, "max_jobs_per_day": 1, "max_document_bytes": 20 * 1024 * 1024}},
         }
         with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}), \
                 patch_handlers_config(config), \

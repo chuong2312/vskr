@@ -130,7 +130,7 @@ class TestRiskProbes(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source_path = Path(temp_dir) / "source.mp4"
-            cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900}}
+            cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900, "max_upload_bytes": 1024}}
             FakeYDL.calls.clear()
             with mock.patch.object(yt_dlp, "YoutubeDL", FakeYDL), \
                     mock.patch("vskr.pipeline.ingest._extract_audio"), \
@@ -165,7 +165,7 @@ class TestRiskProbes(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source_path = Path(temp_dir) / "source.mp4"
-            cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900}}
+            cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900, "max_upload_bytes": 1024}}
             with mock.patch.object(yt_dlp, "YoutubeDL", FakeYDL), \
                     mock.patch("vskr.pipeline.ingest._extract_audio"), \
                     mock.patch("vskr.pipeline.ingest.probe_duration", return_value=60):
@@ -202,7 +202,7 @@ class TestRiskProbes(unittest.TestCase):
         self.assertEqual(result["source_ns"], [])
 
     def test_long_prompt_is_sent_with_application_truncation(self):
-        lcfg = {"model": "mock-model", "num_ctx": 4096}
+        lcfg = {"model": "mock-model", "num_ctx": 4096, "base_url": "http://ollama.test"}
         messages = qa.build_messages("Hỏi", [{"chunk": {"text": "x " * 12_000}}])
         captured = {}
 

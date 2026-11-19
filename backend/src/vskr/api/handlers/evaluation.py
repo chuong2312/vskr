@@ -95,10 +95,11 @@ def save_eval_questions(payload: dict):
 
 
 async def import_eval_questions(file: UploadFile = File(...)):
-    content = await file.read(5 * 1024 * 1024 + 1)
+    limit = int(load_config()["limits"]["eval_import_bytes"])
+    content = await file.read(limit + 1)
     await file.close()
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(413, "Tệp JSONL vượt giới hạn 5 MB.")
+    if len(content) > limit:
+        raise HTTPException(413, f"Tệp JSONL vượt giới hạn {limit // (1024 * 1024)} MB.")
     try:
         raw_items = [json.loads(line) for line in content.decode("utf-8-sig").splitlines() if line.strip()]
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

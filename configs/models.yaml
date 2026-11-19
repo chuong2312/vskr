@@ -11,15 +11,18 @@ ingest:
 
 limits:
   guest:
-    max_upload_bytes: 104857600
+    max_upload_bytes: 104857600   # 100 MB video
+    max_document_bytes: 20971520  # 20 MB tài liệu (PDF, DOCX...)
     max_duration_s: 900
     max_active_jobs: 1
     max_jobs_per_day: 3
   user:
-    max_upload_bytes: 1073741824
+    max_upload_bytes: 1073741824  # 1 GiB video
+    max_document_bytes: 104857600 # 100 MB tài liệu
     max_duration_s: 7200
     max_active_jobs: 2
     max_jobs_per_day: 20
+  eval_import_bytes: 5242880      # 5 MB: tệp JSONL câu hỏi đánh giá mà admin nhập
 
 asr:
   engine: faster-whisper

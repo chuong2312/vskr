@@ -99,14 +99,21 @@ def is_not_found(text):
     return t == p or (t.startswith(p) and len(t) <= len(p) + 20)
 
 
+def ollama_url(lcfg, path):
+    """Địa chỉ đầy đủ của một API Ollama, ví dụ ``ollama_url(cfg["llm"], "/api/chat")``.
+
+    ``llm.base_url`` chỉ khai báo trong configs/models.yaml (đổi bằng ``VSKR__LLM__BASE_URL``).
+    """
+    return lcfg["base_url"].rstrip("/") + path
+
+
 def unload_ollama(lcfg):
     """Báo Ollama nhả model khỏi VRAM (keep_alive=0). Lỗi (chưa chạy Ollama...) thì bỏ qua.
     Dùng trước khi chạy ASR để hai bên không tranh VRAM."""
     try:
         import httpx
 
-        base = lcfg.get("base_url", "http://localhost:11434").rstrip("/")
-        httpx.post(base + "/api/generate", json={"model": lcfg["model"], "keep_alive": 0}, timeout=15)
+        httpx.post(ollama_url(lcfg, "/api/generate"), json={"model": lcfg["model"], "keep_alive": 0}, timeout=15)
         return True
     except Exception:
         return False
@@ -126,7 +133,7 @@ def call_ollama(lcfg, messages):
             "num_ctx": lcfg.get("num_ctx", 4096),
         },
     }
-    url = lcfg.get("base_url", "http://localhost:11434").rstrip("/") + "/api/chat"
+    url = ollama_url(lcfg, "/api/chat")
     try:
         r = httpx.post(url, json=payload, timeout=lcfg.get("timeout_s", 300))
         if r.status_code == 400 and "think" in r.text.lower():

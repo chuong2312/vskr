@@ -72,3 +72,12 @@ def video_dir(cfg, video_id):
 
 def index_dir(cfg):
     return data_dir(cfg) / "index"
+
+
+def role_limit(role_limits, ingest_cfg, key):
+    """Hạn mức ``key`` của một vai trò (``limits.guest`` / ``limits.user``) trong models.yaml.
+
+    Vai trò không khai báo khoá đó thì dùng giá trị chung trong ``ingest``. Chỉ đọc ``ingest`` khi cần,
+    nên cấu hình chỉ khai báo theo vai trò vẫn hợp lệ.
+    """
+    return int(role_limits[key] if key in role_limits else ingest_cfg[key])

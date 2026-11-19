@@ -178,7 +178,7 @@ def save_eval_questions(payload: dict):
 
 @router.post("/api/eval/questions/import")
 async def import_eval_questions(request: Request):
-    async with request.form(max_files=1, max_fields=0, max_part_size=5 * 1024 * 1024) as form:
+    async with request.form(max_files=1, max_fields=0, max_part_size=int(load_config()["limits"]["eval_import_bytes"])) as form:
         file = form.get("file")
         if file is None or not hasattr(file, "read"):
             raise HTTPException(422, "Cần tải lên một tệp JSONL.")

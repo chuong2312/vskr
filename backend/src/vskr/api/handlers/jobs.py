@@ -14,7 +14,7 @@ from typing import Optional
 
 from fastapi import File, Form, HTTPException, UploadFile
 
-from ...config import data_dir, index_dir, load_config, video_dir, videos_dir
+from ...config import data_dir, index_dir, load_config, role_limit, video_dir, videos_dir
 from ...pipeline.ingest import check_duration, ingest, ingest_file, probe_duration
 from ...util import fmt_time, read_json, write_json
 from ...access import audit, accounts
@@ -322,8 +322,8 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
     ingest_cfg = cfg.get("ingest", {})
     guest = str(owner_id or "").startswith("g:")
     role_limits = cfg.get("limits", {}).get("guest" if guest else "user", {})
-    max_bytes = int(role_limits.get("max_upload_bytes", ingest_cfg.get("max_upload_bytes", 1_073_741_824)))
-    max_duration = int(role_limits.get("max_duration_s", ingest_cfg.get("max_duration_s", 7200)))
+    max_bytes = role_limit(role_limits, ingest_cfg, "max_upload_bytes")
+    max_duration = role_limit(role_limits, ingest_cfg, "max_duration_s")
     if clean_url:
         try:
             validate_ingest_url(clean_url)
@@ -429,11 +429,11 @@ async def upload_document(file: UploadFile = File(...), owner_id=None, project_i
             usage_id = accounts.reserve_ingest_job(owner_id, max_jobs_per_day)
         upload_root.mkdir(parents=True, exist_ok=True)
         size = 0
+        document_limit = int(role_limits["max_document_bytes"])
         try:
             with path.open("wb") as out:
                 while chunk := await file.read(1024 * 1024):
                     size += len(chunk)
-                    document_limit = 20 * 1024 * 1024 if guest else 100 * 1024 * 1024
                     if size > document_limit:
                         raise HTTPException(413, "Tài liệu vượt giới hạn cho phép.")
                     out.write(chunk)

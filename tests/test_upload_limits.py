@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 from vskr.api import UploadBodyLimitMiddleware
+from vskr.config import load_config, role_limit
 
 
 class TestUploadBodyLimitMiddleware(unittest.TestCase):
@@ -29,6 +30,21 @@ class TestUploadBodyLimitMiddleware(unittest.TestCase):
 
         asyncio.run(middleware(scope, receive, send))
         return messages
+
+    def test_document_and_eval_import_caps_come_from_models_yaml(self):
+        cfg = load_config()
+        middleware = UploadBodyLimitMiddleware(lambda *_args: None)
+        overhead = middleware.OVERHEAD_BYTES
+        with mock.patch("vskr.access.accounts.get_session", return_value=None):
+            documents = middleware._limit_for_scope({"path": "/api/documents", "headers": []})
+            eval_import = middleware._limit_for_scope({"path": "/api/eval/questions/import", "headers": []})
+        self.assertEqual(documents, cfg["limits"]["guest"]["max_document_bytes"] + overhead)
+        self.assertEqual(eval_import, cfg["limits"]["eval_import_bytes"] + overhead)
+        self.assertLess(cfg["limits"]["guest"]["max_document_bytes"], cfg["limits"]["user"]["max_document_bytes"])
+
+    def test_role_limit_reads_the_shared_ingest_value_only_when_the_role_has_none(self):
+        self.assertEqual(role_limit({"max_duration_s": 900}, {}, "max_duration_s"), 900)
+        self.assertEqual(role_limit({}, {"max_duration_s": 7200}, "max_duration_s"), 7200)
 
     def test_rejects_declared_oversize_before_calling_application_or_reading_body(self):
         called = {"app": False, "receive": False}

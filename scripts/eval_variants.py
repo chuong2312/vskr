@@ -26,13 +26,19 @@ from vskr.evaluation import EVIDENCE_TYPES, score_results, validate_question
 from vskr.retriever import Retriever
 
 MODES = ("vector", "bm25", "hybrid", "graph", "hybrid_graph")
+# Biến thể: (file phụ được chép, ghi đè cấu hình chunk). ocr_info.json đi kèm OCR để bộ lọc chữ rác
+# biết danh sách frame; ocr_raw tắt bộ lọc để so trước/sau khi lọc.
+OCR_FILES = ("screen_text.json", "ocr_info.json")
 VARIANTS = {
-    "transcript": (),
-    "ocr": ("screen_text.json",),
-    "vlm": ("captions.json",),
-    "ocr_vlm": ("screen_text.json", "captions.json"),
+    "transcript": ((), {}),
+    "ocr_raw": (OCR_FILES, {"screen_text_filter": {"enabled": False}}),
+    "ocr": (OCR_FILES, {}),
+    "vlm": (("captions.json",), {}),
+    "ocr_vlm": (OCR_FILES + ("captions.json",), {}),
 }
-VARIANT_LABELS = {"transcript": "chỉ transcript", "ocr": "+ OCR", "vlm": "+ VLM", "ocr_vlm": "+ OCR + VLM"}
+VARIANT_LABELS = {"transcript": "chỉ transcript", "ocr_raw": "+ OCR chưa lọc", "ocr": "+ OCR",
+                  "vlm": "+ VLM", "ocr_vlm": "+ OCR + VLM"}
+REQUIRED_EXTRAS = ("screen_text.json", "captions.json")
 GROUP_LABELS = {"spoken": "lời nói", "screen": "màn hình", "figure": "hình vẽ",
                 "unspecified": "chưa gắn", "all": "tất cả"}
 VIDEO_FILES = ("meta.json", "transcript.json", "scenes.json", "frames.json")
@@ -85,12 +91,14 @@ def stage_variant(source, target, extra_files):
 def run_variant(cfg, name, questions, embedder, workdir, relations=False):
     vcfg = copy.deepcopy(cfg)
     vdata = Path(workdir) / name
-    found = stage_variant(data_dir(cfg), vdata, VARIANTS[name])
+    files, chunk_overrides = VARIANTS[name]
+    found = stage_variant(data_dir(cfg), vdata, files)
     for artifact, count in found.items():
-        if count == 0:
+        if count == 0 and artifact in REQUIRED_EXTRAS:
             print(f"[cảnh báo] {name}: chưa video nào có {artifact}, biến thể này sẽ giống 'transcript'.")
     vcfg["paths"]["data_dir"] = str(vdata)
     vcfg["chunk"]["use_screen_text"] = True
+    vcfg["chunk"].update(chunk_overrides)
     vcfg.setdefault("knowledge_graph", {})["extract_relations"] = bool(relations)
     print(f"\n[{name}] dựng index tạm ở {vdata / 'index'}")
     index_mod.build(vcfg, embedder)
@@ -149,7 +157,7 @@ def format_report(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--questions", type=Path, help="mặc định: data/eval/questions.jsonl")
-    parser.add_argument("--variants", default="transcript,ocr,ocr_vlm",
+    parser.add_argument("--variants", default="transcript,ocr_raw,ocr,ocr_vlm",
                         help=f"danh sách cách nhau bằng dấu phẩy, chọn trong: {', '.join(VARIANTS)}")
     parser.add_argument("--out", type=Path, help="mặc định: data/eval/variants.json")
     parser.add_argument("--relations", action="store_true", help="gọi Ollama trích quan hệ khi dựng đồ thị")

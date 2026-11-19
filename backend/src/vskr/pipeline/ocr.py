@@ -1,9 +1,8 @@
-"""OCR frames selected by :mod:`vskr.frames`.
+"""Đọc chữ trên các khung hình do :mod:`vskr.pipeline.frames` chọn.
 
-Uses EasyOCR (``['vi', 'en']``) inside the step venv (``.venv-vlm``, shared with
-the VLM step). PaddleOCR was dropped: its recognition dictionaries lack
-Vietnamese letters with two diacritics (ấ, ữ, ệ, ớ…), so "Truy vấn dữ liệu"
-came out as "Truy vn d liu". The engine is imported only when this step runs.
+Dùng EasyOCR (``['vi', 'en']``) trong venv của bước (``.venv-vlm``, dùng chung với VLM).
+PaddleOCR đã bị bỏ: từ điển nhận dạng của nó thiếu các chữ hai dấu (ấ, ữ, ệ, ớ…), nên "Truy vấn
+dữ liệu" bị đọc thành "Truy vn d liu". Engine chỉ được import khi bước này chạy.
 """
 import time
 
@@ -12,14 +11,15 @@ from ..util import read_json, write_json
 
 
 def group_lines(words, overlap=0.5):
-    """Join word boxes on the same visual row into one line, left to right.
+    """Ghép các hộp chữ trên cùng một hàng thành một dòng, từ trái sang phải.
 
-    EasyOCR returns one box per word or phrase; a code line such as
-    ``SELECT u.name FROM users`` arrives in pieces. Two boxes share a row when
-    their vertical overlap is at least ``overlap`` of the shorter box.
-    ``words`` items are ``{"text", "score", "box"}`` with ``box`` = 4 points.
+    EasyOCR trả về một hộp cho mỗi từ hoặc cụm từ, nên một dòng code như ``SELECT u.name FROM users``
+    bị tách thành nhiều mảnh. Hai hộp cùng hàng khi phần chồng theo chiều dọc đạt ít nhất ``overlap``
+    chiều cao của hộp thấp hơn. Mỗi phần tử ``words`` có dạng ``{"text", "score", "box"}``, ``box``
+    gồm 4 điểm.
     """
     def span(box):
+        """Khung bao ``(x_min, y_min, x_max, y_max)`` của một hộp chữ."""
         ys = [float(y) for _x, y in box]
         xs = [float(x) for x, _y in box]
         return min(xs), min(ys), max(xs), max(ys)
@@ -49,7 +49,7 @@ def group_lines(words, overlap=0.5):
 
 
 def _engine(ocfg):
-    """Return ``read(path) -> [line]`` for the configured engine."""
+    """Trả về hàm ``read(path) -> [dòng]`` cho engine OCR đã cấu hình."""
     engine = ocfg.get("engine", "easyocr")
     if engine != "easyocr":
         raise ValueError(f"OCR engine không được hỗ trợ: {engine}")
@@ -66,8 +66,8 @@ def _engine(ocfg):
     threshold = float(ocfg.get("score_threshold", 0.4))
 
     def read(path):
-        # Drop unreliable words before joining, so one misread token in a code
-        # line does not discard the whole line.
+        # Bỏ từ không chắc chắn trước khi ghép, để một từ đọc sai trong dòng code không làm mất cả dòng.
+        """Đọc chữ trong một ảnh, bỏ các từ có điểm tin cậy thấp rồi ghép thành dòng."""
         words = [{"text": str(text).strip(), "score": float(score), "box": [[float(x), float(y)] for x, y in box]}
                  for box, text, score in reader.readtext(str(path), batch_size=batch_size)
                  if str(text).strip() and float(score) >= threshold]
@@ -77,7 +77,7 @@ def _engine(ocfg):
 
 
 def polygon_area(box):
-    """Shoelace area of an OCR box given as [[x, y], ...]; 0 for missing/degenerate boxes."""
+    """Diện tích hộp chữ ``[[x, y], ...]`` theo công thức shoelace; hộp thiếu hoặc suy biến cho 0."""
     try:
         points = [(float(x), float(y)) for x, y in box]
     except (TypeError, ValueError):
@@ -89,6 +89,7 @@ def polygon_area(box):
 
 
 def frame_stats(frame, lines, size):
+    """Thống kê chữ của một khung hình: số dòng, tỉ lệ diện tích có chữ và một đoạn chữ ngắn (cho VLM tham khảo)."""
     width, height = size
     covered = sum(polygon_area(line.get("box")) for line in lines)
     return {
@@ -101,10 +102,10 @@ def frame_stats(frame, lines, size):
 
 
 def merge_runs(frame_lines):
-    """Collapse a line seen in consecutive frames into one row spanning those frames.
+    """Gộp một dòng xuất hiện ở nhiều khung hình liên tiếp thành một mục kéo dài qua các khung hình đó.
 
-    ``frame_lines`` is ``[(frame, [line, ...]), ...]`` in time order. A static
-    slide would otherwise add the same text once per sampled frame.
+    ``frame_lines`` là ``[(frame, [dòng, ...]), ...]`` theo thứ tự thời gian. Không gộp thì một slide
+    chiếu lâu sẽ lặp lại cùng một đoạn chữ ở mọi khung hình được lấy mẫu.
     """
     rows, open_runs = [], {}
     for frame, lines in frame_lines:
@@ -127,6 +128,12 @@ def merge_runs(frame_lines):
 
 
 def run(cfg, video_ids=None, force=False):
+    """Đọc chữ trên các khung hình trong ``frames.json`` của từng video, ghi ``screen_text.json`` và ``ocr_info.json``.
+
+    Engine OCR được nạp một lần cho cả lượt (sau khi bảo Ollama nhả VRAM). Số khung hình bị giới hạn
+    bởi ``ocr.max_frames`` và rải đều trên cả bài. ``ocr_info.json`` lưu tỉ lệ chữ của từng khung
+    hình để bước VLM bỏ qua slide/code mà OCR đã đọc.
+    """
     from .frames import cap_evenly
 
     from PIL import Image
@@ -144,7 +151,7 @@ def run(cfg, video_ids=None, force=False):
         if out.exists() and not force:
             print(f"[ocr] bỏ qua {video_id} (đã có screen_text.json)")
             continue
-        # Spread the cap over the whole lecture instead of keeping only its start.
+        # Rải giới hạn số khung hình trên cả bài thay vì chỉ giữ phần đầu.
         frame_rows = cap_evenly(read_json(fp).get("frames", []), int(ocfg.get("max_frames", 2000)))
         if engine is None:
             if ocfg.get("unload_ollama_first", True):
@@ -171,7 +178,7 @@ def run(cfg, video_ids=None, force=False):
         info = {"video_id": video_id, "n_frames": len(frame_rows), "n_lines": len(rows),
                 "n_raw_lines": sum(len(lines) for _frame, lines in frame_lines),
                 "seconds": round(time.time() - started, 1), "frame_size": frame_size,
-                # Per-frame text coverage lets the VLM step skip slides/code OCR already covers.
+                # Tỉ lệ chữ của từng khung hình giúp bước VLM bỏ qua slide/code mà OCR đã đọc.
                 "frames": per_frame}
         write_json(vdir / "ocr_info.json", info)
         print(f"[ocr] {video_id}: {len(rows)} dòng (gộp từ {info['n_raw_lines']}) trên {len(frame_rows)} frame ({info['seconds']}s)")

@@ -1,4 +1,8 @@
-"""Input URL checks before yt-dlp resolves or downloads a remote source."""
+"""Kiểm tra URL trước khi yt-dlp phân giải hoặc tải nguồn từ xa (chống SSRF).
+
+Chỉ nhận http/https, không chứa thông tin đăng nhập, và mọi địa chỉ IP mà tên miền phân giải ra
+đều phải là địa chỉ công khai. Lỗi được báo bằng ``UnsafeUrlError``; tầng API đổi thành HTTP 400.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,11 @@ class UnsafeUrlError(ValueError):
 
 
 def resolve_ingest_target(url: str) -> tuple[str, int, str]:
+    """Kiểm tra URL và trả về ``(host, cổng, IP)``; ném ``UnsafeUrlError`` nếu URL không an toàn.
+
+    Tên miền được phân giải DNS ngay tại đây; chỉ cần một địa chỉ trả về thuộc mạng nội bộ là bị
+    từ chối. IP trả về được dùng để ghim kết nối lúc tải (xem ``safe_ytdlp``).
+    """
     try:
         parsed = urlsplit(url)
     except (TypeError, ValueError) as exc:
@@ -51,12 +60,15 @@ def resolve_ingest_target(url: str) -> tuple[str, int, str]:
 
 
 def validate_ingest_url(url: str) -> str:
+    """Kiểm tra URL như ``resolve_ingest_target`` rồi trả lại chính URL đó."""
     resolve_ingest_target(url)
     return url
 
 
 def validate_learner_ingest_url(url: str, allowed_domains=None) -> str:
-    """Learner links are restricted to configured domains."""
+    """Link do người học dán: chỉ nhận tên miền trong ``allowed_domains`` (mặc định là YouTube), sau đó
+    kiểm tra như ``validate_ingest_url``.
+    """
     try:
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")

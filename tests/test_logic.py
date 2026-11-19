@@ -4,7 +4,7 @@ from vskr.retrieval.bm25 import BM25, tokenize
 from vskr.retrieval.chunker import make_chunks
 from vskr.retrieval.fusion import rrf_fuse
 from vskr.qa import NOT_FOUND, build_messages, extract_citations, is_not_found, strip_think
-from vskr.util import fmt_time, source_link
+from vskr.util import fmt_time, is_youtube_host, source_link
 
 
 def segs(n, step=10, length=10):
@@ -126,6 +126,20 @@ class TestUtil(unittest.TestCase):
     def test_fmt(self):
         self.assertEqual(fmt_time(32), "00:32")
         self.assertEqual(fmt_time(3725), "1:02:05")
+
+    def test_youtube_host_matches_whole_domain_labels(self):
+        for host in ("youtu.be", "youtube.com", "www.youtube.com", "m.youtube.com",
+                     "youtube-nocookie.com", "www.youtube-nocookie.com", "WWW.YouTube.com"):
+            self.assertTrue(is_youtube_host(host), host)
+        for host in ("evilyoutube.com", "youtube.com.evil.example", "notyoutube-nocookie.com",
+                     "youtu.be.evil.example", "", None):
+            self.assertFalse(is_youtube_host(host), host)
+
+    def test_link_adds_timestamp_only_for_real_youtube_hosts(self):
+        self.assertEqual(source_link("https://www.youtube.com/watch?v=abc", "abc", 65.4),
+                         "https://www.youtube.com/watch?v=abc&t=65s")
+        self.assertEqual(source_link("https://evilyoutube.com/watch?v=abc", "abc", 65.4),
+                         "https://evilyoutube.com/watch?v=abc")
 
     def test_link(self):
         self.assertEqual(source_link(None, "ID", 32.9), "https://www.youtube.com/watch?v=ID&t=32s")

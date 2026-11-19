@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from ..access import accounts, audit, auth
 from ..config import ROOT, data_dir, load_config
-from ..util import read_json, write_json
+from ..util import is_youtube_host, read_json, write_json
 from . import handlers
 from .limits import check_ask_rate, enter_ask_slot, leave_ask_slot, rollback_ask_rate
 from ..pipeline.url_safety import UnsafeUrlError, validate_learner_ingest_url
@@ -93,13 +93,7 @@ def _safe_source_link(source: dict) -> str | None:
     except ValueError:
         return None
     youtube_id = str(source.get("youtube_id") or video_id)
-    if video_id and (
-        host == "youtu.be"
-        or host == "youtube.com"
-        or host.endswith(".youtube.com")
-        or host == "youtube-nocookie.com"
-        or host.endswith(".youtube-nocookie.com")
-    ):
+    if video_id and is_youtube_host(host):
         if host == "youtu.be" and not source.get("youtube_id"):
             youtube_id = parsed.path.strip("/").split("/")[0]
         elif not source.get("youtube_id"):

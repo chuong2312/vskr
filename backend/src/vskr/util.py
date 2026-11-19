@@ -44,13 +44,25 @@ def to_srt(segments):
     return "\n".join(blocks)
 
 
+_YOUTUBE_DOMAINS = ("youtube.com", "youtube-nocookie.com")
+
+
+def is_youtube_host(host):
+    """Host có phải YouTube không: youtu.be, youtube.com, youtube-nocookie.com hoặc tên miền con của chúng.
+
+    So khớp trọn từng phần của tên miền, nên ``evilyoutube.com`` không được tính là YouTube.
+    """
+    host = (host or "").lower()
+    return host == "youtu.be" or any(host == domain or host.endswith("." + domain) for domain in _YOUTUBE_DOMAINS)
+
+
 def source_link(url, video_id, start):
     """Build a timestamp link where the platform convention is known; otherwise keep source URL."""
     if not url:
         return f"https://www.youtube.com/watch?v={video_id}&t={int(start)}s"
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
-    if host == "youtu.be" or host.endswith("youtube.com") or host.endswith("youtube-nocookie.com"):
+    if is_youtube_host(host):
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         query["t"] = f"{int(start)}s"
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))

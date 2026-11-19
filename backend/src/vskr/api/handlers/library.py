@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from ...config import data_dir, index_dir, load_config, video_dir, videos_dir
 from ...retrieval.index import load_meta
 from ...pipeline.ingest import resolve_source
-from ...util import read_json
+from ...util import is_youtube_host, read_json
 from ...access.visibility import is_visible
 from .runtime import _index_build_lock, _init_service, _jobs, _jobs_lock, state
 from .jobs import _forget_jobs, _rebuild_index
@@ -299,13 +299,7 @@ def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project
         is_upload = meta.get("source_type") == "upload" and bool(meta.get("has_video_file"))
         host = (urlsplit(meta.get("url") or "").hostname or "").lower()
         playback_url = f"/api/videos/{video_id}/file" if is_upload else None
-        if not playback_url and (
-            host == "youtu.be"
-            or host == "youtube.com"
-            or host.endswith(".youtube.com")
-            or host == "youtube-nocookie.com"
-            or host.endswith(".youtube-nocookie.com")
-        ):
+        if not playback_url and is_youtube_host(host):
             playback_url = f"https://www.youtube.com/watch?v={meta.get('youtube_id') or video_id}"
         if not playback_url:
             playback_url = _safe_source_url(meta.get("url"))

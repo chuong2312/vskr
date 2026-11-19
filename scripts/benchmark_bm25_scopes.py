@@ -1,4 +1,4 @@
-"""Benchmark BM25 scoring over synthetic chunks and permission scopes."""
+"""Đo thời gian tính điểm BM25 trên các đoạn giả lập với nhiều phạm vi quyền xem khác nhau."""
 
 import argparse
 import json

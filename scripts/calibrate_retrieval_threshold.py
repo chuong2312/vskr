@@ -1,4 +1,4 @@
-"""Report vector-score distributions and a recall-oriented threshold candidate."""
+"""Báo cáo phân bố điểm vector và đề xuất một ngưỡng ưu tiên recall."""
 
 import argparse
 import json

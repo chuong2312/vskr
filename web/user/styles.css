@@ -126,7 +126,7 @@ h1, h2, h3, p { margin-top: 0; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
 
-/* VSKR conversation + video-stage layout */
+/* Bố cục hội thoại + khu video của VSKR */
 :root { --stage:var(--surface); --chat-bg:var(--canvas); }
 html, body { height:100%; overflow:hidden; }
 body { background:var(--canvas); }
@@ -223,7 +223,7 @@ body { background:var(--canvas); }
  .top-actions { gap:5px; }
  .top-actions .quiet-button { padding:.42rem .62rem; font-size:.75rem; }
 }
-/* Answers stay unboxed while user prompts read as right-aligned chat bubbles. */
+/* Câu trả lời không đóng khung; câu hỏi của người dùng hiện thành bong bóng chat căn phải. */
 .user-turn { display:flex; flex-direction:column; align-items:flex-end; gap:5px; padding:0; border:0; font-size:1rem; font-weight:400; }
 .turn-bubble { width:max-content; max-width:min(82%,680px); padding:11px 15px; border-radius:18px 18px 4px 18px; background:var(--soft); color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; }
 .question-actions,.answer-actions { display:flex; align-items:center; gap:5px; }
@@ -264,7 +264,7 @@ body { background:var(--canvas); }
  .turn-bubble { max-width:min(88%,680px); }
  .citation-popover { position:fixed; left:50%; bottom:auto; top:12px; width:min(360px,calc(100vw - 28px)); transform:translateX(-50%); }
 }
-/* Reference layout: fixed navigation rail, centered conversation, optional source stage. */
+/* Bố cục tham chiếu: thanh điều hướng cố định, hội thoại ở giữa, khu nguồn tuỳ chọn. */
 .topbar { display:none; }
 .layout { height:100dvh; grid-template-columns:258px minmax(0,1fr); }
 .library-panel { position:fixed; inset:0 auto 0 0; z-index:25; width:258px; transform:none; padding:14px 10px 12px; border:0; border-right:1px solid var(--line); border-radius:0; background:#eaf0ef; box-shadow:none; overflow:auto; }
@@ -420,7 +420,7 @@ body { background:var(--canvas); }
 .dialog-actions { display:flex; justify-content:flex-end; gap:.5rem; }
 @media (pointer:coarse) { .conversation-row .conversation-action { opacity:1; } }
 
-/* Final shell geometry: the rail is part of the page layout, not an overlay on desktop. */
+/* Bố cục cuối của khung trang: thanh điều hướng là một phần của trang, không đè lên nội dung trên màn hình lớn. */
 @media (min-width:900px) {
   :root {
     --sidebar-width:260px;
@@ -528,7 +528,7 @@ body { background:var(--canvas); }
   .library-item { border-color:#294344; }
 }
 
-/* Claude-style shell: fixed rail, independently scrolling history, centered chat. */
+/* Khung kiểu Claude: thanh điều hướng cố định, lịch sử cuộn riêng, chat ở giữa. */
 .library-panel {
   width: 260px;
   height: 100dvh;

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Compare the current faster-whisper model with a Vietnamese PhoWhisper checkpoint.
+"""So sánh model faster-whisper đang dùng với một checkpoint PhoWhisper tiếng Việt.
 
-Manifest format: one JSON object per line, with an audio WAV path and a manually
-corrected reference transcript. Paths are relative to the repository root.
+Định dạng manifest: mỗi dòng một đối tượng JSON, gồm đường dẫn file WAV và bản chép lời tham chiếu
+đã được sửa tay. Đường dẫn tính từ thư mục gốc của repo.
 """
 import argparse
 import gc
@@ -16,7 +16,7 @@ from vskr.config import ROOT, load_config
 
 
 def normalize(text):
-    """Normalize Unicode/case/punctuation while retaining Vietnamese diacritics."""
+    """Chuẩn hoá Unicode, chữ hoa/thường và dấu câu nhưng giữ dấu tiếng Việt."""
     chars = []
     for char in unicodedata.normalize("NFC", text).lower():
         chars.append(char if char.isalnum() else " ")
@@ -24,7 +24,7 @@ def normalize(text):
 
 
 def edit_distance(left, right):
-    """Levenshtein distance using O(min(n, m)) working memory."""
+    """Khoảng cách Levenshtein, chỉ dùng bộ nhớ O(min(n, m))."""
     if len(left) < len(right):
         left, right = right, left
     previous = list(range(len(right) + 1))

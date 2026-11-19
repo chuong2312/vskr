@@ -220,7 +220,7 @@ class TestOcrFrameStats(unittest.TestCase):
 
 class TestVlmSelection(unittest.TestCase):
     def _frames(self, n):
-        # Hashes far apart in Hamming distance so dedupe keeps them unless told otherwise.
+        # Các mã băm cách xa nhau theo khoảng cách Hamming, nên bước lọc trùng giữ cả hai trừ khi được dặn khác.
         return [{"t": float(i * 8), "path": f"frames/{i}.jpg", "hash": format((1 << (i + 1) * 3) - 1, "016x")}
                 for i in range(n)]
 
@@ -255,7 +255,7 @@ class TestVlmSelection(unittest.TestCase):
         frames = [{"t": float(i), "path": f"{i}.jpg"} for i in range(100)]
         picked = select_frames(frames, None, {"max_frames": 5})
         self.assertEqual(len(picked), 5)
-        # The old behaviour kept frames[:5] (t=0..4); an even spread reaches the end.
+        # Cách cũ chỉ giữ frames[:5] (t=0..4); rải đều thì lấy được tới cuối bài.
         self.assertGreaterEqual(picked[-1]["t"], 80)
 
     def test_prompt_includes_ocr_context_and_empty_answer_is_detected(self):

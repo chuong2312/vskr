@@ -1,4 +1,4 @@
-"""Measure interactive ask wait/timeout while the shared model lock is occupied."""
+"""Đo thời gian chờ và hết hạn của câu hỏi khi khoá model dùng chung đang bị giữ."""
 
 import argparse
 import json

@@ -15,6 +15,7 @@ from .runtime import (
 
 
 class AskRequest(BaseModel):
+    """Câu hỏi (tối đa 500 ký tự) và chế độ tìm kiếm tuỳ chọn."""
     question: str = Field(max_length=500)
     mode: Optional[str] = None
 
@@ -52,6 +53,11 @@ GPU_LOCK_TIMEOUT_S = 10
 
 def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=False, owner_id=None,
         shared_only=False, allowed_sources=None, project_id=None):
+    """Trả lời một câu hỏi bằng service dùng chung.
+
+    Từ chối sớm câu hỏi chỉ nhắc tới ngữ cảnh cũ. Người học và khách không được chọn chế độ
+    (``use_request_mode=False``). GPU bận quá ``GPU_LOCK_TIMEOUT_S`` giây thì trả 503 kèm Retry-After.
+    """
     q = req.question.strip()
     if not q:
         raise HTTPException(400, "Câu hỏi trống")

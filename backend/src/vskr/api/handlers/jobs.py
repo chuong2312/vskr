@@ -38,6 +38,7 @@ def _forget_jobs(kind, item_id):
 
 
 def delete_job(job_id: str):
+    """Xoá một tác vụ đã xong hoặc bị lỗi; file nguồn chỉ bị xoá nếu học liệu chưa vào chỉ mục."""
     cfg = load_config()
     with _index_build_lock:
         with _jobs_lock:
@@ -51,6 +52,7 @@ def delete_job(job_id: str):
             document_id = job.get("document_id") or source.get("document_id")
 
         def is_indexed(kind, item_id):
+            """Học liệu đã có trong chỉ mục chưa: xem service đang nạp trước, rồi tới ``chunks.json``."""
             if not item_id:
                 return False
             service = state.get("service")
@@ -62,7 +64,7 @@ def delete_job(job_id: str):
             try:
                 return any(chunk.get(f"{kind}_id") == item_id for chunk in read_json(chunks_path))
             except (OSError, ValueError, TypeError):
-                # If the index cannot be inspected safely, preserve the source.
+                # Không đọc được chỉ mục một cách an toàn thì giữ lại file nguồn.
                 return True
 
         try:
@@ -106,6 +108,12 @@ def _update_job(job_id, **changes):
 
 
 def _process_ingest_job(job_id, source):
+    """Chạy một tác vụ trên luồng xử lý, rồi dựng lại chỉ mục.
+
+    Tài liệu: đọc và chia mục. Video: tải hoặc ghi nhận file, dò cảnh, ASR, rồi OCR/VLM. Hạn mức theo
+    vai trò (``source["limits"]``) ghi đè mục ``ingest`` trong cấu hình của tác vụ; các bước dùng GPU
+    chạy dưới ``_gpu_model_lock``.
+    """
     cfg = load_config()
     if source.get("limits"):
         cfg = dict(cfg)
@@ -146,6 +154,7 @@ def _process_ingest_job(job_id, source):
             from ...pipeline import asr
 
             def report_asr_progress(_video_id, part, total, start, end):
+                """Cập nhật thông báo tiến độ ASR của tác vụ."""
                 _update_job(
                     job_id,
                     phase="asr",
@@ -186,12 +195,11 @@ def _process_ingest_job(job_id, source):
 
 
 def _run_visual_steps(cfg, job_id, video_id, warnings):
-    """Extract frames, then OCR, then VLM, each when enabled; failures only add warnings.
+    """Trích khung hình, rồi OCR, rồi VLM (bước nào bật thì chạy); bước nào lỗi chỉ thêm cảnh báo.
 
-    On-screen text and figure captions improve search, but a lecture stays
-    usable from its transcript, so these steps must not fail the ingest job.
-    VLM runs after OCR because it uses OCR's per-frame text coverage to
-    caption only figure-like frames.
+    Chữ trên màn hình và mô tả hình giúp tìm kiếm tốt hơn, nhưng bài giảng vẫn dùng được nhờ lời giảng,
+    nên các bước này không được làm hỏng tác vụ. VLM chạy sau OCR vì nó dùng tỉ lệ chữ của từng khung
+    hình (do OCR đo) để chỉ mô tả khung hình thiên về hình ảnh.
     """
     ocr_on = bool(cfg.get("ocr", {}).get("enabled"))
     vlm_on = bool(cfg.get("vlm", {}).get("enabled"))
@@ -230,6 +238,10 @@ def _run_visual_steps(cfg, job_id, video_id, warnings):
 
 
 def _rebuild_index(cfg=None, job_id=None):
+    """Dựng chỉ mục mới vào thư mục tạm rồi thay thư mục cũ; lỗi giữa chừng thì khôi phục bản cũ.
+
+    Chạy dưới ``_index_build_lock`` nên hai lần dựng không chồng lên nhau.
+    """
     cfg = cfg or load_config()
     from ...retrieval import index as index_mod
     from ...retrieval.embedder import Embedder
@@ -263,6 +275,7 @@ def _rebuild_index(cfg=None, job_id=None):
 
 
 def _reserve_job_slot(owner_id, role_limits, ingest_cfg):
+    """Giữ chỗ cho một tác vụ trước khi nhận file: kiểm tra số tác vụ đang chạy của chủ sở hữu (429) và độ dài hàng đợi (503)."""
     with _jobs_lock:
         active = sum(
             job.get("owner_id") == owner_id and job.get("status") in {"queued", "running"}
@@ -279,12 +292,14 @@ def _reserve_job_slot(owner_id, role_limits, ingest_cfg):
 
 
 def _release_job_slot(reservation_id):
+    """Trả chỗ đã giữ khi tác vụ không được tạo."""
     if reservation_id:
         with _jobs_lock:
             _job_reservations.pop(reservation_id, None)
 
 
 def _queue_job(source, title=None, *, reservation_id=None):
+    """Tạo tác vụ ở trạng thái chờ và gửi sang luồng xử lý (một luồng duy nhất, chạy lần lượt)."""
     job_id = uuid.uuid4().hex
     with _jobs_lock:
         if reservation_id:
@@ -311,7 +326,7 @@ def _queue_job(source, title=None, *, reservation_id=None):
 
 async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFile] = File(None),
                        owner_id=None, project_id=None):
-    """Queue one URL or local video upload; pipeline jobs are serialized to protect GPU VRAM."""
+    """Xếp hàng một URL hoặc một video tải lên; tác vụ chạy lần lượt để không vượt VRAM của GPU."""
     if not project_id:
         raise HTTPException(422, "project_id là bắt buộc.")
     clean_url = (url or "").strip()
@@ -405,6 +420,10 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
 
 
 async def upload_document(file: UploadFile = File(...), owner_id=None, project_id=None):
+    """Nhận tài liệu tải lên (TXT, MD, RST, PDF, DOCX) và xếp hàng tác vụ đọc tài liệu.
+
+    Kiểm tra hạn mức tác vụ (đang chạy và trong ngày) và dung lượng ``max_document_bytes`` của vai trò.
+    """
     if not project_id:
         await file.close()
         raise HTTPException(422, "project_id là bắt buộc.")
@@ -461,6 +480,7 @@ async def upload_document(file: UploadFile = File(...), owner_id=None, project_i
 
 
 def get_job(job_id: str):
+    """Trạng thái một tác vụ (bỏ các trường nội bộ); tác vụ lỗi chỉ kèm loại lỗi và chi tiết đã làm sạch."""
     with _jobs_lock:
         job = _jobs.get(job_id)
         if job is None:
@@ -474,6 +494,7 @@ def get_job(job_id: str):
 
 
 def list_jobs(limit: int = 100):
+    """Tối đa ``limit`` (không quá 100) tác vụ gần nhất, mới nhất trước."""
     with _jobs_lock:
         snapshot = list(_jobs.values())
         jobs = [dict(job) for job in reversed(snapshot[-max(1, min(int(limit), 100)):])]
@@ -489,6 +510,7 @@ def list_jobs(limit: int = 100):
 
 
 def retry_job(job_id: str):
+    """Chạy lại một tác vụ lỗi nếu file nguồn vẫn còn; không còn thì 410."""
     with _jobs_lock:
         job = _jobs.get(job_id)
         if not job or job.get("status") != "error":

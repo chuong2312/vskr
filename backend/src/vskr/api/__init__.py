@@ -1,4 +1,7 @@
-"""FastAPI application composed from explicit public and admin routers."""
+"""Ứng dụng FastAPI: ghép router công khai và router admin, thêm middleware giới hạn upload và header bảo mật.
+
+Trang tài liệu API tự sinh (``/docs``, ``/openapi.json``) bị tắt.
+"""
 
 from contextlib import asynccontextmanager
 
@@ -11,6 +14,7 @@ from . import admin, handlers, public
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Khi server khởi động: cảnh báo cấu hình còn thiếu và nạp service dùng chung."""
     warn_if_unconfigured()
     handlers.runtime._init_service()
     yield
@@ -29,14 +33,16 @@ app.include_router(admin.router)
 
 
 class UploadPayloadTooLarge(Exception):
+    """Body của request vượt giới hạn trong lúc đang nhận."""
     pass
 
 
 class UploadBodyLimitMiddleware:
-    """Bound multipart bodies before Starlette spools uploads to temporary files.
+    """Giới hạn dung lượng body multipart trước khi Starlette ghi file upload ra file tạm.
 
-    Upload routes parse their forms manually after authentication, so unauthenticated
-    callers are rejected before the receive wrapper is consumed.
+    Giới hạn tuỳ đường dẫn và vai trò (khách hay người học), lấy từ ``limits`` trong models.yaml.
+    Route upload chỉ đọc form sau khi xác thực, nên request chưa xác thực bị từ chối trước khi body
+    được đọc.
     """
 
     OVERHEAD_BYTES = 1024 * 1024
@@ -101,6 +107,7 @@ class UploadBodyLimitMiddleware:
         received = 0
 
         async def receive_with_limit():
+            """Đếm số byte đã nhận; vượt giới hạn thì dừng ngay."""
             nonlocal received
             message = await receive()
             if message["type"] == "http.request":
@@ -117,7 +124,7 @@ class UploadBodyLimitMiddleware:
 
 
 class SecurityHeadersMiddleware:
-    """Pure ASGI middleware keeps response headers local to the app stack."""
+    """Middleware ASGI thuần, thêm header bảo mật (CSP, nosniff, Referrer-Policy...) vào mọi response."""
 
     def __init__(self, app):
         self.app = app
@@ -140,6 +147,7 @@ class SecurityHeadersMiddleware:
         )
 
         async def send_with_headers(message):
+            """Thêm các header bảo mật còn thiếu vào phần mở đầu response."""
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
                 existing = {key.lower() for key, _value in headers}

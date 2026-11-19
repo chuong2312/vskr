@@ -23,6 +23,7 @@ from .jobs import _forget_jobs, _rebuild_index
 
 
 def videos():
+    """Danh sách video kèm trạng thái xử lý, cho admin."""
     cfg = load_config()
     metadata = state["service"].meta if state["service"] is not None else load_meta(cfg)
     return [
@@ -78,6 +79,7 @@ def _video_status(meta):
 
 
 def library():
+    """Thư viện cho admin: video và tài liệu (kèm số mục), có trạng thái xử lý."""
     cfg = load_config()
     video_items = []
     for item in videos():
@@ -114,6 +116,7 @@ def library():
 
 
 def _rebuild_or_clear():
+    """Dựng lại chỉ mục sau khi xoá; không còn nội dung nào thì xoá hẳn chỉ mục. Sau đó nạp lại service."""
     try:
         _rebuild_index()
     except RuntimeError as exc:
@@ -124,6 +127,7 @@ def _rebuild_or_clear():
 
 
 def delete_video(video_id: str):
+    """Xoá thư mục dữ liệu của một video rồi dựng lại chỉ mục; video đang xử lý thì 409."""
     cfg = load_config()
     root = videos_dir(cfg).resolve()
     target = video_dir(cfg, video_id).resolve()
@@ -152,6 +156,7 @@ def delete_video(video_id: str):
 
 
 def delete_document(document_id: str):
+    """Xoá một tài liệu rồi dựng lại chỉ mục; tài liệu đang xử lý thì 409."""
     cfg = load_config()
     root = (data_dir(cfg) / "documents").resolve()
     target = (root / document_id).resolve()
@@ -180,6 +185,7 @@ def delete_document(document_id: str):
 
 
 def document_section(document_id: str, section: int, owner_id=None, *, shared_only=False):
+    """Nội dung một mục tài liệu nếu người xem được phép thấy; không thì 404, không tiết lộ tài liệu có tồn tại hay không."""
     cfg = load_config()
     root = (data_dir(cfg) / "documents").resolve()
     doc_dir = (root / document_id).resolve()
@@ -199,6 +205,7 @@ def document_section(document_id: str, section: int, owner_id=None, *, shared_on
 
 
 def uploaded_video_file(video_id: str, owner_id=None, *, shared_only=False):
+    """File video đã tải lên nếu người xem được phép thấy; không thì 404."""
     cfg = load_config()
     video_root = videos_dir(cfg).resolve()
     vdir = video_dir(cfg, video_id)
@@ -243,6 +250,7 @@ def indexed_and_visible(kind: str, source_id: str, owner_id=None, *, shared_only
 
 
 def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *, shared_only=False) -> bool:
+    """Nguồn của câu hỏi/cuộc trò chuyện còn xem được không: cả thư viện luôn được; video/tài liệu phải được phép xem và có trong chỉ mục."""
     if source_type == "library":
         return True
     if not source_id or source_type not in {"video", "document"}:
@@ -259,6 +267,7 @@ def source_is_visible(source_type: str, source_id: str | None, owner_id=None, *,
 
 
 def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project_id=None):
+    """Video người xem được thấy, kèm link phát (file tải lên, YouTube hoặc URL gốc đã làm sạch); lọc theo chủ sở hữu hoặc project nếu cần."""
     if state["service"] is None:
         _init_service()
     service = state["service"]
@@ -307,6 +316,7 @@ def public_videos(owner_id=None, *, shared_only=False, owned_only=False, project
 
 
 def public_catalog(owner_id=None, *, shared_only=False, owned_only=False, project_id=None):
+    """Thư viện cho app người học: video và tài liệu người xem được thấy, cùng bộ lọc như ``public_videos``."""
     videos = public_videos(owner_id=owner_id, shared_only=shared_only, owned_only=owned_only,
                            project_id=project_id)
     cfg = load_config()

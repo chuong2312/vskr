@@ -1,4 +1,9 @@
-"""Learner app, learner authentication, and the deliberately small admin login surface."""
+"""Route cho app người học (PWA), khách, đăng nhập người học và phần đăng nhập admin tối giản.
+
+Quyền của từng route nằm ở dependency: ``optional_learner_or_admin`` (ai cũng gọi được, khách chỉ
+thấy phần dùng chung), ``require_learner_or_guest`` (người học hoặc khách, không phải admin),
+``require_user`` (người học đã đăng nhập). Bảng quyền đầy đủ: ``docs/ACCESS_MATRIX.md``.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ router = APIRouter()
 
 
 class PublicAskRequest(BaseModel):
+    """Câu hỏi từ app người học: nội dung, cuộc trò chuyện (nếu có) và phạm vi nguồn."""
     question: str
     conversation_id: str | None = Field(default=None, max_length=64)
     source_id: str | None = Field(default=None, max_length=256)
@@ -31,6 +37,7 @@ class PublicAskRequest(BaseModel):
 
 
 class CreateConversationRequest(BaseModel):
+    """Dữ liệu tạo cuộc trò chuyện mới."""
     title: str = Field(default="Cuộc trò chuyện mới", max_length=72)
     source_id: str | None = Field(default=None, max_length=256)
     source_type: str = Field(default="library", max_length=16)
@@ -39,24 +46,29 @@ class CreateConversationRequest(BaseModel):
 
 
 class RenameConversationRequest(BaseModel):
+    """Tên mới của cuộc trò chuyện (1–72 ký tự)."""
     title: str = Field(min_length=1, max_length=72)
 
 
 class VisibilityPayload(BaseModel):
+    """Trạng thái quyền xem muốn đặt cho một học liệu."""
     visibility: str
 
 
 class CreateProjectRequest(BaseModel):
+    """Tên project mới (1–120 ký tự)."""
     name: str = Field(min_length=1, max_length=120)
 
 
 class LoginRequest(BaseModel):
+    """Thông tin đăng nhập hoặc đăng ký: tên đăng nhập hoặc email, và mật khẩu."""
     username: str | None = Field(default=None, min_length=1, max_length=256)
     email: str | None = Field(default=None, min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=1024)
 
     @property
     def identifier(self):
+        """Tên đăng nhập hoặc email đã chuẩn hoá (bỏ khoảng trắng, viết thường)."""
         return (self.email or self.username or "").strip().lower()
 
 
@@ -109,11 +121,13 @@ def _rate_limit_new_guest_identity(request: Request, user: dict, *, guest_write:
 
 @router.get("/")
 def user_home():
+    """Trang app người học."""
     return FileResponse(ROOT / "web" / "user" / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/login")
 def user_login_page():
+    """Trang đăng nhập người học (không cho máy tìm kiếm lập chỉ mục)."""
     return FileResponse(
         ROOT / "web" / "user" / "login.html",
         headers={"X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store"},
@@ -122,6 +136,7 @@ def user_login_page():
 
 @router.get("/register")
 def user_register_page():
+    """Trang đăng ký người học (dùng chung file với trang đăng nhập)."""
     return FileResponse(
         ROOT / "web" / "user" / "login.html",
         headers={"X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store"},
@@ -130,6 +145,7 @@ def user_register_page():
 
 @router.get("/favicon.ico", include_in_schema=False)
 def favicon():
+    """Biểu tượng của trang."""
     return FileResponse(
         ROOT / "web" / "user" / "icons" / "icon.svg",
         media_type="image/svg+xml",
@@ -139,12 +155,14 @@ def favicon():
 
 @router.get("/api/user/auth/config")
 def user_auth_config():
+    """Cấu hình đăng nhập cho giao diện; hiện luôn cho phép tự đăng ký."""
     return {"registration_enabled": True}
 
 
 @router.post("/api/user/auth/register")
 @router.post("/api/user/register")
 def user_register(payload: LoginRequest, request: Request):
+    """Đăng ký tài khoản người học rồi đăng nhập luôn; kiểm tra cùng origin và giới hạn theo IP."""
     if not auth._secure_cookie_request(request) or not auth._same_origin(request):
         raise HTTPException(403, "Yêu cầu đăng ký không hợp lệ.")
     ip = auth.client_ip(request)
@@ -164,6 +182,7 @@ def user_register(payload: LoginRequest, request: Request):
 @router.post("/api/user/auth/login")
 @router.post("/api/user/login")
 def user_login(payload: LoginRequest, request: Request):
+    """Đăng nhập người học; sai nhiều lần thì bị khoá tạm theo IP và theo tài khoản."""
     if not auth._secure_cookie_request(request) or not auth._same_origin(request):
         raise HTTPException(403, "Yêu cầu đăng nhập không hợp lệ.")
     ip = auth.client_ip(request)
@@ -186,6 +205,7 @@ def user_login(payload: LoginRequest, request: Request):
 @router.post("/api/user/auth/logout")
 @router.post("/api/user/logout")
 def user_logout(request: Request, user=Depends(accounts.require_user)):
+    """Đăng xuất người học: xoá phiên và cookie."""
     accounts.revoke_session(request.cookies.get(accounts.COOKIE_NAME))
     response = JSONResponse({"ok": True})
     accounts.clear_cookie(response)
@@ -194,6 +214,7 @@ def user_logout(request: Request, user=Depends(accounts.require_user)):
 
 @router.get("/api/user/auth/me")
 def user_me(user=Depends(accounts.require_user)):
+    """Thông tin người học đang đăng nhập, token CSRF và hạn mức hiển thị trên giao diện."""
     return {"user": {"id": user["user_id"], "email": user["username"],
                      "display_name": user["username"]},
             "user_id": user["user_id"], "username": user["username"],
@@ -204,6 +225,7 @@ def user_me(user=Depends(accounts.require_user)):
 
 @router.get("/api/user/me")
 def user_me_contract(request: Request):
+    """Như ``user_me`` nhưng không bắt đăng nhập: khách nhận ``user: null`` và hạn mức của khách."""
     token = request.cookies.get(accounts.COOKIE_NAME)
     user = accounts.get_session(token)
     if not user:
@@ -215,6 +237,7 @@ def user_me_contract(request: Request):
 
 @router.get("/user/assets/{asset_path:path}")
 def user_asset(asset_path: str):
+    """File tĩnh của app người học (``web/user``)."""
     response = _file_response(ROOT / "web" / "user", asset_path, "Không tìm thấy tài nguyên.")
     response.headers["Cache-Control"] = "no-cache"
     return response
@@ -222,11 +245,13 @@ def user_asset(asset_path: str):
 
 @router.get("/shared/{asset_path:path}")
 def shared_asset(asset_path: str):
+    """File tĩnh dùng chung (``web/shared``)."""
     return _file_response(ROOT / "web" / "shared", asset_path, "Không tìm thấy tài nguyên.")
 
 
 @router.get("/manifest.webmanifest")
 def user_manifest():
+    """Manifest PWA của app người học."""
     path = ROOT / "web" / "user" / "manifest.webmanifest"
     if not path.is_file():
         raise HTTPException(404, "Không tìm thấy tài nguyên.")
@@ -235,6 +260,7 @@ def user_manifest():
 
 @router.get("/sw.js")
 def user_service_worker():
+    """Service worker của app người học (chỉ cache file tĩnh, không cache API)."""
     path = ROOT / "web" / "user" / "sw.js"
     if not path.is_file():
         raise HTTPException(404, "Không tìm thấy tài nguyên.")
@@ -246,22 +272,26 @@ def user_service_worker():
 
 @router.get("/admin/login")
 def admin_login_page():
+    """Trang đăng nhập admin."""
     return FileResponse(ROOT / "web" / "admin" / "login.html", headers={"X-Robots-Tag": "noindex, nofollow"})
 
 
 @router.get("/admin/login/assets/{asset_path:path}")
 def admin_login_asset(asset_path: str):
+    """File tĩnh của trang đăng nhập admin."""
     return _file_response(ROOT / "web" / "admin" / "login-assets", asset_path, "Không tìm thấy tài nguyên.")
 
 
 @router.get("/api/videos")
 def public_videos(user=Depends(accounts.optional_learner_or_admin)):
+    """Danh sách video người gọi được xem; khách chỉ thấy phần dùng chung."""
     return handlers.library.public_videos(owner_id=user.get("owner") or user.get("user_id"),
                                   shared_only=bool(user.get("guest")))
 
 
 @router.get("/api/projects")
 def list_projects(request: Request, user=Depends(accounts.require_learner_or_guest)):
+    """Các project của người học/khách; khách mới được cấp cookie."""
     _rate_limit_new_guest_identity(request, user)
     owner_id = user.get("owner") or user.get("user_id")
     result = accounts.list_projects(owner_id)
@@ -274,6 +304,7 @@ def list_projects(request: Request, user=Depends(accounts.require_learner_or_gue
 @router.post("/api/projects")
 def create_project(payload: CreateProjectRequest, request: Request,
                    user=Depends(accounts.require_learner_or_guest)):
+    """Tạo project mới cho người học/khách."""
     _rate_limit_new_guest_identity(request, user, guest_write=True)
     response = JSONResponse(accounts.create_project(user.get("owner") or user.get("user_id"), payload.name))
     if user.get("guest_token"):
@@ -285,6 +316,7 @@ def create_project(payload: CreateProjectRequest, request: Request,
 def public_catalog(scope: str | None = Query(default=None),
                    project_id: str | None = Query(default=None, max_length=64),
                    user=Depends(accounts.optional_learner_or_admin)):
+    """Thư viện video và tài liệu người gọi được xem; ``scope=mine`` chỉ lấy nội dung của mình, ``project_id`` lọc theo project."""
     owner_id = user.get("owner") or user.get("user_id")
     if project_id:
         accounts.get_project(owner_id, project_id)
@@ -302,6 +334,10 @@ def public_catalog(scope: str | None = Query(default=None),
 
 @router.post("/api/ingest", status_code=202)
 async def public_ingest(request: Request, user=Depends(accounts.require_learner_or_guest)):
+    """Nạp video từ URL hoặc file tải lên vào một project (người học/khách); trả 202 kèm ``job_id``.
+
+    Khách chỉ được nạp URL khi đã bật ``ingest.guest_url_ingest_enabled`` và xác nhận firewall.
+    """
     _rate_limit_new_guest_identity(request, user, guest_write=True)
     owner_id = user.get("owner") or user.get("user_id")
     async with request.form(max_files=1, max_fields=2, max_part_size=64 * 1024) as form:
@@ -338,6 +374,7 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
 
 @router.post("/api/documents", status_code=202)
 async def public_upload_document(request: Request, user=Depends(accounts.require_learner_or_guest)):
+    """Tải tài liệu lên một project (người học/khách); trả 202 kèm ``job_id``."""
     _rate_limit_new_guest_identity(request, user, guest_write=True)
     owner_id = user.get("owner") or user.get("user_id")
     async with request.form(max_files=1, max_fields=2, max_part_size=64 * 1024) as form:
@@ -354,6 +391,7 @@ async def public_upload_document(request: Request, user=Depends(accounts.require
 
 @router.get("/api/jobs/{job_id}")
 def public_job_status(job_id: str, user=Depends(accounts.optional_learner_or_admin)):
+    """Trạng thái tác vụ; ngoài chủ sở hữu và admin, người khác nhận 404."""
     job = handlers.jobs.get_job(job_id)
     owner_id = user.get("owner") or user.get("user_id")
     if not user.get("admin") and job.get("owner_id") != owner_id:
@@ -365,6 +403,7 @@ def public_job_status(job_id: str, user=Depends(accounts.optional_learner_or_adm
 
 @router.get("/api/documents/{document_id}/sections/{section}")
 def public_document_section(document_id: str, section: int, user=Depends(accounts.optional_learner_or_admin)):
+    """Nội dung một mục tài liệu, nếu người gọi được phép xem."""
     owner_id = user.get("user_id")
     shared_only = user.get("guest", False)
     if not handlers.library.indexed_and_visible("document", document_id, owner_id=owner_id, shared_only=shared_only):
@@ -374,6 +413,7 @@ def public_document_section(document_id: str, section: int, user=Depends(account
 
 @router.get("/api/videos/{video_id}/file")
 def public_video_file(video_id: str, user=Depends(accounts.optional_learner_or_admin)):
+    """Phát file video đã tải lên, nếu người gọi được phép xem."""
     owner_id = user.get("user_id")
     shared_only = user.get("guest", False)
     if not handlers.library.indexed_and_visible("video", video_id, owner_id=owner_id, shared_only=shared_only):
@@ -383,12 +423,14 @@ def public_video_file(video_id: str, user=Depends(accounts.optional_learner_or_a
 
 @router.get("/api/status")
 def public_status(user=Depends(accounts.optional_learner_or_admin)):
+    """Chỉ mục đã sẵn sàng để hỏi đáp chưa."""
     return {"ready": handlers.runtime.state["service"] is not None}
 
 
 @router.get("/api/conversations")
 def list_conversations(project_id: str | None = Query(default=None, max_length=64),
                         user=Depends(accounts.require_user)):
+    """Các cuộc trò chuyện của người học (lọc theo project nếu có)."""
     if project_id:
         accounts.get_project(user["user_id"], project_id)
     return accounts.list_conversations(user["user_id"], project_id)
@@ -396,6 +438,7 @@ def list_conversations(project_id: str | None = Query(default=None, max_length=6
 
 @router.post("/api/conversations")
 def create_conversation(payload: CreateConversationRequest, user=Depends(accounts.require_user)):
+    """Tạo cuộc trò chuyện mới cho người học, gắn với cả thư viện hoặc một nguồn."""
     scope_type = payload.scope_type or ("library" if payload.source_type == "library" else "source")
     if scope_type not in {"source", "library"}:
         raise HTTPException(422, "Phạm vi cuộc trò chuyện không hợp lệ.")
@@ -413,6 +456,7 @@ def create_conversation(payload: CreateConversationRequest, user=Depends(account
 
 @router.get("/api/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, user=Depends(accounts.require_user)):
+    """Một cuộc trò chuyện kèm các lượt hỏi đáp; ``source_deleted`` cho biết nguồn còn xem được không."""
     conversation = accounts.get_conversation(user["user_id"], conversation_id)
     conversation["source_deleted"] = (
         conversation["scope_type"] == "source"
@@ -426,17 +470,20 @@ def get_conversation(conversation_id: str, user=Depends(accounts.require_user)):
 @router.patch("/api/conversations/{conversation_id}")
 def rename_conversation(conversation_id: str, payload: RenameConversationRequest,
                         user=Depends(accounts.require_user)):
+    """Đổi tên cuộc trò chuyện của người học."""
     return accounts.rename_conversation(user["user_id"], conversation_id, payload.title)
 
 
 @router.delete("/api/conversations/{conversation_id}")
 def delete_conversation(conversation_id: str, user=Depends(accounts.require_user)):
+    """Xoá cuộc trò chuyện của người học."""
     accounts.delete_conversation(user["user_id"], conversation_id)
     return {"deleted": True}
 
 
 @router.get("/api/my/jobs")
 def my_jobs(user=Depends(accounts.require_learner_or_guest)):
+    """Các tác vụ của chính người gọi (người học/khách) trong phiên server hiện tại."""
     owner = user.get("owner") or user.get("user_id")
     fields = ("job_id", "status", "phase", "message", "title", "video_id", "document_id", "project_id")
     return [
@@ -448,6 +495,7 @@ def my_jobs(user=Depends(accounts.require_learner_or_guest)):
 
 @router.delete("/api/my/content/{kind}/{item_id}")
 def delete_my_content(kind: str, item_id: str, user=Depends(accounts.require_learner_or_guest)):
+    """Xoá video/tài liệu do chính người gọi tạo; nội dung của người khác trả 404."""
     cfg = load_config()
     root = data_dir(cfg) / ("videos" if kind == "video" else "documents")
     meta_path = root / item_id / "meta.json"
@@ -463,6 +511,7 @@ def delete_my_content(kind: str, item_id: str, user=Depends(accounts.require_lea
 @router.post("/api/my/content/{kind}/{item_id}/visibility")
 def request_visibility(kind: str, item_id: str, payload: VisibilityPayload,
                        user=Depends(accounts.require_learner_or_guest)):
+    """Chủ sở hữu đặt học liệu về ``private`` hoặc đề nghị công khai (``pending``); chỉ admin mới duyệt thành ``public``."""
     if payload.visibility not in {"private", "pending"}:
         raise HTTPException(422, "Chỉ có thể đặt private hoặc pending.")
     cfg = load_config()
@@ -484,6 +533,11 @@ def request_visibility(kind: str, item_id: str, payload: VisibilityPayload,
 
 @router.post("/api/ask")
 def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optional_learner_or_admin)):
+    """Hỏi đáp cho người học, khách và admin, chỉ trên phần người gọi được phép xem.
+
+    Câu hỏi tối đa 500 ký tự; giới hạn số câu theo IP và số câu xử lý đồng thời. Người học đã đăng
+    nhập được lưu lịch sử hội thoại.
+    """
     question = payload.question
     if not question.strip():
         raise HTTPException(422, "Câu hỏi không được để trống.")
@@ -576,6 +630,7 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
 
 @router.get("/api/auth/me")
 def auth_me(request: Request):
+    """Trạng thái đăng nhập admin (cho trang đăng nhập admin)."""
     token = request.cookies.get(auth.COOKIE_NAME)
     session = auth.get_session(token)
     if session is None or not auth.admin_is_configured():
@@ -585,6 +640,7 @@ def auth_me(request: Request):
 
 @router.post("/api/auth/login")
 def auth_login(request: Request, payload: LoginRequest):
+    """Đăng nhập admin; mọi lần thất bại đều được ghi audit."""
     if not auth._same_origin(request):
         audit.write_event("auth.login.failure", result="origin_rejected")
         raise HTTPException(403, "Yêu cầu đăng nhập không hợp lệ.")
@@ -605,6 +661,7 @@ def auth_login(request: Request, payload: LoginRequest):
 
 @router.post("/api/auth/logout")
 async def auth_logout(request: Request):
+    """Đăng xuất admin và ghi audit."""
     auth.validate_admin_request(request)
     auth.revoke_session(request.cookies.get(auth.COOKIE_NAME))
     response = JSONResponse({"logged_out": True})

@@ -17,6 +17,7 @@ from .runtime import _acquire_service, _init_service, _release_service
 
 
 class RetrievalExperiment(BaseModel):
+    """Tuỳ chọn thử nghiệm cho truy vấn graph khi chạy đánh giá: trọng số IDF, mở rộng theo nghĩa, PPR."""
     idf_weighting: bool = False
     semantic_expansion: bool = False
     ppr: bool = False
@@ -56,10 +57,12 @@ def _validate_eval_question(raw):
 
 
 def get_eval_questions():
+    """Đọc bộ câu hỏi đánh giá từ ``questions.jsonl``."""
     return _read_questions()
 
 
 def get_eval_results():
+    """Kết quả lần đánh giá gần nhất (``results.json``) kèm cờ ``stale`` nếu bộ câu hỏi đã đổi; chưa có thì None."""
     path = _eval_dir() / "results.json"
     if not path.is_file():
         return None
@@ -75,6 +78,7 @@ def get_eval_results():
 
 
 def save_eval_questions(payload: dict):
+    """Thêm một hoặc nhiều câu hỏi đã kiểm tra định dạng (trùng id thì 409), ghi lại ``questions.jsonl`` và xoá kết quả cũ."""
     raw_items = payload.get("questions") if isinstance(payload.get("questions"), list) else [payload]
     if not raw_items:
         raise HTTPException(422, "Không có câu hỏi để lưu.")
@@ -95,6 +99,7 @@ def save_eval_questions(payload: dict):
 
 
 async def import_eval_questions(file: UploadFile = File(...)):
+    """Đọc câu hỏi từ tệp JSONL tải lên (tối đa ``limits.eval_import_bytes``) rồi lưu như ``save_eval_questions``."""
     limit = int(load_config()["limits"]["eval_import_bytes"])
     content = await file.read(limit + 1)
     await file.close()
@@ -108,6 +113,7 @@ async def import_eval_questions(file: UploadFile = File(...)):
 
 
 def delete_eval_question(question_id: str):
+    """Xoá một câu hỏi và kết quả đánh giá cũ; không có câu đó thì 404."""
     items = _read_questions()
     remaining = [item for item in items if item["id"] != question_id]
     if len(remaining) == len(items):
@@ -122,6 +128,10 @@ def delete_eval_question(question_id: str):
 
 
 def run_retrieval_evaluation(options: RetrievalExperiment = RetrievalExperiment()):
+    """Chạy truy hồi cho mọi câu hỏi ở cả 5 chế độ (thêm các biến thể graph nếu bật thử nghiệm).
+
+    Chấm Recall@5 và MRR, lưu vào ``results.json`` rồi trả về kết quả.
+    """
     questions = _read_questions()
     if not questions:
         raise HTTPException(409, "Chưa có câu hỏi đánh giá. Hãy thêm câu hỏi và nguồn đúng trước.")

@@ -33,7 +33,10 @@ _job_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vskr-pipel
 
 
 def _acquire_service():
-    """Lease the current service so reload can swap it without closing active readers."""
+    """Mượn service hiện tại (tăng bộ đếm người dùng) để việc tải lại chỉ mục không đóng service đang được dùng.
+
+    Gọi ``_release_service`` sau khi dùng xong.
+    """
     with _service_use_lock:
         service = state["service"]
         if service is not None:
@@ -43,6 +46,7 @@ def _acquire_service():
 
 
 def _close_service(service):
+    """Giải phóng mô hình nhúng của một service đã bị thay; lỗi chỉ ghi log."""
     embedder = getattr(service, "embedder", None)
     close = getattr(embedder, "close", None)
     if callable(close):
@@ -53,6 +57,7 @@ def _close_service(service):
 
 
 def _replace_service(service, error=None):
+    """Thay service dùng chung; service cũ được đóng ngay nếu không còn ai mượn, không thì đóng khi người cuối trả."""
     close_previous = None
     with _service_use_lock:
         previous = state["service"]
@@ -65,6 +70,7 @@ def _replace_service(service, error=None):
 
 
 def _release_service(service):
+    """Trả service đã mượn; nếu đây là người cuối dùng một service đã bị thay thì đóng nó."""
     close_retired = False
     service_id = id(service)
     with _service_use_lock:
@@ -79,8 +85,12 @@ def _release_service(service):
 
 
 def _init_service(*, force=False):
-    """Nạp chỉ mục + embedder. Có thể gọi lại: nhờ vậy chạy `index` xong là dùng được ngay,
-    không cần khởi động lại server (quan trọng khi `serve` và `index` chạy ở hai container khác nhau)."""
+    """Nạp chỉ mục và mô hình nhúng thành service dùng chung.
+
+    Gọi lại được: sau khi chạy ``vskr index``, nút tải lại chỉ mục trong trang admin nạp bản mới mà
+    không cần khởi động lại server. Lỗi được ghi vào ``state["error"]``; trong 30 giây sau một lần
+    lỗi sẽ không thử lại, trừ khi ``force``.
+    """
     with _lock:
         if (not force and state["service"] is None and state.get("failed_at", 0)
                 and time.time() - state["failed_at"] < 30):
@@ -99,6 +109,7 @@ def _init_service(*, force=False):
 
 
 def status():
+    """Trạng thái gọn: chỉ mục sẵn sàng chưa, lỗi gần nhất, GPU có bận không, tác vụ đang chạy ở bước nào."""
     with _jobs_lock:
         running = next((job for job in _jobs.values() if job.get("status") == "running"), None)
     return {"ready": state["service"] is not None, "error": state["error"],
@@ -116,6 +127,7 @@ def _safe_diagnostic(value):
 
 
 def admin_status():
+    """Trạng thái đầy đủ cho admin: thêm số video/tài liệu, thông tin chỉ mục và kết nối Ollama (kiểm tra lại tối đa mỗi 5 giây)."""
     full = status()
     service = state["service"]
     if full["error"]:
@@ -156,6 +168,6 @@ def admin_status():
 
 
 def reload_index():
-    """Nạp lại chỉ mục sau khi chạy lại `index` (đổi chunk/embedding) mà không cần khởi động lại server."""
+    """Nạp lại chỉ mục sau khi chạy lại ``vskr index`` (kể cả khi đổi chunk/embedding) mà không cần khởi động lại server."""
     _init_service(force=True)
     return admin_status()

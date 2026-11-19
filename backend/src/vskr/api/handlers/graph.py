@@ -8,6 +8,10 @@ from .runtime import _acquire_service, _init_service, _release_service
 def inspect_graph(query: str, adjacent: bool = False, idf_weighting: bool = False,
                   semantic_expansion: bool = False, ppr: bool = False,
                   damping: float = 0.5, seed_weight: float = 0.05):
+    """Chạy truy vấn graph cho một câu hỏi, trả về các đoạn tìm được và khái niệm khớp (công cụ chẩn đoán cho admin).
+
+    ``adjacent`` thêm các đoạn liền trước và liền sau trong cùng video.
+    """
     if not 0.0 <= damping <= 0.99 or not 0.0 <= seed_weight <= 1.0:
         raise HTTPException(422, "Tham số lan truyền graph phải nằm trong khoảng hợp lệ.")
     service = _acquire_service()

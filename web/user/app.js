@@ -1170,7 +1170,7 @@ async function showAdminLink() {
       link.textContent = "Quản trị";
       link.hidden = false;
     }
-  } catch { /* Public reading and questions do not depend on admin session lookup. */ }
+  } catch { /* Đọc thư viện và hỏi đáp công khai không cần tra phiên quản trị. */ }
 }
 
 /** Đọc phiên hiện tại (người học hoặc khách) rồi cập nhật giao diện tài khoản. */
@@ -2040,7 +2040,7 @@ $("#install-app").addEventListener("click", async () => {
   $("#install-app").hidden = true;
 });
 
-// Search, drawer, fresh thread and composer interactions.
+// Tìm kiếm, ngăn điều hướng, cuộc trò chuyện mới và ô soạn câu hỏi.
 const searchInput = $("#library-search");
 const searchResults = $("#search-results");
 const searchToggle = $("#search-toggle");

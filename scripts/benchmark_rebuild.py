@@ -1,4 +1,4 @@
-"""Measure a full rebuild on a temporary copy of selected transcript inputs."""
+"""Đo thời gian dựng lại toàn bộ chỉ mục trên bản sao tạm của một số transcript được chọn."""
 
 import argparse
 import json

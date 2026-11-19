@@ -67,10 +67,10 @@ _NO_FIGURE = re.compile(r"không\s+(có|chứa)\s+(bất\s*kỳ|sơ đồ|biểu
 
 
 def clean_caption(caption, ocr_text=""):
-    """Drop paragraphs that only repeat on-screen text OCR already indexed.
+    """Bỏ các đoạn chỉ lặp lại chữ trên màn hình mà OCR đã lập chỉ mục.
 
-    Despite the instruction, the model sometimes opens with the slide title
-    verbatim ("Bài 3: Truy vấn dữ liệu với JOIN\\n\\nTrong hình ảnh này…").
+    Dù đã được dặn, model đôi khi vẫn mở đầu bằng nguyên văn tiêu đề slide
+    ("Bài 3: Truy vấn dữ liệu với JOIN\\n\\nTrong hình ảnh này…").
     """
     seen = " ".join((ocr_text or "").split()).casefold()
     paragraphs = [p.strip() for p in caption.split("\n\n") if p.strip()]
@@ -126,7 +126,7 @@ def _caption(torch, processor, model, image, prompt, max_new_tokens):
     inputs = processor(text=[text], images=[image], return_tensors="pt").to(model.device)
     with torch.inference_mode():
         generated = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-    # generate() returns prompt + answer; decode only the new tokens.
+    # generate() trả về cả prompt lẫn câu trả lời; chỉ giải mã phần token mới sinh ra.
     answer = generated[:, inputs["input_ids"].shape[1]:]
     return processor.batch_decode(answer, skip_special_tokens=True)[0].strip()
 

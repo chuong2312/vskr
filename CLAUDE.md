@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Ngôn ngữ trả lời
 Luôn trả lời, giải thích và tóm tắt cho người dùng bằng tiếng Việt (giữ nguyên tên lệnh, đường dẫn, tên hàm và thuật ngữ kỹ thuật bằng tiếng Anh khi cần).
 
-VSKR (Video Semantic Knowledge Retrieval) turns lecture videos and documents into a Vietnamese Q&A source with citations. It is a student research project (đồ án). README.md, UI strings, error messages (`detail`) and code comments are in Vietnamese; keep new user-facing text in Vietnamese.
+VSKR (Video Semantic Knowledge Retrieval) turns lecture videos and documents into a Vietnamese Q&A source with citations. It is a student research project (đồ án). README.md, UI strings, error messages (`detail`), comments and docstrings (Python, JS, CSS, shell, tests, scripts) are in Vietnamese; identifiers stay English. Write every new piece of these in Vietnamese.
 
 ## Working agreement (the owner's rules)
 - Each task: short plan → owner approves → do it → run checks → report what changed. One small step per commit so it can be reverted.

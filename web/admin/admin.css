@@ -257,7 +257,7 @@
     .details-list { grid-template-columns: 110px 1fr; }
   }
 
-/* VSKR admin workspace */
+/* Khu làm việc của trang quản trị VSKR */
 :root { --navy:#142b38; --navy-soft:#203d4b; }
 body { min-height:100vh; padding-left:240px; background:var(--canvas); }
 .admin-header { position:sticky; top:0; z-index:12; max-width:none; height:72px; margin:0; padding:10px 28px; background:var(--surface); border-bottom:1px solid var(--line); box-shadow:0 2px 12px #102a2a08; }

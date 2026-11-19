@@ -22,7 +22,7 @@ from tests.asgi_client import ASGITestClient
 
 @contextlib.contextmanager
 def patch_handlers_config(config):
-    """Each handlers module reads the config through its own load_config; patch them all at once."""
+    """Mỗi module trong handlers đọc cấu hình qua load_config riêng; patch tất cả cùng lúc."""
     with contextlib.ExitStack() as stack:
         for module in (handlers.runtime, handlers.jobs, handlers.library, handlers.evaluation):
             stack.enter_context(mock.patch.object(module, "load_config", return_value=config))

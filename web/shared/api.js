@@ -28,7 +28,7 @@ export async function request(path, options = {}) {
     credentials: "same-origin",
   });
   let body = null;
-  try { body = await response.json(); } catch { /* Some downloads and server errors have no JSON body. */ }
+  try { body = await response.json(); } catch { /* Một số file tải về và lỗi máy chủ không có body JSON. */ }
   if (!response.ok) {
     const message = typeof body?.detail === "string" ? body.detail : `Yêu cầu thất bại (${response.status}).`;
     throw new ApiError(message, response.status, Number(response.headers.get("Retry-After") || 0));

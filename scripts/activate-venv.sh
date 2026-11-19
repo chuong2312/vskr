@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run with: source scripts/activate-venv.sh
+# Cách dùng: source scripts/activate-venv.sh
 
 VSKR_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ ! -f "${VSKR_ROOT}/.venv/bin/activate" ]]; then

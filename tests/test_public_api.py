@@ -422,6 +422,7 @@ class TestPublicCatalog(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(search.call_args.kwargs["mode"], "hybrid")
+        self.assertEqual(response.json()["sources"], [])
 
     def test_guest_can_ask_without_a_session_and_does_not_create_history(self):
         fake_result = {"answer": "Dựa trên bài giảng [1].", "found": True, "cited": True, "sources": []}
@@ -500,6 +501,58 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(other_response.status_code, 404)
         self.assertFalse(ask.call_args.kwargs["shared_only"])
         self.assertEqual(ask.call_args.kwargs["owner_id"], owner_id)
+
+    def test_missing_or_forged_guest_cookie_cannot_read_private_source(self):
+        private_token = "guest-private-owner-token"
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir, "VSKR_COOKIE_SECURE": "false"}):
+            owner_id = accounts.guest_owner_id(private_token)
+
+            def visible(_kind, _source_id, viewer_id, *, shared_only=False):
+                return viewer_id == owner_id and not shared_only
+
+            with mock.patch("vskr.api.public.handlers.source_is_visible", side_effect=visible), \
+                    mock.patch("vskr.api.public.handlers.ask") as ask:
+                with ASGITestClient(app, authenticated_learner=False) as client:
+                    lost_cookie = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung riêng", "source_id": "private-video", "source_type": "video",
+                    })
+                    client.cookies.set(accounts.GUEST_COOKIE_NAME, "forged-token")
+                    forged_cookie = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung riêng", "source_id": "private-video", "source_type": "video",
+                    })
+                    client.cookies.clear()
+                    missing_cookie = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung riêng", "source_id": "private-video", "source_type": "video",
+                    })
+
+        self.assertEqual(
+            [lost_cookie.status_code, forged_cookie.status_code, missing_cookie.status_code],
+            [404, 404, 404],
+        )
+        ask.assert_not_called()
+        self.assertNotIn(owner_id, lost_cookie.text + forged_cookie.text + missing_cookie.text)
+
+    def test_guest_private_queries_remain_rate_limited_by_client_ip(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir, "VSKR_COOKIE_SECURE": "false"}), \
+                mock.patch("vskr.api.public.auth.client_ip", return_value="198.51.100.87"), \
+                mock.patch("vskr.api.public.handlers.source_is_visible", return_value=True), \
+                mock.patch("vskr.api.public.handlers.ask",
+                           return_value={"answer": "A", "found": True, "cited": False, "sources": []}):
+            with ASGITestClient(app, authenticated_learner=False) as client:
+                responses = [
+                    client.post("/api/ask", json={
+                        "question": f"Hỏi riêng {number}", "source_id": "own-private", "source_type": "video",
+                    })
+                    for number in range(10)
+                ]
+                limited = client.post("/api/ask", json={
+                    "question": "Hỏi riêng vượt hạn mức", "source_id": "own-private", "source_type": "video",
+                })
+
+        self.assertTrue(all(response.status_code == 200 for response in responses))
+        self.assertEqual(limited.status_code, 429)
 
     def test_source_links_only_allow_safe_hosts_and_strip_query_tokens(self):
         self.assertEqual(

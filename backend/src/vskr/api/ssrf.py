@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException
 
 
-def validate_ingest_url(url: str) -> str:
+def resolve_ingest_target(url: str) -> tuple[str, int, str]:
     try:
         parsed = urlsplit(url)
     except (TypeError, ValueError) as exc:
@@ -41,6 +41,11 @@ def validate_ingest_url(url: str) -> str:
         checked = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped else address
         if not checked.is_global:
             raise HTTPException(400, "URL video trỏ tới địa chỉ mạng nội bộ hoặc không công khai.")
+    return host, port, str(sorted(addresses, key=lambda address: (address.version, int(address)))[0])
+
+
+def validate_ingest_url(url: str) -> str:
+    resolve_ingest_target(url)
     return url
 
 

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VSKR human answer evaluation review JSONL record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "answer_correct", "grounded", "citation_correct"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "answer_correct": { "type": "boolean" },
+    "grounded": { "type": "boolean" },
+    "citation_correct": { "type": "boolean" },
+    "notes": { "type": "string" }
+  }
+}

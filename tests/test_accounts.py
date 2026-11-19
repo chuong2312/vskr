@@ -3,11 +3,13 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from http.cookies import SimpleCookie
 from pathlib import Path
 from unittest import mock
 
 import numpy as np
 from fastapi import HTTPException
+from fastapi.responses import Response
 
 from vskr import accounts
 from vskr.accounts import COOKIE_NAME
@@ -34,6 +36,27 @@ class TestLearnerAccounts(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_guest_owner_ids_are_token_opaque_and_distinct(self):
+        with mock.patch.dict(os.environ, self.env):
+            token_a = "guest-token-a"
+            token_b = "guest-token-b"
+            owner_a = accounts.guest_owner_id(token_a)
+            owner_b = accounts.guest_owner_id(token_b)
+
+        self.assertNotEqual(owner_a, owner_b)
+        self.assertNotIn(token_a, owner_a)
+        self.assertNotIn(token_b, owner_b)
+
+    def test_guest_cookie_expiry_is_set_for_browsers(self):
+        response = Response()
+        with mock.patch.dict(os.environ, self.env):
+            accounts.set_guest_cookie(response, "guest-cookie-token")
+
+        cookie = SimpleCookie()
+        cookie.load(response.headers["set-cookie"])
+        self.assertEqual(cookie[accounts.GUEST_COOKIE_NAME]["max-age"], str(30 * 24 * 60 * 60))
+        self.assertTrue(cookie[accounts.GUEST_COOKIE_NAME]["httponly"])
 
     def test_self_registration_ignores_legacy_invite_setting_and_logout_revokes_session(self):
         with mock.patch.dict(os.environ, self.env):
@@ -124,6 +147,14 @@ class TestLearnerAccounts(unittest.TestCase):
             ]), encoding="utf-8")
 
             public_owner = accounts.guest_owner_id(token)
+            accounts.migrate_legacy_guest_owners()
+            stable_files = (
+                video_meta.read_bytes(),
+                legacy_public_meta.read_bytes(),
+                legacy_owned_meta.read_bytes(),
+                chunks.read_bytes(),
+            )
+            accounts.migrate_legacy_guest_owners()
 
             self.assertTrue(public_owner.startswith("g:h:"))
             self.assertNotIn(token, public_owner)
@@ -137,6 +168,12 @@ class TestLearnerAccounts(unittest.TestCase):
             self.assertEqual(owned_meta["owner_id"], public_owner)
             self.assertEqual(owned_meta["visibility"], "private")
             self.assertEqual(json.loads(chunks.read_text(encoding="utf-8"))[0]["owner_id"], public_owner)
+            self.assertEqual(stable_files, (
+                video_meta.read_bytes(),
+                legacy_public_meta.read_bytes(),
+                legacy_owned_meta.read_bytes(),
+                chunks.read_bytes(),
+            ))
 
     def test_self_registration_only_requires_a_unique_username(self):
         with mock.patch.dict(os.environ, self.env):

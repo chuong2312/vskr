@@ -5,6 +5,7 @@ from .config import load_config
 
 
 def main():
+    """Đọc tham số dòng lệnh và chạy lệnh tương ứng: doctor, ingest, asr, frames, ocr, vlm, index, doc, ask, serve, admin."""
     ap = argparse.ArgumentParser(prog="vskr")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("doctor", help="kiểm tra môi trường")
@@ -39,7 +40,7 @@ def main():
     args = ap.parse_args()
     if args.cmd == "admin":
         from getpass import getpass
-        from .auth import hash_password
+        from .access.auth import hash_password
 
         password = getpass("Mật khẩu admin: ")
         confirmation = getpass("Nhập lại mật khẩu: ")
@@ -58,40 +59,40 @@ def main():
 
         doctor.main(cfg, gpu_test=args.gpu_test)
     elif args.cmd == "ingest":
-        from .ingest import ingest
+        from .pipeline.ingest import ingest
 
         for u in args.urls:
             m = ingest(u, cfg, with_video=not args.audio_only)
             if not args.audio_only:
-                from .frames import detect_scenes_only
+                from .pipeline.frames import detect_scenes_only
 
                 detected = detect_scenes_only(cfg, m["video_id"])
                 print(f"[scenes] {detected['scene_count']} phân cảnh")
             print(f"[ingest] {m['video_id']} | {m['title']} | {m['duration']}s")
     elif args.cmd == "asr":
-        from . import asr
-        from .index import list_video_ids
+        from .pipeline import asr
+        from .retrieval.index import list_video_ids
 
         asr.run(cfg, args.video or list_video_ids(cfg), force=args.force)
     elif args.cmd == "frames":
-        from . import frames
-        from .index import list_video_ids
+        from .pipeline import frames
+        from .retrieval.index import list_video_ids
 
         for vid in args.video or list_video_ids(cfg):
             frames.run(cfg, vid, force=args.force)
     elif args.cmd in ("ocr", "vlm"):
-        from .steps import run_step
+        from .pipeline.steps import run_step
 
         video_ids = args.video
         if not video_ids:
-            # index pulls in numpy/BM25; the OCR venv child always receives --video.
-            from .index import list_video_ids
+            # Chỉ nạp index (kéo theo numpy/BM25) khi cần; tiến trình con trong .venv-vlm luôn nhận --video.
+            from .retrieval.index import list_video_ids
 
             video_ids = list_video_ids(cfg)
         run_step(cfg, args.cmd, video_ids, force=args.force)
     elif args.cmd == "index":
-        from . import index
-        from .embedder import Embedder
+        from .retrieval import index
+        from .retrieval.embedder import Embedder
 
         emb = Embedder(cfg["embedding"])
         try:
@@ -99,9 +100,9 @@ def main():
         finally:
             emb.close()
     elif args.cmd == "doc":
-        from . import index
-        from .documents import ingest_document
-        from .embedder import Embedder
+        from .retrieval import index
+        from .pipeline.documents import ingest_document
+        from .retrieval.embedder import Embedder
 
         meta = ingest_document(args.file, cfg)
         emb = Embedder(cfg["embedding"])
@@ -122,7 +123,7 @@ def main():
         print(f"\nthời gian: tìm {res['timing']['retrieve_s']}s, LLM {res['timing']['llm_s']}s, chế độ {res['mode']}")
     elif args.cmd == "serve":
         import uvicorn
-        from .auth import admin_is_configured, warn_if_unconfigured
+        from .access.auth import admin_is_configured, warn_if_unconfigured
 
         warn_if_unconfigured(host=args.host)
         if args.host == "0.0.0.0" and not admin_is_configured():

@@ -1,3 +1,8 @@
+"""Đọc cấu hình từ ``configs/models.yaml`` (file cấu hình duy nhất) và file ``.env``.
+
+``ROOT`` là thư mục gốc dự án, tìm bằng cách đi ngược lên tới nơi có ``configs/models.yaml``.
+Các hàm ``*_dir`` dựng đường dẫn dữ liệu từ ``paths.data_dir``.
+"""
 import copy
 import os
 from pathlib import Path
@@ -13,7 +18,7 @@ ROOT = next(
 
 
 def load_local_environment(root=None):
-    """Load the repository .env without overriding variables exported by the process."""
+    """Nạp file ``.env`` ở thư mục gốc; biến đã export trong tiến trình được ưu tiên hơn."""
     load_dotenv(Path(root or ROOT) / ".env", override=False)
 
 
@@ -39,6 +44,11 @@ def _apply_env_overrides(cfg):
 
 
 def load_config(path=None):
+    """Đọc models.yaml (hoặc file trong ``VSKR_CONFIG``), áp ghi đè ``VSKR__MỤC__KHÓA`` rồi trả về bản sao.
+
+    Kết quả được cache theo thời điểm sửa file và các biến ``VSKR__*``; ``paths.data_dir`` tương đối
+    được đổi thành đường dẫn tuyệt đối tính từ ``ROOT``.
+    """
     p = Path(path or os.environ.get("VSKR_CONFIG") or ROOT / "configs" / "models.yaml")
     env_values = tuple(sorted((k, v) for k, v in os.environ.items() if k.startswith(ENV_PREFIX)))
     signature = (str(p), p.stat().st_mtime_ns, hash(env_values))
@@ -59,16 +69,29 @@ def load_config(path=None):
 
 
 def data_dir(cfg):
+    """Thư mục dữ liệu (``paths.data_dir``)."""
     return Path(cfg["paths"]["data_dir"])
 
 
 def videos_dir(cfg):
+    """Thư mục chứa dữ liệu của mọi video: ``<data_dir>/videos``."""
     return data_dir(cfg) / "videos"
 
 
 def video_dir(cfg, video_id):
+    """Thư mục dữ liệu của một video: ``<data_dir>/videos/<video_id>``."""
     return videos_dir(cfg) / video_id
 
 
 def index_dir(cfg):
+    """Thư mục chỉ mục tìm kiếm: ``<data_dir>/index``."""
     return data_dir(cfg) / "index"
+
+
+def role_limit(role_limits, ingest_cfg, key):
+    """Hạn mức ``key`` của một vai trò (``limits.guest`` / ``limits.user``) trong models.yaml.
+
+    Vai trò không khai báo khoá đó thì dùng giá trị chung trong ``ingest``. Chỉ đọc ``ingest`` khi cần,
+    nên cấu hình chỉ khai báo theo vai trò vẫn hợp lệ.
+    """
+    return int(role_limits[key] if key in role_limits else ingest_cfg[key])

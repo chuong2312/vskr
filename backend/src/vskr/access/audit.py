@@ -1,4 +1,4 @@
-"""Append-only admin audit log with a deliberately narrow event interface."""
+"""Nhật ký audit của admin (``data/audit.jsonl``): chỉ ghi thêm, chỉ nhận một tập trường hẹp có chủ đích."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from .config import data_dir, load_config
+from ..config import data_dir, load_config
 
 _lock = threading.Lock()
 
 
 def write_event(event: str, *, actor: str = "admin", target_id: str | None = None, kind: str | None = None,
                 result: str = "success") -> None:
-    """Write safe audit metadata. Credentials, cookies, tokens, and raw IPs are not accepted."""
+    """Ghi một sự kiện audit, cắt ngắn từng trường. Không nhận mật khẩu, cookie, token hay IP thô."""
     entry = {
         "at": datetime.now(timezone.utc).isoformat(),
         "event": str(event)[:80],
@@ -35,6 +35,7 @@ def write_event(event: str, *, actor: str = "admin", target_id: str | None = Non
 
 
 def recent_events(limit: int = 200) -> list[dict]:
+    """Tối đa ``limit`` (không quá 200) sự kiện audit gần nhất; dòng hỏng bị bỏ qua, mỗi sự kiện chỉ giữ các trường được phép."""
     path = data_dir(load_config()) / "audit.jsonl"
     if not path.is_file():
         return []

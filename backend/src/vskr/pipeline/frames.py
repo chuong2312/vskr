@@ -1,15 +1,17 @@
-"""Trích frame đại diện từ video cho OCR (giai đoạn mở rộng).
+"""Dò phân cảnh và trích khung hình đại diện từ video cho OCR và VLM.
 
-Chiến lược: PySceneDetect tìm ranh giới cảnh + lấy mẫu định kỳ (để không sót khi gõ code liên tục),
-gộp hai nguồn thời điểm, rồi lọc frame trùng bằng dHash. Phần logic thuần nằm ở các hàm đầu file (có test)."""
+Khung hình được lấy ở đầu mỗi cảnh (PySceneDetect) và lấy mẫu định kỳ để bắt cả cảnh gõ code
+liên tục, rồi lọc trùng bằng dHash. Kết quả nằm trong ``frames/`` và ``frames.json``; đầu cảnh
+được lưu riêng trong ``scenes.json`` để dùng lại.
+"""
 import subprocess
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from .config import video_dir
+from ..config import video_dir
 from .ingest import resolve_source
-from .util import read_json, write_json
+from ..util import read_json, write_json
 
 
 # ---------- logic thuần (có test) ----------
@@ -36,6 +38,7 @@ def candidate_times(duration, scene_starts, interval_s=8.0, offset_s=1.0, min_ga
 
 
 def cap_evenly(items, max_n):
+    """Giữ tối đa ``max_n`` phần tử, rải đều trên cả danh sách thay vì chỉ lấy phần đầu."""
     if max_n is None or len(items) <= max_n:
         return list(items)
     step = len(items) / max_n
@@ -43,6 +46,7 @@ def cap_evenly(items, max_n):
 
 
 def hamming(a, b):
+    """Số bit khác nhau giữa hai mã băm (khoảng cách Hamming)."""
     return bin(a ^ b).count("1")
 
 
@@ -58,6 +62,10 @@ def dedupe_hashes(hashes, max_dist):
 
 
 def dhash(path):
+    """Mã băm dHash 64 bit của ảnh: so độ sáng các điểm ảnh kề nhau trên bản thu nhỏ 9x8.
+
+    Hai ảnh gần giống nhau cho mã băm có khoảng cách Hamming nhỏ.
+    """
     from PIL import Image
 
     img = Image.open(path).convert("L").resize((9, 8))
@@ -71,11 +79,11 @@ def dhash(path):
 
 # ---------- phần chạy thật (cần scenedetect, ffmpeg, Pillow) ----------
 def detect_scene_starts(video_path, threshold=27.0, frame_skip=0, *, show_progress=True):
+    """Thời điểm (giây) bắt đầu mỗi cảnh, dò bằng ContentDetector của PySceneDetect."""
     from scenedetect import ContentDetector, SceneManager, open_video
 
-    # OpenCV's bundled FFmpeg may try the platform AV1 hardware decoder and fail
-    # on machines without a compatible device/driver. PyAV decodes through
-    # FFmpeg's software path here, which is slower but reliable for indexing.
+    # FFmpeg đi kèm OpenCV có thể thử bộ giải mã AV1 phần cứng và lỗi trên máy không có thiết bị/driver
+    # phù hợp. PyAV giải mã bằng phần mềm: chậm hơn nhưng ổn định cho việc lập chỉ mục.
     video = open_video(str(video_path), backend="pyav")
     sm = SceneManager()
     sm.add_detector(ContentDetector(threshold=threshold))
@@ -84,7 +92,7 @@ def detect_scene_starts(video_path, threshold=27.0, frame_skip=0, *, show_progre
 
 
 def detect_scenes_only(cfg, video_id, force=False):
-    """Detect scene boundaries for the knowledge graph without extracting images."""
+    """Dò ranh giới cảnh cho đồ thị tri thức mà không trích ảnh; kết quả ghi vào ``scenes.json``."""
     fc = cfg["frames"]
     vdir = video_dir(cfg, video_id)
     meta = read_json(vdir / "meta.json")
@@ -104,8 +112,8 @@ def detect_scenes_only(cfg, video_id, force=False):
             show_progress=False,
         )
     except Exception as exc:
-        # Scene boundaries improve the graph, but transcript chunking remains a
-        # valid fallback. A decoder problem must not make the whole lecture unusable.
+        # Ranh giới cảnh giúp đồ thị tốt hơn, nhưng chia đoạn theo lời giảng vẫn dùng được. Lỗi giải mã
+        # không được làm hỏng cả bài giảng.
         starts = []
         detection_error = type(exc).__name__
         logging.warning(
@@ -127,6 +135,7 @@ def detect_scenes_only(cfg, video_id, force=False):
 
 
 def grab_frame(video_path, t, out_path, max_width=1280):
+    """Cắt một khung hình tại giây ``t`` bằng ffmpeg, thu nhỏ về chiều rộng tối đa ``max_width`` px."""
     subprocess.run(
         [
             "ffmpeg", "-y", "-loglevel", "error", "-protocol_whitelist", "file,pipe",
@@ -139,7 +148,7 @@ def grab_frame(video_path, t, out_path, max_width=1280):
 
 
 def _cached_scene_starts(vdir, fc):
-    """Scene starts saved by detect_scenes_only, if they were computed with the same settings."""
+    """Đầu cảnh đã lưu bởi ``detect_scenes_only``, nếu được tính với cùng tham số."""
     path = vdir / "scenes.json"
     if not path.is_file():
         return None
@@ -151,6 +160,11 @@ def _cached_scene_starts(vdir, fc):
 
 
 def run(cfg, video_id, force=False):
+    """Trích khung hình cho một video và ghi ``frames.json``; đã có file thì bỏ qua, trừ khi ``force``.
+
+    Cần file video gốc. Dùng lại đầu cảnh trong ``scenes.json`` nếu tham số giống nhau; PySceneDetect
+    lỗi thì chỉ dùng lấy mẫu định kỳ. Khung hình gần giống nhau (theo ``frames.hash_dist``) bị xoá.
+    """
     fc = cfg["frames"]
     vdir = video_dir(cfg, video_id)
     meta = read_json(vdir / "meta.json")
@@ -186,13 +200,14 @@ def run(cfg, video_id, force=False):
     max_width = fc.get("max_width", 1280)
 
     def extract(candidate):
+        """Cắt một khung hình ứng viên và tính dHash của nó."""
         t, src = candidate
         p = fdir / f"f_{t:09.2f}.jpg"
         grab_frame(vpath, t, p, max_width)
         return {"t": t, "source": src, "path": f"frames/{p.name}", "hash": dhash(p)}
 
-    # Each grab is one short ffmpeg seek+decode; running several at once keeps
-    # the CPU busy instead of waiting on process start-up. map() keeps time order.
+    # Mỗi lần cắt là một lệnh ffmpeg ngắn (tua + giải mã); chạy song song để CPU không phải chờ khởi
+    # động tiến trình. map() giữ đúng thứ tự thời gian.
     workers = max(1, int(fc.get("workers", 6)))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="vskr-frames") as pool:
         rows = list(pool.map(extract, cands))

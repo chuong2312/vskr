@@ -1,4 +1,8 @@
-"""Server-side admin sessions, CSRF protection, and login throttling."""
+"""Đăng nhập admin: phiên lưu trong RAM, chống CSRF, giới hạn đăng nhập sai, đọc IP thật qua proxy tin cậy.
+
+Admin được cấu hình bằng ``VSKR_ADMIN_USER`` và ``VSKR_ADMIN_PASSWORD_HASH`` (Argon2id); thiếu thì
+khu admin bị tắt và trả 404. Phiên admin mất khi khởi động lại server.
+"""
 
 from __future__ import annotations
 
@@ -35,6 +39,7 @@ def _password_hasher():
 
 
 def admin_credentials():
+    """``(tên đăng nhập, hash)`` của admin nếu cấu hình hợp lệ (hash Argon2id đọc được), không thì None."""
     username = os.environ.get("VSKR_ADMIN_USER", "").strip()
     password_hash = os.environ.get("VSKR_ADMIN_PASSWORD_HASH", "").strip()
     if not username or not password_hash or not password_hash.startswith("$argon2id$"):
@@ -57,20 +62,27 @@ def admin_credentials():
 
 
 def admin_is_configured() -> bool:
+    """Admin đã được cấu hình hợp lệ chưa."""
     return admin_credentials() is not None
 
 
 def cookie_secure() -> bool:
+    """Cookie có bật cờ Secure không (``VSKR_COOKIE_SECURE``, mặc định bật; chỉ nên tắt khi chạy http://localhost)."""
     value = os.environ.get("VSKR_COOKIE_SECURE", "true").strip().lower()
     return value not in {"false", "0", "no", "off"}
 
 
 def egress_firewall_confirmed() -> bool:
+    """Người vận hành đã xác nhận có firewall chặn kết nối ra mạng nội bộ chưa (``VSKR_EGRESS_FIREWALL_CONFIRMED``).
+
+    Chưa xác nhận thì khách không được nạp video từ URL.
+    """
     value = os.environ.get("VSKR_EGRESS_FIREWALL_CONFIRMED", "").strip().lower()
     return value in {"true", "1", "yes", "on"}
 
 
 def warn_if_unconfigured(host: str | None = None) -> None:
+    """Ghi cảnh báo khi admin chưa cấu hình (nhất là khi mở server ra 0.0.0.0) hoặc firewall chưa được xác nhận."""
     if not admin_is_configured():
         logging.warning(
             "VSKR admin is disabled: set VSKR_ADMIN_USER and an argon2id "
@@ -96,15 +108,21 @@ def _is_local_host(value: str | None) -> bool:
     return bool(hostname and hostname.lower() in {"localhost", "127.0.0.1", "::1"})
 
 
+def _trusted_proxy_networks():
+    """Các dải IP proxy tin cậy trong ``VSKR_TRUSTED_PROXIES`` (phân tách bằng dấu phẩy).
+
+    Đọc lại ở mỗi request để đổi biến môi trường là có hiệu lực ngay. Ném ``ValueError`` nếu có giá trị
+    không phải dải IP; nơi gọi coi trường hợp đó là không tin proxy nào.
+    """
+    value = os.environ.get("VSKR_TRUSTED_PROXIES", "")
+    return [ipaddress.ip_network(item.strip(), strict=False) for item in value.split(",") if item.strip()]
+
+
 def _trusted_forwarded_request(request: Request) -> tuple[str | None, str | None]:
     peer = request.client.host if request.client else ""
-    trusted_value = os.environ.get("VSKR_TRUSTED_PROXIES", "").strip()
     try:
         peer_ip = ipaddress.ip_address(peer.split("%", 1)[0])
-        trusted_ranges = [
-            ipaddress.ip_network(item.strip(), strict=False)
-            for item in trusted_value.split(",") if item.strip()
-        ]
+        trusted_ranges = _trusted_proxy_networks()
         if not trusted_ranges or not any(peer_ip in network for network in trusted_ranges):
             return None, None
         proto_values = [value.strip().lower() for value in request.headers.get("x-forwarded-proto", "").split(",")]
@@ -157,18 +175,18 @@ def _same_origin(request: Request) -> bool:
 
 
 def client_ip(request: Request) -> str:
+    """IP thật của người gửi request.
+
+    Chỉ đọc ``X-Forwarded-For`` khi request đến từ proxy trong ``VSKR_TRUSTED_PROXIES``, và đi ngược
+    chuỗi proxy tới địa chỉ đầu tiên không được tin cậy.
+    """
     peer = request.client.host if request.client else "unknown"
-    trusted_value = os.environ.get("VSKR_TRUSTED_PROXIES", "").strip()
-    if not trusted_value:
-        return peer
     try:
+        trusted_ranges = _trusted_proxy_networks()
+        if not trusted_ranges:
+            return peer
         peer_ip = ipaddress.ip_address(peer)
-        trusted_ranges = [
-            ipaddress.ip_network(item.strip(), strict=False)
-            for item in trusted_value.split(",")
-            if item.strip()
-        ]
-        if not trusted_ranges or not any(peer_ip in network for network in trusted_ranges):
+        if not any(peer_ip in network for network in trusted_ranges):
             return peer
         forwarded = [item.strip() for item in request.headers.get("x-forwarded-for", "").split(",") if item.strip()]
         chain = [ipaddress.ip_address(item.split("%", 1)[0]) for item in forwarded]
@@ -204,6 +222,10 @@ def _login_failure_limit(key: tuple[str, ...]) -> int:
 
 def login_retry_after(ip: str, username: str, now: float | None = None, *,
                       scope: str = "admin") -> int | None:
+    """Số giây phải chờ trước khi được thử đăng nhập lại, hoặc None nếu chưa bị khoá.
+
+    Lần sai được đếm theo cặp (IP, tên đăng nhập) và theo riêng IP trong cửa sổ ``LOGIN_WINDOW``.
+    """
     now = time.time() if now is None else now
     with _failures_lock:
         _prune_failures(now)
@@ -228,13 +250,17 @@ def _record_login_failure(ip: str, username: str, now: float | None = None, *,
 
 def _clear_login_failures(ip: str, username: str, *, scope: str = "admin") -> None:
     with _failures_lock:
-        # A successful login clears that account's pair-specific lock. Keep the
-        # IP-wide spray budget so repeated failures across usernames still count.
+        # Đăng nhập đúng thì xoá khoá theo cặp (IP, tài khoản), nhưng giữ bộ đếm theo IP để việc thử nhiều
+        # tên đăng nhập khác nhau vẫn bị tính.
         pair_key = _login_keys(ip, username, scope)[0]
         _failures.pop(pair_key, None)
 
 
 def verify_login(username: str, password: str) -> bool:
+    """So tên đăng nhập và mật khẩu admin (Argon2id).
+
+    So sánh trong thời gian hằng và luôn kiểm tra cả hai, để thời gian phản hồi không lộ phần nào sai.
+    """
     credentials = admin_credentials()
     hasher = _password_hasher()
     if credentials is None or hasher is None:
@@ -251,6 +277,7 @@ def verify_login(username: str, password: str) -> bool:
 
 
 def create_session() -> tuple[str, dict]:
+    """Tạo phiên admin mới trong RAM; trả về (token, bản sao phiên kèm token CSRF)."""
     token = secrets.token_urlsafe(32)
     now = time.time()
     session = {"created": now, "last_seen": now, "csrf": secrets.token_urlsafe(32)}
@@ -260,12 +287,17 @@ def create_session() -> tuple[str, dict]:
 
 
 def revoke_session(token: str | None) -> None:
+    """Xoá phiên admin (đăng xuất)."""
     if token:
         with _sessions_lock:
             _sessions.pop(token, None)
 
 
 def get_session(token: str | None, *, touch: bool = True, now: float | None = None):
+    """Phiên admin còn hiệu lực ứng với token, hoặc None nếu quá hạn tuyệt đối (8 giờ) hay bỏ không quá 1 giờ.
+
+    ``touch`` cập nhật thời điểm dùng gần nhất.
+    """
     if not token:
         return None
     now = time.time() if now is None else now
@@ -282,6 +314,11 @@ def get_session(token: str | None, *, touch: bool = True, now: float | None = No
 
 
 def validate_admin_request(request: Request):
+    """Kiểm tra một request admin; lỗi thì ném ``HTTPException``.
+
+    Admin chưa cấu hình thì 404; cookie không an toàn thì 403; không có phiên hợp lệ thì 401; request
+    ghi (không phải GET/HEAD) phải cùng origin và có đúng token CSRF, không thì 403.
+    """
     if not admin_is_configured():
         raise HTTPException(404, "Not found")
     if not _secure_cookie_request(request):
@@ -299,10 +336,12 @@ def validate_admin_request(request: Request):
 
 
 async def require_admin(request: Request):
+    """Dependency FastAPI cho route admin; xem ``validate_admin_request``."""
     return validate_admin_request(request)
 
 
 def set_session_cookie(response, token: str, *, secure: bool | None = None) -> None:
+    """Đặt cookie phiên admin: HttpOnly, SameSite=Strict, Secure theo ``cookie_secure()``."""
     response.set_cookie(
         COOKIE_NAME,
         token,
@@ -315,10 +354,12 @@ def set_session_cookie(response, token: str, *, secure: bool | None = None) -> N
 
 
 def clear_session_cookie(response) -> None:
+    """Xoá cookie phiên admin."""
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True, secure=cookie_secure(), samesite="strict")
 
 
 def hash_password(password: str) -> str:
+    """Băm mật khẩu bằng Argon2id; dùng cho ``vskr admin hash-password`` và tài khoản người học."""
     if not password:
         raise ValueError("Mật khẩu không được để trống.")
     if len(password) > 1024:
@@ -330,7 +371,7 @@ def hash_password(password: str) -> str:
 
 
 def login(request: Request, username: str, password: str):
-    """Verify credentials and return (session token, CSRF token) on success."""
+    """Kiểm tra đăng nhập admin; đúng thì trả về (token phiên, token CSRF)."""
     if admin_credentials() is None:
         raise HTTPException(
             503,

@@ -11,12 +11,12 @@ import numpy as np
 from fastapi import HTTPException
 from fastapi.responses import Response
 
-from vskr import accounts
-from vskr.accounts import COOKIE_NAME
+from vskr.access import accounts
+from vskr.access.accounts import COOKIE_NAME
 from vskr.api import app
 from vskr.api import handlers
-from vskr.bm25 import BM25, tokenize
-from vskr.index import Index
+from vskr.retrieval.bm25 import BM25, tokenize
+from vskr.retrieval.index import Index
 from vskr.service import Service
 from tests.asgi_client import ASGITestClient
 
@@ -193,7 +193,7 @@ class TestLearnerAccounts(unittest.TestCase):
                          "label": "0:12-0:24", "text": "Vector được biểu diễn bằng số.",
                          "link": "https://www.youtube.com/watch?v=abc&t=12s", "cited": True}],
         }
-        with mock.patch.dict(os.environ, env), mock.patch.object(handlers, "ask", return_value=result):
+        with mock.patch.dict(os.environ, env), mock.patch.object(handlers.ask, "ask", return_value=result):
             with ASGITestClient(app, authenticated_learner=False) as client:
                 headers = {"Origin": "http://localhost"}
                 learner_a = client.post("/api/user/auth/register", json={
@@ -239,7 +239,7 @@ class TestLearnerAccounts(unittest.TestCase):
                          "link": "https://www.youtube.com/watch?v=abc&t=5s", "cited": True}],
         }
         with mock.patch.dict(os.environ, self.env), \
-                mock.patch.object(handlers, "ask", return_value=result), \
+                mock.patch.object(handlers.ask, "ask", return_value=result), \
                 mock.patch.object(accounts, "save_exchange", side_effect=sqlite3.OperationalError("disk I/O error")):
             with ASGITestClient(app, authenticated_learner=False) as client:
                 headers = {"Origin": "http://localhost"}

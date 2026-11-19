@@ -1,7 +1,7 @@
-"""Knowledge graph over timestamped video scenes and document sections.
+"""Đồ thị tri thức trên các cảnh video (có mốc thời gian) và các mục tài liệu.
 
-The graph remains a local JSON artifact: sources preserve evidence, concepts
-connect the modalities, and optional typed relations support multi-hop search.
+Đồ thị là một file JSON cục bộ: nút nguồn giữ bằng chứng, nút khái niệm nối các loại nguồn với
+nhau, và quan hệ có kiểu (tuỳ chọn, do Ollama trích) cho phép tìm kiếm nhiều bước.
 """
 from collections import Counter, defaultdict, deque
 import math
@@ -26,7 +26,7 @@ _RELATION_TYPES = {
 
 
 def keywords(text, limit=12):
-    """Return frequent non-stopword Vietnamese syllables/technical tokens."""
+    """Các âm tiết hoặc từ kỹ thuật xuất hiện nhiều nhất trong văn bản, sau khi bỏ từ dừng."""
     counts = Counter(
         token for token in tokenize(text)
         if len(token) >= 2 and token not in _STOP_WORDS and not token.isdigit()
@@ -42,7 +42,7 @@ def _add_edge(edges, source, target, relation, **metadata):
 
 
 def _link_modalities(chunks, vectors, threshold=0.78, max_links=2):
-    """Link document chunks to semantically similar video chunks with evidence."""
+    """Nối đoạn tài liệu với các đoạn video có nghĩa gần giống, kèm bằng chứng (từ chung, điểm tương đồng)."""
     if vectors is None or len(vectors) != len(chunks):
         return []
     videos = [i for i, chunk in enumerate(chunks) if chunk.get("video_id")]
@@ -58,8 +58,7 @@ def _link_modalities(chunks, vectors, threshold=0.78, max_links=2):
                 break
             video_terms = set(keywords(chunks[video_i]["text"], 32))
             shared = sorted(doc_terms & video_terms)
-            # Require semantic similarity plus a lexical anchor, or a stronger
-            # embedding match when the sources use different surface forms.
+            # Cần vừa giống nghĩa vừa có từ chung; nếu hai nguồn diễn đạt khác chữ thì phải giống nghĩa hơn hẳn.
             if not shared and score < min(0.95, threshold + 0.1):
                 continue
             links.append({
@@ -75,7 +74,7 @@ def _link_modalities(chunks, vectors, threshold=0.78, max_links=2):
 
 def build_graph(chunks, max_keywords_per_segment=12, vectors=None,
                 link_threshold=0.78, max_links=2, relation_extractor=None):
-    """Build scene/document nodes, concept edges, optional typed facts and links."""
+    """Dựng nút cảnh/mục tài liệu, cạnh tới khái niệm, quan hệ có kiểu (nếu có) và liên kết giữa tài liệu với video."""
     nodes = {}
     edges = {}
     chunk_nodes = {}
@@ -200,14 +199,15 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
         left, right = edge.get("from"), edge.get("to")
         if left in nodes and right in nodes:
             adjacency[left].append((right, edge))
-            # Graph retrieval is evidence discovery, so traverse typed relations
-            # in both directions while retaining their direction in the graph.
+            # Tìm qua đồ thị là đi tìm bằng chứng, nên duyệt quan hệ theo cả hai chiều; chiều gốc vẫn được giữ
+            # trong đồ thị.
             adjacency[right].append((left, edge))
             if edge.get("type") == "MENTIONS" and nodes[right].get("kind") in _SOURCE_KINDS:
                 mention_counts[left] += 1
     n_sources = sum(1 for node in nodes.values() if node.get("kind") in _SOURCE_KINDS)
 
     def concept_idf(concept_id):
+        """IDF của một khái niệm theo số nguồn nhắc tới nó: khái niệm càng hiếm càng nặng ký."""
         df = min(mention_counts.get(concept_id, 0), n_sources)
         return math.log(1 + (n_sources - df + 0.5) / (df + 0.5))
 
@@ -299,8 +299,8 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
     if ppr:
         ranked.sort(key=lambda row: (-ppr_scores.get(f"source:{row[1]['chunk_id']}", 0.0), -row[2], -row[3], row[0]))
     else:
-        # Source timestamps are not comparable across videos and document sections;
-        # preserve index order when graph scores tie.
+        # Mốc thời gian của các video và mục tài liệu không so sánh được với nhau; hoà điểm thì giữ thứ tự
+        # trong chỉ mục.
         ranked.sort(key=lambda row: (-row[2], -row[3], row[0]))
     return [
         {"idx": idx, "score": round(ppr_scores.get(f"source:{chunk['chunk_id']}", score) if ppr else score, 6), "chunk": chunk,

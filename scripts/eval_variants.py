@@ -20,10 +20,10 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vskr import index as index_mod
+from vskr.retrieval import index as index_mod
 from vskr.config import data_dir, load_config
 from vskr.evaluation import EVIDENCE_TYPES, score_results, validate_question
-from vskr.retriever import Retriever
+from vskr.retrieval.retriever import Retriever
 
 MODES = ("vector", "bm25", "hybrid", "graph", "hybrid_graph")
 # Biến thể: (file phụ được chép, ghi đè cấu hình chunk). ocr_info.json đi kèm OCR để bộ lọc chữ rác
@@ -179,7 +179,7 @@ def main():
     if not args.relations:
         print("Không gọi Ollama trích quan hệ (thêm --relations để bật); đồ thị chỉ dùng khái niệm và liên kết.")
 
-    from vskr.embedder import Embedder
+    from vskr.retrieval.embedder import Embedder
 
     embedder = Embedder(cfg["embedding"])
     workdir = Path(tempfile.mkdtemp(prefix="vskr-eval-variants-"))

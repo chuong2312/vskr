@@ -8,10 +8,12 @@ _TOKEN = re.compile(r"\w+", re.UNICODE)
 
 
 def tokenize(text):
+    """Tách văn bản thành các từ (âm tiết) viết thường, sau khi chuẩn hoá Unicode NFC."""
     return _TOKEN.findall(unicodedata.normalize("NFC", text).lower())
 
 
 class BM25:
+    """Chỉ mục BM25 (Okapi) trên các đoạn đã tách từ; ``k1``, ``b`` là tham số chuẩn của BM25."""
     def __init__(self, docs_tokens, k1=1.5, b=0.75):
         self.k1, self.b = k1, b
         self.n = len(docs_tokens)
@@ -27,6 +29,11 @@ class BM25:
         self.idf = {t: math.log(1 + (self.n - f + 0.5) / (f + 0.5)) for t, f in df.items()}
 
     def scores(self, query_tokens, allowed_docs=None):
+        """Điểm BM25 của câu truy vấn cho từng đoạn, theo thứ tự trong chỉ mục.
+
+        ``allowed_docs`` là mặt nạ True/False cho từng đoạn: IDF và độ dài trung bình chỉ tính trên các
+        đoạn được phép, nên tần suất từ trong học liệu người xem không được thấy không làm lộ thông tin.
+        """
         res = [0.0] * self.n
         if allowed_docs is None:
             allowed = None

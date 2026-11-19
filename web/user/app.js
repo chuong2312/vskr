@@ -1,6 +1,13 @@
+/**
+ * App người học (PWA): thư viện bài giảng, trình phát video, hỏi đáp có trích dẫn và lịch sử hội thoại.
+ *
+ * Toàn bộ trạng thái giao diện nằm trong `state`. Giao diện được dựng bằng DOM (make(), textContent),
+ * không dùng innerHTML, nên nội dung từ server không thể chèn mã HTML/JS vào trang.
+ */
 import { ApiError, request } from "/shared/api.js";
 
 const $ = (selector) => document.querySelector(selector);
+/** Trạng thái duy nhất của giao diện: thư viện, video đang xem, nguồn của từng lượt, hội thoại, tác vụ. */
 const state = {
   videos: [], documents: [], conversations: [], activeConversationId: null, currentVideo: null, sources: [], player: null,
   projects: [], currentProjectId: null,
@@ -163,6 +170,7 @@ function stopJobPolling() {
   state.jobPollTimer = null;
 }
 
+/** Hỏi lại trạng thái tác vụ của mình khi hộp thoại thêm nội dung đang mở; tác vụ vừa xong thì tải lại thư viện. */
 async function refreshMyJobs() {
   if (!contentDialog.open || state.jobPollInFlight) return;
   state.jobPollInFlight = true;
@@ -196,6 +204,7 @@ const contentDialog = $("#content-dialog");
 const libraryDialog = $("#library-dialog");
 let libraryDialogScope = "mine";
 
+/** Kiểm tra định dạng và dung lượng (theo hạn mức của tài khoản) trước khi tải lên; trả về thông báo lỗi hoặc chuỗi rỗng. */
 function validateUploadFile(file, type) {
   if (!file) return "Chọn một tệp trước.";
   const extension = file.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
@@ -213,6 +222,7 @@ function validateUploadFile(file, type) {
   return "";
 }
 
+/** Gửi video (URL hoặc tệp) hoặc tài liệu vào project hiện tại, rồi theo dõi tác vụ xử lý. */
 async function enqueueContent({ type, url = "", file = null, statusNode, button, closeOnQueue = false }) {
   const error = type === "document" ? validateUploadFile(file, type)
     : file ? validateUploadFile(file, "video") : "";
@@ -363,6 +373,7 @@ function clearRetry() {
   state.retryTurn = null;
 }
 
+/** Khi server báo quá tải (429/503): hiện đếm ngược theo Retry-After và nút gửi lại câu hỏi. */
 function waitBeforeRetry(seconds, question, message, turn) {
   clearRetry();
   const body = turn.querySelector(".turn-content");
@@ -462,6 +473,7 @@ function loadYouTubeApi() {
   return state.youtubePromise;
 }
 
+/** Dựng trình phát cho video đang chọn: YouTube nhúng, file đã tải lên, hoặc thông báo khi không phát được. */
 function setupPlayer(video) {
   const area = $("#player");
   if (state.player?.destroy) state.player.destroy();
@@ -521,6 +533,7 @@ function setupPlayer(video) {
   area.append(message);
 }
 
+/** Chọn một bài giảng: hiện thẻ bài giảng và dựng trình phát. */
 function selectVideo(video, { open = true } = {}) {
   state.currentVideo = video;
   $("#welcome").hidden = open;
@@ -621,6 +634,7 @@ function closeLecture() {
   renderTimeline();
 }
 
+/** Mở một nguồn được trích dẫn: tài liệu thì hiện mục tương ứng, video thì chuyển tới đúng mốc thời gian. */
 async function openSource(source, turnId = state.activeTurnId) {
   const turnSources = state.sourcesByTurn.get(String(turnId));
   if (turnSources) {
@@ -655,6 +669,7 @@ function showCitationPreview(wrapper, visible) {
   wrapper.querySelector(".citation-popover").hidden = !visible;
 }
 
+/** Nút trích dẫn [n] trong câu trả lời, kèm khung xem trước nội dung nguồn. */
 function createCitation(source, number, turnId, label) {
   const wrapper = make("span", "citation-wrap");
   const button = make("button", "citation", label);
@@ -763,6 +778,7 @@ function isMarkdownBlockStart(lines, index) {
   return /^\s*(```|#{1,6}\s|[-*+]\s|\d+\.\s|>)/.test(line) || isTableStart(lines, index);
 }
 
+/** Hiển thị câu trả lời Markdown đơn giản (đoạn, danh sách, bảng, code) bằng DOM, gắn nút trích dẫn; trả về số trích dẫn. */
 function appendMarkdownAnswer(container, answer, sources, turnId) {
   const lines = String(answer).replace(/\r\n?/g, "\n").split("\n");
   let citations = 0;
@@ -869,6 +885,7 @@ async function copyText(text) {
   }
 }
 
+/** Hiển thị kết quả hỏi đáp của một lượt: câu trả lời, danh sách nguồn và mốc thời gian trên video. */
 function renderResult(result, root, turnId, { scroll = true } = {}) {
   const followThread = isThreadNearEnd();
   state.sources = Array.isArray(result.sources) ? result.sources : [];
@@ -973,6 +990,7 @@ function scrollThreadToEnd({ smooth = false, onlyIfNearEnd = false } = {}) {
   return true;
 }
 
+/** Thêm một lượt (câu hỏi hoặc câu trả lời) vào khung hội thoại và trả về phần tử của lượt đó. */
 function addTurn(role, content, pending = false, { scroll = true, forceScroll = false } = {}) {
   const row = make("div", role === "user" ? "user-turn" : "assistant-turn");
   const turnId = `turn-${++state.turnCounter}`;
@@ -1043,6 +1061,7 @@ function setTurnStatus(turn, message, kind = "") {
   turn.removeAttribute("data-pending");
 }
 
+/** Gửi câu hỏi: hiện lượt chờ, gọi API hỏi đáp, hiển thị kết quả và nhớ id cuộc trò chuyện; quá tải thì chờ rồi cho gửi lại. */
 async function submitQuestion(question = $("#question-input").value.trim(), options = {}) {
   if (!question || state.asking || $("#source-deleted-banner").hidden === false) return;
   const previousDraftKey = currentDraftKey();
@@ -1154,6 +1173,7 @@ async function showAdminLink() {
   } catch { /* Public reading and questions do not depend on admin session lookup. */ }
 }
 
+/** Đọc phiên hiện tại (người học hoặc khách) rồi cập nhật giao diện tài khoản. */
 async function loadLearnerSession() {
   try {
     const session = await request("/api/user/me");
@@ -1183,6 +1203,7 @@ async function loadLearnerSession() {
   }
 }
 
+/** Cập nhật giao diện theo trạng thái đăng nhập; mất phiên thì xoá dữ liệu riêng đang hiển thị. */
 function setAccountView(session, { preserveCurrentThread = false } = {}) {
   const signedIn = Boolean(session?.user_id);
   const lostSession = state.signedIn && !signedIn;
@@ -1387,6 +1408,7 @@ async function loadConversations() {
   }
 }
 
+/** Mở một cuộc trò chuyện đã lưu: tải các lượt hỏi đáp và hiển thị lại. */
 async function openConversation(conversationId, { updateUrl = true } = {}) {
   if (state.asking) {
     setStatus("Đợi câu trả lời xong rồi hãy chuyển cuộc trò chuyện.", "error");
@@ -1518,6 +1540,7 @@ function renderConversationSourcePicker() {
   if (!items.length) list.append(make("p", "muted", "Không tìm thấy nguồn phù hợp."));
 }
 
+/** Bắt đầu cuộc trò chuyện mới gắn với một nguồn: một video, một tài liệu hoặc cả thư viện. */
 async function beginConversationWithSource(source) {
   saveCurrentDraft();
   const normalized = {
@@ -1599,6 +1622,7 @@ $("#user-logout").addEventListener("click", async () => {
   finally { sessionStorage.removeItem("vskr-user-csrf"); location.assign("/"); }
 });
 
+/** Tải thư viện của project hiện tại (video, tài liệu) và trạng thái chỉ mục. */
 async function loadLibrary() {
   try {
     if (!state.projects.length) await loadProjects();
@@ -2035,6 +2059,7 @@ function openLibrarySearch() {
   topbar.classList.add("search-open");
   searchInput.focus();
 }
+/** Tìm nhanh theo tên video/tài liệu trong thư viện đã tải (tối đa 8 kết quả). */
 function updateSearch() {
   const query = searchInput.value.trim().toLocaleLowerCase("vi");
   searchResults.replaceChildren(); searchIndex = -1;

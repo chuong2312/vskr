@@ -1,3 +1,9 @@
+"""Tìm các đoạn liên quan tới câu hỏi theo 5 chế độ: ``vector``, ``bm25``, ``hybrid``, ``graph``, ``hybrid_graph``.
+
+``hybrid`` hợp nhất vector và BM25 bằng RRF; ``hybrid_graph`` thêm bảng xếp hạng từ đồ thị tri thức.
+``allowed_sources`` giới hạn kết quả trong các video/tài liệu người xem được phép thấy; mặt nạ
+tương ứng được cache (LRU, tối đa 512 tập nguồn).
+"""
 from collections import OrderedDict
 import threading
 
@@ -11,6 +17,7 @@ ALLOWED_MASK_CACHE_SIZE = 512
 
 
 class Retriever:
+    """Bộ tìm kiếm trên một chỉ mục đã nạp, dùng chung cho mọi câu hỏi."""
     def __init__(self, index, embedder, rcfg):
         self.index, self.embedder, self.cfg = index, embedder, rcfg
         self._semantic_terms_cache = {}
@@ -41,7 +48,7 @@ class Retriever:
             return mask
 
     def _semantic_graph_terms(self, vector_scores, query, limit=5):
-        """Use E5-near chunks to add their graph concepts as soft query anchors."""
+        """Lấy khái niệm trong đồ thị của các đoạn gần nhất theo vector E5, dùng làm điểm neo mềm cho truy vấn graph."""
         cache_key = query.casefold().strip()
         if cache_key in self._semantic_terms_cache:
             return self._semantic_terms_cache[cache_key]
@@ -75,6 +82,13 @@ class Retriever:
         return semantic_terms
 
     def search(self, query, mode=None, top_k=None, experiment=None, allowed_sources=None):
+        """Trả về tối đa ``top_k`` đoạn tốt nhất: ``[{"idx", "score", "chunk"}, ...]``, tốt nhất trước.
+
+        ``mode`` mặc định lấy từ ``retrieval.mode``. Ở các chế độ có vector, nếu đặt
+        ``retrieval.min_vector_score`` mà đoạn gần nhất vẫn thấp hơn ngưỡng thì trả về danh sách rỗng.
+        ``experiment`` bật các tuỳ chọn thử nghiệm của graph (trọng số IDF, mở rộng theo nghĩa, PPR) cho
+        trang đánh giá.
+        """
         mode = mode or self.cfg.get("mode", "hybrid")
         top_k = top_k or self.cfg.get("top_k", 5)
         cand = self.cfg.get("candidate_k", 20)

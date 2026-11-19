@@ -1,4 +1,8 @@
-"""SQLite-backed learner accounts and browser sessions."""
+"""Tài khoản người học, phiên đăng nhập, project và lịch sử hội thoại, lưu trong SQLite (``data/accounts.sqlite3``).
+
+Khách không có tài khoản được nhận diện bằng cookie. Id khách lưu trên đĩa là HMAC của token cookie
+(``g:h:<hex>``), nên đọc dữ liệu không suy ra được cookie. Mọi giới hạn tần suất đều tính phía server.
+"""
 
 from __future__ import annotations
 
@@ -19,8 +23,8 @@ from fastapi import HTTPException, Request
 
 from . import auth
 from .auth import _same_origin, _secure_cookie_request, hash_password
-from .config import data_dir, index_dir, load_config
-from .util import read_json, write_json
+from ..config import data_dir, index_dir, load_config
+from ..util import read_json, write_json
 
 COOKIE_NAME = "vskr_user"
 GUEST_COOKIE_NAME = "vskr_guest"
@@ -125,6 +129,7 @@ def _connect():
 
 
 def check_registration_rate(ip: str, now: float | None = None) -> None:
+    """Giới hạn số lần đăng ký từ một IP trong ``REGISTRATION_WINDOW``; vượt thì báo 429 kèm Retry-After."""
     now = time.time() if now is None else now
     with _registration_lock:
         attempts = _registration_attempts.setdefault(ip, deque())
@@ -141,6 +146,7 @@ def check_registration_rate(ip: str, now: float | None = None) -> None:
 
 
 def check_guest_identity_rate(ip: str, now: float | None = None) -> None:
+    """Giới hạn số danh tính khách mới tạo từ một IP; vượt thì báo 429 kèm Retry-After."""
     now = time.time() if now is None else now
     with _guest_identity_lock:
         attempts = _guest_identity_attempts.setdefault(ip, deque())
@@ -157,6 +163,10 @@ def check_guest_identity_rate(ip: str, now: float | None = None) -> None:
 
 
 def reserve_ingest_job(owner_id: str, max_jobs_per_day: int, now: int | None = None) -> int:
+    """Giữ một suất trong hạn mức tác vụ mỗi ngày (24 giờ trượt) của chủ sở hữu; hết suất thì báo 429.
+
+    Trả về id suất, để hoàn lại bằng ``release_ingest_job`` nếu tác vụ không được tạo.
+    """
     now = int(time.time()) if now is None else int(now)
     cutoff = now - 24 * 60 * 60
     with _connect() as db:
@@ -175,6 +185,7 @@ def reserve_ingest_job(owner_id: str, max_jobs_per_day: int, now: int | None = N
 
 
 def release_ingest_job(owner_id: str, usage_id: int) -> bool:
+    """Hoàn lại một suất đã giữ bằng ``reserve_ingest_job``; trả về True nếu có xoá."""
     with _connect() as db:
         cursor = db.execute(
             "DELETE FROM ingest_usage WHERE usage_id = ? AND owner_id = ?",
@@ -184,6 +195,7 @@ def release_ingest_job(owner_id: str, usage_id: int) -> bool:
 
 
 def register(username: str, password: str):
+    """Tạo tài khoản người học: tên đăng nhập hoặc email, mật khẩu ít nhất 8 ký tự, băm bằng Argon2id."""
     username = username.strip()
     if "@" in username:
         if len(username) > 254 or username.count("@") != 1 or username.startswith("@"):
@@ -203,9 +215,13 @@ def register(username: str, password: str):
 
 
 def create_session(username: str, password: str):
+    """Đăng nhập người học; trả về (token phiên, thông tin người dùng kèm token CSRF).
+
+    Sai tên và sai mật khẩu nhận cùng một thông báo lỗi. Trong DB chỉ lưu hash của token.
+    """
     with _connect() as db:
         row = db.execute("SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username.strip(),)).fetchone()
-        # Argon2 verification is performed for existing accounts; unknown names return the same response.
+        # Chỉ kiểm tra Argon2 với tài khoản có thật; tên không tồn tại vẫn nhận cùng một thông báo lỗi.
         valid = False
         if row is not None:
             from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
@@ -290,6 +306,11 @@ def _migrate_legacy_visibility(path: Path, legacy_owners_by_id: dict[str, set[st
 
 
 def migrate_legacy_guest_owners() -> None:
+    """Chạy một lần cho mỗi thư mục dữ liệu: đặt quyền xem cho học liệu cũ và băm HMAC các id khách cũ.
+
+    Cập nhật ``meta.json`` của video/tài liệu, ``chunks.json`` và các bảng projects/ingest_usage
+    (``g:...`` thành ``g:h:...``). Mỗi bước được ghi vào ``schema_migrations`` để không chạy lại.
+    """
     root = data_dir(load_config())
     root_key = str(root.resolve())
     with _guest_owner_migration_lock:
@@ -347,6 +368,7 @@ def migrate_legacy_guest_owners() -> None:
 
 
 def guest_owner_id(token: str) -> str:
+    """Id chủ sở hữu của khách: HMAC-SHA256 của token cookie (``g:h:<hex>``), nên dữ liệu trên đĩa không chứa token."""
     migrate_legacy_guest_owners()
     root = data_dir(load_config())
     digest = hmac.new(_guest_owner_key(root), token.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -354,6 +376,7 @@ def guest_owner_id(token: str) -> str:
 
 
 def get_session(token: str | None, *, touch=True):
+    """Phiên người học còn hiệu lực ứng với token, hoặc None nếu tài khoản bị khoá hay phiên đã hết hạn."""
     if not token:
         return None
     now = int(time.time())
@@ -372,6 +395,7 @@ def get_session(token: str | None, *, touch=True):
 
 
 def list_users():
+    """Danh sách tài khoản người học cho admin, mới nhất trước."""
     with _connect() as db:
         return [dict(row) for row in db.execute(
             "SELECT user_id, username, created_at, disabled FROM users ORDER BY created_at DESC"
@@ -384,6 +408,7 @@ def _project_row(row):
 
 
 def list_projects(owner_id: str):
+    """Các project của một chủ sở hữu, theo thứ tự tạo."""
     with _connect() as db:
         rows = db.execute(
             "SELECT project_id, name, owner_id, created_at FROM projects "
@@ -393,6 +418,7 @@ def list_projects(owner_id: str):
 
 
 def create_project(owner_id: str, name: str):
+    """Tạo project mới (tên 1–120 ký tự); vượt ``PROJECTS_PER_OWNER_LIMIT`` thì báo 429."""
     name = " ".join(str(name or "").split())
     if not name or len(name) > 120:
         raise HTTPException(422, "Tên project cần từ 1 đến 120 ký tự.")
@@ -409,6 +435,7 @@ def create_project(owner_id: str, name: str):
 
 
 def get_project(owner_id: str, project_id: str | None):
+    """Project của đúng chủ sở hữu; thiếu id thì 422, không tìm thấy hoặc của người khác thì 404."""
     if not project_id:
         raise HTTPException(422, "project_id là bắt buộc.")
     with _connect() as db:
@@ -422,6 +449,7 @@ def get_project(owner_id: str, project_id: str | None):
 
 
 def get_or_create_default_project(owner_id: str):
+    """Project đầu tiên của chủ sở hữu; tạo mới nếu chưa có."""
     with _connect() as db:
         row = db.execute(
             "SELECT project_id, name, owner_id, created_at FROM projects "
@@ -437,6 +465,7 @@ def get_or_create_default_project(owner_id: str):
 
 
 def set_user_disabled(user_id: str, disabled: bool):
+    """Khoá hoặc mở khoá tài khoản; khoá thì xoá luôn mọi phiên của tài khoản đó."""
     with _connect() as db:
         cursor = db.execute("UPDATE users SET disabled = ? WHERE user_id = ?", (int(disabled), user_id))
         if not cursor.rowcount:
@@ -458,6 +487,7 @@ def _conversation_scope(source_id: str | None, source_type: str, scope_type: str
 
 def create_conversation(user_id: str, title: str, source_id: str | None, source_type: str,
                         project_id: str | None = None, scope_type: str | None = None):
+    """Tạo cuộc trò chuyện mới gắn với một nguồn: video, tài liệu hoặc cả thư viện."""
     if source_type not in {"video", "document", "library"}:
         raise HTTPException(422, "Loại nguồn không hợp lệ.")
     scope_type, source_id = _conversation_scope(source_id, source_type, scope_type)
@@ -476,6 +506,10 @@ def create_conversation(user_id: str, title: str, source_id: str | None, source_
 def save_exchange(user_id: str, conversation_id: str | None, question: str, result: dict,
                   *, source_id: str | None = None, source_type: str = "library",
                   project_id: str | None = None, scope_type: str | None = None):
+    """Lưu một lượt hỏi đáp; chưa có cuộc trò chuyện thì tạo mới, tiêu đề lấy từ câu hỏi.
+
+    Không cho đổi nguồn của cuộc trò chuyện đã có (409). Trả về id cuộc trò chuyện.
+    """
     now = int(time.time())
     scope_type, source_id = _conversation_scope(source_id, source_type, scope_type)
     with _connect() as db:
@@ -506,6 +540,7 @@ def save_exchange(user_id: str, conversation_id: str | None, question: str, resu
 
 
 def list_conversations(user_id: str, project_id: str | None = None):
+    """Các cuộc trò chuyện của người dùng (lọc theo project nếu có), mới cập nhật trước, kèm số lượt."""
     with _connect() as db:
         query = """SELECT c.conversation_id, c.title, c.created_at,
                    c.updated_at, c.source_id, c.source_type, c.scope_type, c.project_id, COUNT(t.turn_id) AS turn_count
@@ -520,6 +555,7 @@ def list_conversations(user_id: str, project_id: str | None = None):
 
 
 def get_conversation(user_id: str, conversation_id: str):
+    """Một cuộc trò chuyện của đúng người dùng, kèm các lượt hỏi đáp; không có thì 404."""
     with _connect() as db:
         conversation = db.execute("""SELECT conversation_id, title, created_at, updated_at, source_id, source_type, scope_type, project_id
                                    FROM conversations
@@ -538,6 +574,7 @@ def get_conversation(user_id: str, conversation_id: str):
 
 
 def rename_conversation(user_id: str, conversation_id: str, title: str):
+    """Đổi tên cuộc trò chuyện (tối đa 72 ký tự)."""
     title = " ".join(title.split())
     if not title:
         raise HTTPException(422, "Tên cuộc trò chuyện không được để trống.")
@@ -554,6 +591,7 @@ def rename_conversation(user_id: str, conversation_id: str, title: str):
 
 
 def delete_conversation(user_id: str, conversation_id: str):
+    """Xoá cuộc trò chuyện của người dùng; không có thì 404."""
     with _connect() as db:
         cursor = db.execute("DELETE FROM conversations WHERE conversation_id = ? AND user_id = ?",
                             (conversation_id, user_id))
@@ -562,6 +600,11 @@ def delete_conversation(user_id: str, conversation_id: str):
 
 
 def require_user(request: Request):
+    """Dependency yêu cầu người học đã đăng nhập.
+
+    Cookie phải an toàn (403), phiên phải hợp lệ (401); request ghi phải cùng origin và có đúng token
+    CSRF (403).
+    """
     if not _secure_cookie_request(request):
         raise HTTPException(403, "Cookie bảo mật chỉ có thể tắt khi truy cập localhost.")
     session = get_session(request.cookies.get(COOKIE_NAME))
@@ -576,10 +619,13 @@ def require_user(request: Request):
 
 
 def optional_learner_or_admin(request: Request):
-    """Return a signed-in learner/admin or a shared-library-only guest."""
+    """Người học hoặc admin đã đăng nhập; không có thì trả về khách, chỉ xem được phần dùng chung.
+
+    Khách chưa có cookie được cấp token mới, lưu tạm ở ``request.state.new_guest_token`` để route đặt cookie.
+    """
     user_token = request.cookies.get(COOKIE_NAME)
     if user_token and get_session(user_token) is not None:
-        # Preserve CSRF and transport checks for valid account sessions.
+        # Phiên tài khoản hợp lệ vẫn phải qua kiểm tra CSRF và cookie an toàn.
         return require_user(request)
 
     admin_token = request.cookies.get(auth.COOKIE_NAME)
@@ -598,6 +644,7 @@ def optional_learner_or_admin(request: Request):
 
 
 def require_learner_or_guest(request: Request):
+    """Người học hoặc khách (dùng cho route thêm nội dung); admin bị từ chối với 403."""
     user = optional_learner_or_admin(request)
     if user.get("admin"):
         raise HTTPException(403, "Tài khoản quản trị không thể thêm nội dung.")
@@ -605,24 +652,28 @@ def require_learner_or_guest(request: Request):
 
 
 def revoke_session(token: str | None):
+    """Xoá phiên người học (đăng xuất)."""
     if token:
         with _connect() as db:
             db.execute("DELETE FROM user_sessions WHERE token_hash = ?", (_token_hash(token),))
 
 
 def set_cookie(response, token: str):
+    """Đặt cookie phiên người học: HttpOnly, SameSite=Strict, Secure theo cấu hình."""
     from .auth import cookie_secure
     response.set_cookie(COOKIE_NAME, token, max_age=SESSION_TTL, httponly=True,
                         secure=cookie_secure(), samesite="strict", path="/")
 
 
 def set_guest_cookie(response, token: str):
+    """Đặt cookie khách (30 ngày): HttpOnly, SameSite=Strict, Secure theo cấu hình."""
     from .auth import cookie_secure
     response.set_cookie(GUEST_COOKIE_NAME, token, max_age=30 * 24 * 60 * 60,
                         httponly=True, secure=cookie_secure(), samesite="strict", path="/")
 
 
 def clear_cookie(response):
+    """Xoá cookie phiên người học."""
     from .auth import cookie_secure
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True,
                            secure=cookie_secure(), samesite="lax")

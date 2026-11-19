@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from vskr import auth
+from vskr.access import auth
 from vskr.api import app, handlers
-from vskr.auth import hash_password
+from vskr.access.auth import hash_password
 
 from tests.asgi_client import ASGITestClient
 
@@ -39,10 +39,10 @@ class TestAdminDashboardApi(unittest.TestCase):
             "chunks": [{"video_id": "v1"}] * 7,
         })()
         cache = {"checked_at": time.monotonic(), "connected": True}
-        with mock.patch.dict(handlers.state, {"service": service, "error": None}), \
-                mock.patch.object(handlers, "status", return_value={"ready": True, "error": None}), \
-                mock.patch.object(handlers, "_ollama_status_cache", cache):
-            result = handlers.admin_status()
+        with mock.patch.dict(handlers.runtime.state, {"service": service, "error": None}), \
+                mock.patch.object(handlers.runtime, "status", return_value={"ready": True, "error": None}), \
+                mock.patch.object(handlers.runtime, "_ollama_status_cache", cache):
+            result = handlers.runtime.admin_status()
         self.assertEqual(result["index"], {
             "created_at": "2026-11-15T00:00:00+00:00", "version": 1, "chunk_count": 7,
         })
@@ -56,7 +56,7 @@ class TestAdminDashboardApi(unittest.TestCase):
         }
         result = {
             "question_count": 1,
-            "question_fingerprint": handlers._questions_fingerprint([original_question]),
+            "question_fingerprint": handlers.evaluation._questions_fingerprint([original_question]),
             "summary": {"hybrid": {"all": {"recall_at_5": 1.0}}},
         }
         (eval_dir / "results.json").write_text(json.dumps(result), encoding="utf-8")
@@ -64,17 +64,17 @@ class TestAdminDashboardApi(unittest.TestCase):
         (eval_dir / "questions.jsonl").write_text(json.dumps(changed_question) + "\n", encoding="utf-8")
 
         with mock.patch.dict(os.environ, self.env):
-            stale = handlers.get_eval_results()
+            stale = handlers.evaluation.get_eval_results()
             (eval_dir / "questions.jsonl").write_text(json.dumps(original_question) + "\n", encoding="utf-8")
-            current = handlers.get_eval_results()
+            current = handlers.evaluation.get_eval_results()
 
         self.assertTrue(stale["stale"])
         self.assertFalse(current["stale"])
 
     def setUp(self):
         self.data_dir = tempfile.TemporaryDirectory()
-        self.original_jobs = handlers._jobs.copy()
-        handlers._jobs.clear()
+        self.original_jobs = handlers.runtime._jobs.copy()
+        handlers.runtime._jobs.clear()
         with auth._sessions_lock:
             auth._sessions.clear()
         self.env = {
@@ -85,12 +85,12 @@ class TestAdminDashboardApi(unittest.TestCase):
         }
 
     def tearDown(self):
-        handlers._jobs.clear()
-        handlers._jobs.update(self.original_jobs)
+        handlers.runtime._jobs.clear()
+        handlers.runtime._jobs.update(self.original_jobs)
         self.data_dir.cleanup()
 
     def test_admin_job_list_is_bounded_and_does_not_expose_job_source_paths(self):
-        handlers._jobs["job-safe"] = {
+        handlers.runtime._jobs["job-safe"] = {
             "job_id": "job-safe", "status": "error", "phase": "error", "message": "internal",
             "created_at": "2026-11-14T00:00:00+00:00", "title": "Lecture",
             "_source": {"path": "/srv/secret/video.mp4"},

@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from vskr.retriever import Retriever
+from vskr.retrieval.retriever import Retriever
 
 
 class TestAllowedMaskCache(unittest.TestCase):

@@ -1,10 +1,14 @@
-"""Import teaching documents as searchable, graph-linked sections."""
+"""Nạp tài liệu bài giảng (TXT, Markdown, RST, PDF, DOCX) thành các mục tìm kiếm được.
+
+Mỗi tài liệu nằm trong ``<data_dir>/documents/<id>/`` kèm ``meta.json``; khi lập chỉ mục, các mục
+được nối vào đồ thị tri thức cùng với video.
+"""
 import re
 import uuid
 from pathlib import Path
 
-from .config import data_dir
-from .util import read_json, write_json
+from ..config import data_dir
+from ..util import read_json, write_json
 
 
 def _extract(path):
@@ -29,7 +33,7 @@ def _extract(path):
 
 
 def ingest_document(path, cfg, document_id=None):
-    """Persist an uploaded/local document and return metadata for its graph sections."""
+    """Lưu tài liệu (tải lên hoặc file trên máy), tách thành các mục và trả về metadata của nó."""
     source = Path(path)
     if not source.is_file():
         raise FileNotFoundError(f"Không tìm thấy tài liệu: {source}")
@@ -70,6 +74,7 @@ def ingest_document(path, cfg, document_id=None):
 
 
 def list_documents(cfg):
+    """Metadata (``meta.json``) của mọi tài liệu trong ``<data_dir>/documents``, theo thứ tự tên thư mục."""
     root = data_dir(cfg) / "documents"
     if not root.exists():
         return []

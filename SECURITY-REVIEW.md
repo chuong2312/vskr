@@ -11,16 +11,17 @@ vượt ngoài transport này.
 Các patch vòng 1-3 được đánh giá trên bản sao sạch từ commit
 `ca095d6a90f71ac138ab57e418dea373ac4506e9`. Patch vòng 3 là artifact riêng,
 không nằm trong commit này. Line references dưới đây là theo bản sao sau khi áp
-các patch, không phải line numbers của HEAD hiện tại.
+các patch, không phải line numbers của HEAD hiện tại. Ngày 2026-11-20 code được chia lại theo khâu: đường dẫn
+trong bảng đã đổi sang vị trí mới, còn số dòng vẫn là của bản được review.
 
 ## Findings
 
 | # | Severity | File | Lines | Vulnerability / evidence | Confidence |
 |---|----------|------|-------|--------------------------|------------|
-| 1 | 🟠 HIGH | `backend/src/vskr/safe_ytdlp.py` (R3 patch), `README.md` | 38-127; README 79 | SSRF DNS rebinding/redirect được xử lý trong native HTTP transport và kiểm tra bằng mock. Tuy nhiên yt-dlp 2026.10.26 `downloader/hls.py:124-126` có thể giao HLS không hỗ trợ cho ffmpeg. Firewall egress chặn địa chỉ non-global là điều kiện bắt buộc; chưa kiểm thử firewall hoặc tải mạng thật. | 8/10 |
-| 2 | 🟡 MEDIUM | `backend/src/vskr/accounts.py`, `README.md` | 592-611, 633-637; README 73 | Guest cookie có `Max-Age=30 ngày` ở browser, nhưng backend chỉ HMAC token và không kiểm tra thời điểm hết hạn. Token cũ bị sao chép vẫn được nhận nếu client gửi lại. Chưa đổi semantics hoặc migration vì sẽ ảnh hưởng identity/content legacy. | 9/10 |
-| 3 | 🟡 MEDIUM | `backend/src/vskr/api/handlers.py`, `backend/src/vskr/index.py` | 776-790; 82, 139 | Mỗi rebuild đọc corpus và gọi embedder trên toàn bộ chunks. Test dùng embedder giả xác nhận số chunks được nhúng tăng từ 2 lên 10; benchmark thật chưa chạy. | 8/10 |
-| 4 | 🟡 MEDIUM | `backend/src/vskr/service.py`, `backend/src/vskr/api/handlers.py` | 85; 134, 744 | Ask đợi shared GPU lock tối đa 10 giây rồi trả lỗi bận. Test mô phỏng lock bị giữ; chưa đo đồng thời với ASR/GPU thật. | 8/10 |
+| 1 | 🟠 HIGH | `backend/src/vskr/pipeline/safe_ytdlp.py` (R3 patch), `README.md` | 38-127; README 79 | SSRF DNS rebinding/redirect được xử lý trong native HTTP transport và kiểm tra bằng mock. Tuy nhiên yt-dlp 2026.10.26 `downloader/hls.py:124-126` có thể giao HLS không hỗ trợ cho ffmpeg. Firewall egress chặn địa chỉ non-global là điều kiện bắt buộc; chưa kiểm thử firewall hoặc tải mạng thật. | 8/10 |
+| 2 | 🟡 MEDIUM | `backend/src/vskr/access/accounts.py`, `README.md` | 592-611, 633-637; README 73 | Guest cookie có `Max-Age=30 ngày` ở browser, nhưng backend chỉ HMAC token và không kiểm tra thời điểm hết hạn. Token cũ bị sao chép vẫn được nhận nếu client gửi lại. Chưa đổi semantics hoặc migration vì sẽ ảnh hưởng identity/content legacy. | 9/10 |
+| 3 | 🟡 MEDIUM | `backend/src/vskr/api/handlers/jobs.py`, `backend/src/vskr/retrieval/index.py` | 776-790; 82, 139 | Mỗi rebuild đọc corpus và gọi embedder trên toàn bộ chunks. Test dùng embedder giả xác nhận số chunks được nhúng tăng từ 2 lên 10; benchmark thật chưa chạy. | 8/10 |
+| 4 | 🟡 MEDIUM | `backend/src/vskr/service.py`, `backend/src/vskr/api/handlers/ask.py` | 85; 134, 744 | Ask đợi shared GPU lock tối đa 10 giây rồi trả lỗi bận. Test mô phỏng lock bị giữ; chưa đo đồng thời với ASR/GPU thật. | 8/10 |
 | 5 | ⚪ LOW | `configs/models.yaml`, `scripts/calibrate_retrieval_threshold.py` (R3 patch) | `min_vector_score: null` | Ngưỡng từ chối câu hỏi vẫn chưa bật. Script hiệu chỉnh chỉ báo phân phối điểm và candidate từ positive references; `data/eval/questions.jsonl` hiện rỗng nên chưa thể tính ngưỡng hay false-accept rate. | 9/10 |
 | 6 | ⚪ LOW | `requirements.lock.txt`, `vskr-ui-redesign.zip`, `vskr-ui-redesign.zip:Zone.Identifier` | — | Hai ZIP-like files vẫn tracked; không có `pyproject.toml` hoặc GitHub Actions workflow được theo dõi. Không thay đổi hạng mục repo hygiene trong vòng này. | 10/10 |
 

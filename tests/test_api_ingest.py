@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import os
 import secrets
 import shutil
@@ -7,14 +8,25 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from fastapi import HTTPException
+
 from vskr import api
-from vskr import accounts
+from vskr.access import accounts
 from vskr.api import handlers
-from vskr import auth
-from vskr.auth import hash_password
+from vskr.access import auth
+from vskr.access.auth import hash_password
 from vskr.config import load_config
 
 from tests.asgi_client import ASGITestClient
+
+
+@contextlib.contextmanager
+def patch_handlers_config(config):
+    """Each handlers module reads the config through its own load_config; patch them all at once."""
+    with contextlib.ExitStack() as stack:
+        for module in (handlers.runtime, handlers.jobs, handlers.library, handlers.evaluation):
+            stack.enter_context(mock.patch.object(module, "load_config", return_value=config))
+        yield
 
 TEST_PASSWORD = secrets.token_urlsafe(24)
 TEST_PASSWORD_HASH = hash_password(TEST_PASSWORD)
@@ -43,9 +55,9 @@ class TestIngestApi(unittest.TestCase):
             config = load_config()
             if limits:
                 config["limits"]["user"].update(limits)
-            with mock.patch.object(handlers, "load_config", return_value=config), \
-                    mock.patch.object(handlers._job_executor, "submit") as submit:
-                with mock.patch("vskr.api.handlers.probe_duration", return_value=duration):
+            with patch_handlers_config(config), \
+                    mock.patch.object(handlers.runtime._job_executor, "submit") as submit:
+                with mock.patch("vskr.api.handlers.jobs.probe_duration", return_value=duration):
                     with ASGITestClient(api.app, authenticated_learner=False) as client:
                         headers = {"Origin": "http://localhost"}
                         registration = client.post(
@@ -66,7 +78,7 @@ class TestIngestApi(unittest.TestCase):
                             headers=headers,
                         )
                 if response.status_code == 202:
-                    handlers._jobs.pop(response.json()["job_id"], None)
+                    handlers.runtime._jobs.pop(response.json()["job_id"], None)
                 return response, submit
 
     def test_video_list_is_empty_before_first_index(self):
@@ -105,8 +117,8 @@ class TestIngestApi(unittest.TestCase):
             "VSKR_ADMIN_USER": "",
             "VSKR_ADMIN_PASSWORD_HASH": "",
             "VSKR_COOKIE_SECURE": "false",
-        }), mock.patch.object(handlers, "probe_duration", return_value=20), \
-                mock.patch.object(handlers._job_executor, "submit"):
+        }), mock.patch.object(handlers.jobs, "probe_duration", return_value=20), \
+                mock.patch.object(handlers.runtime._job_executor, "submit"):
             with ASGITestClient(api.app, authenticated_learner=False) as client:
                 listing = client.get("/api/projects")
                 self.assertEqual(listing.status_code, 200, listing.text)
@@ -128,7 +140,7 @@ class TestIngestApi(unittest.TestCase):
             "VSKR_ADMIN_PASSWORD_HASH": TEST_PASSWORD_HASH,
             "VSKR_COOKIE_SECURE": "false",
             "VSKR_EGRESS_FIREWALL_CONFIRMED": "true",
-        }), mock.patch.object(handlers, "start_ingest", new=submit), \
+        }), mock.patch.object(handlers.jobs, "start_ingest", new=submit), \
                 mock.patch("vskr.api.public.load_config", return_value={
                     "ingest": {
                         "allowed_domains": ["youtube.com", "youtu.be", "youtube-nocookie.com"],
@@ -144,6 +156,8 @@ class TestIngestApi(unittest.TestCase):
                     headers=headers,
                 )
                 self.assertEqual(learner_response.status_code, 400, learner_response.text)
+                self.assertEqual(learner_response.json()["detail"],
+                                 "Người học hiện chỉ có thể dán link YouTube hoặc tải video lên.")
                 submit.assert_not_awaited()
 
             with ASGITestClient(api.app, authenticated_learner=False) as client:
@@ -175,7 +189,7 @@ class TestIngestApi(unittest.TestCase):
             ("true", True, 202),
         )
         submit = mock.AsyncMock(return_value={"job_id": "guest-url", "status": "queued"})
-        with mock.patch.object(handlers, "start_ingest", new=submit), \
+        with mock.patch.object(handlers.jobs, "start_ingest", new=submit), \
                 mock.patch("vskr.api.public.load_config", return_value=config), \
                 mock.patch("vskr.api.public.validate_learner_ingest_url", side_effect=lambda url, **_kwargs: url):
             for firewall_confirmed, enabled, expected_status in cases:
@@ -214,8 +228,8 @@ class TestIngestApi(unittest.TestCase):
                 pass
 
         with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-            with mock.patch.object(handlers._job_executor, "submit") as submit:
-                response = asyncio.run(handlers.upload_document(
+            with mock.patch.object(handlers.runtime._job_executor, "submit") as submit:
+                response = asyncio.run(handlers.jobs.upload_document(
                     FakeUpload(), owner_id="learner-a", project_id="project-a",
                 ))
         self.assertEqual(response["status"], "queued")
@@ -223,7 +237,7 @@ class TestIngestApi(unittest.TestCase):
         self.assertEqual(source["kind"], "document")
         self.assertEqual(source["title"], "notes")
         self.assertTrue(Path(source["path"]).is_file())
-        handlers._jobs.pop(response["job_id"], None)
+        handlers.runtime._jobs.pop(response["job_id"], None)
 
     def test_upload_over_duration_has_direct_duration_message(self):
         response, submit = self._post_upload(
@@ -241,9 +255,9 @@ class TestIngestApi(unittest.TestCase):
         (target / "meta.json").write_text("{}", encoding="utf-8")
         env = {"VSKR__PATHS__DATA_DIR": str(self.tmp)}
 
-        with mock.patch.dict(os.environ, env), mock.patch.object(handlers, "_rebuild_or_clear"):
-            first = handlers.delete_video(video_id)
-            second = handlers.delete_video(video_id)
+        with mock.patch.dict(os.environ, env), mock.patch.object(handlers.library, "_rebuild_or_clear"):
+            first = handlers.library.delete_video(video_id)
+            second = handlers.library.delete_video(video_id)
 
         self.assertFalse(first["already_absent"])
         self.assertTrue(second["already_absent"])
@@ -257,11 +271,10 @@ class TestIngestApi(unittest.TestCase):
         marker.write_text("{}", encoding="utf-8")
         env = {"VSKR__PATHS__DATA_DIR": str(self.tmp)}
 
-        with mock.patch.dict(os.environ, env), mock.patch.object(
-            handlers, "_rebuild_or_clear", side_effect=RuntimeError("index failed")
+        with mock.patch.dict(os.environ, env), mock.patch.object(handlers.library, "_rebuild_or_clear", side_effect=RuntimeError("index failed")
         ):
-            with self.assertRaises(api.HTTPException) as raised:
-                handlers.delete_video(video_id)
+            with self.assertRaises(HTTPException) as raised:
+                handlers.library.delete_video(video_id)
 
         self.assertEqual(raised.exception.status_code, 500)
         self.assertTrue(marker.is_file())
@@ -278,17 +291,17 @@ class TestIngestApi(unittest.TestCase):
             '[{"video_id":"indexed-video","chunk_id":"indexed-video:0000"}]', encoding="utf-8"
         )
         job_id = "failed-indexed-job"
-        handlers._jobs[job_id] = {
+        handlers.runtime._jobs[job_id] = {
             "job_id": job_id, "status": "error", "video_id": video_id,
             "_source": {"kind": "url", "video_id": video_id},
         }
         try:
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-                handlers.delete_job(job_id)
+                handlers.jobs.delete_job(job_id)
             self.assertEqual(marker.read_bytes(), b"keep")
-            self.assertNotIn(job_id, handlers._jobs)
+            self.assertNotIn(job_id, handlers.runtime._jobs)
         finally:
-            handlers._jobs.pop(job_id, None)
+            handlers.runtime._jobs.pop(job_id, None)
 
     def test_delete_job_removes_unindexed_partial_video(self):
         video_id = "partial-video"
@@ -297,16 +310,16 @@ class TestIngestApi(unittest.TestCase):
         marker = target / "partial.bin"
         marker.write_bytes(b"discard")
         job_id = "failed-partial-job"
-        handlers._jobs[job_id] = {
+        handlers.runtime._jobs[job_id] = {
             "job_id": job_id, "status": "error", "video_id": video_id,
             "_source": {"kind": "url", "video_id": video_id},
         }
         try:
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-                handlers.delete_job(job_id)
+                handlers.jobs.delete_job(job_id)
             self.assertFalse(target.exists())
         finally:
-            handlers._jobs.pop(job_id, None)
+            handlers.runtime._jobs.pop(job_id, None)
 
     def test_delete_job_removes_failed_document_upload_but_keeps_indexed_document(self):
         document_id = "indexed-doc"
@@ -324,32 +337,32 @@ class TestIngestApi(unittest.TestCase):
             '[{"document_id":"indexed-doc","chunk_id":"indexed-doc:0000"}]', encoding="utf-8"
         )
         job_id = "failed-indexed-document-job"
-        handlers._jobs[job_id] = {
+        handlers.runtime._jobs[job_id] = {
             "job_id": job_id, "status": "error", "document_id": document_id,
             "_source": {"kind": "document", "document_id": document_id, "path": str(source_path)},
         }
         try:
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-                handlers.delete_job(job_id)
+                handlers.jobs.delete_job(job_id)
             self.assertTrue(marker.is_file())
             self.assertFalse(source_path.exists())
         finally:
-            handlers._jobs.pop(job_id, None)
+            handlers.runtime._jobs.pop(job_id, None)
 
     def test_delete_job_never_unlinks_a_document_source_outside_upload_staging(self):
         outside_file = self.tmp / "keep.txt"
         outside_file.write_text("keep", encoding="utf-8")
         job_id = "failed-document-with-invalid-path"
-        handlers._jobs[job_id] = {
+        handlers.runtime._jobs[job_id] = {
             "job_id": job_id, "status": "error", "document_id": "unindexed-doc",
             "_source": {"kind": "document", "document_id": "unindexed-doc", "path": str(outside_file)},
         }
         try:
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-                handlers.delete_job(job_id)
+                handlers.jobs.delete_job(job_id)
             self.assertEqual(outside_file.read_text(encoding="utf-8"), "keep")
         finally:
-            handlers._jobs.pop(job_id, None)
+            handlers.runtime._jobs.pop(job_id, None)
 
     def test_delete_video_rejects_id_that_resolves_to_the_video_root(self):
         video_root = self.tmp / "videos"
@@ -357,8 +370,8 @@ class TestIngestApi(unittest.TestCase):
         marker = video_root / "keep.txt"
         marker.write_text("keep", encoding="utf-8")
         with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}):
-            with self.assertRaises(api.HTTPException) as raised:
-                handlers.delete_video(".")
+            with self.assertRaises(HTTPException) as raised:
+                handlers.library.delete_video(".")
         self.assertEqual(raised.exception.status_code, 404)
         self.assertTrue(marker.is_file())
 
@@ -377,10 +390,10 @@ class TestIngestApi(unittest.TestCase):
                 pass
 
         with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}), \
-                mock.patch.object(handlers, "probe_duration", return_value=20), \
-                mock.patch.object(accounts, "reserve_ingest_job", side_effect=api.HTTPException(429, "quota")):
-            with self.assertRaises(api.HTTPException) as raised:
-                asyncio.run(handlers.start_ingest(
+                mock.patch.object(handlers.jobs, "probe_duration", return_value=20), \
+                mock.patch.object(accounts, "reserve_ingest_job", side_effect=HTTPException(429, "quota")):
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(handlers.jobs.start_ingest(
                     url=None, file=FakeUpload(), owner_id="g:quota-reject", project_id="project",
                 ))
 
@@ -414,27 +427,27 @@ class TestIngestApi(unittest.TestCase):
 
         async def submit_requests():
             return await asyncio.gather(*[
-                handlers.start_ingest(url=None, file=FakeUpload(), owner_id="g:concurrent", project_id="project")
+                handlers.jobs.start_ingest(url=None, file=FakeUpload(), owner_id="g:concurrent", project_id="project")
                 for _ in range(5)
             ], return_exceptions=True)
 
-        with mock.patch.object(handlers, "load_config", return_value=config), \
-                mock.patch.object(handlers, "probe_duration", return_value=20), \
-                mock.patch.object(handlers._job_executor, "submit"):
+        with patch_handlers_config(config), \
+                mock.patch.object(handlers.jobs, "probe_duration", return_value=20), \
+                mock.patch.object(handlers.runtime._job_executor, "submit"):
             results = asyncio.run(submit_requests())
 
         accepted = [item for item in results if isinstance(item, dict)]
-        rejected = [item for item in results if isinstance(item, api.HTTPException)]
+        rejected = [item for item in results if isinstance(item, HTTPException)]
         try:
             self.assertEqual(len(accepted), 2)
             self.assertEqual([item.status_code for item in rejected], [429, 429, 429])
             self.assertEqual(sum(
                 job.get("owner_id") == "g:concurrent" and job.get("status") in {"queued", "running"}
-                for job in handlers.list_jobs()
+                for job in handlers.jobs.list_jobs()
             ), 2)
         finally:
             for item in accepted:
-                handlers._jobs.pop(item["job_id"], None)
+                handlers.runtime._jobs.pop(item["job_id"], None)
 
     def test_document_upload_consumes_daily_job_quota(self):
         class FakeUpload:
@@ -453,22 +466,22 @@ class TestIngestApi(unittest.TestCase):
         config = {
             "paths": {"data_dir": str(self.tmp)},
             "ingest": {"max_queue_length": 20},
-            "limits": {"guest": {"max_active_jobs": 4, "max_jobs_per_day": 1}},
+            "limits": {"guest": {"max_active_jobs": 4, "max_jobs_per_day": 1, "max_document_bytes": 20 * 1024 * 1024}},
         }
         with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": str(self.tmp)}), \
-                mock.patch.object(handlers, "load_config", return_value=config), \
-                mock.patch.object(handlers._job_executor, "submit"):
-            first = asyncio.run(handlers.upload_document(
+                patch_handlers_config(config), \
+                mock.patch.object(handlers.runtime._job_executor, "submit"):
+            first = asyncio.run(handlers.jobs.upload_document(
                 FakeUpload(), owner_id="g:document-quota", project_id="project",
             ))
-            with self.assertRaises(api.HTTPException) as raised:
-                asyncio.run(handlers.upload_document(
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(handlers.jobs.upload_document(
                     FakeUpload(), owner_id="g:document-quota", project_id="project",
                 ))
 
         self.assertEqual(raised.exception.status_code, 429)
         self.assertEqual(len(list((self.tmp / "documents" / ".uploads").iterdir())), 1)
-        handlers._jobs.pop(first["job_id"], None)
+        handlers.runtime._jobs.pop(first["job_id"], None)
 
 
 if __name__ == "__main__":

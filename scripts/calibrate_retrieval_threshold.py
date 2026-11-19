@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 
 from vskr.config import load_config
-from vskr.embedder import Embedder
+from vskr.retrieval.embedder import Embedder
 from vskr.evaluation import matches_reference
-from vskr.index import load
+from vskr.retrieval.index import load
 
 
 def percentile(values, fraction):

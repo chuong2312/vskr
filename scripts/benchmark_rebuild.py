@@ -7,7 +7,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from vskr.api.handlers import _rebuild_index
+from vskr.api.handlers.jobs import _rebuild_index
 from vskr.config import data_dir, index_dir, load_config
 
 

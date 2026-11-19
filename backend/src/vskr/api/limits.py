@@ -1,4 +1,7 @@
-"""Small in-memory sliding-window limits for public question requests."""
+"""Giới hạn tần suất câu hỏi công khai, lưu trong RAM theo cửa sổ trượt.
+
+Mỗi IP tối đa 10 câu mỗi phút và 100 câu mỗi giờ; cả server xử lý tối đa 3 câu cùng lúc.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ _ask_slots = threading.BoundedSemaphore(3)
 
 
 def check_ask_rate(ip: str, now: float | None = None) -> int:
+    """Ghi nhận một câu hỏi của IP; vượt 10 câu/phút hoặc 100 câu/giờ thì báo 429 kèm Retry-After. Trả về id lượt để hoàn lại nếu cần."""
     now = time.time() if now is None else now
     limits = ((60.0, 10), (3600.0, 100))
     with _lock:
@@ -41,7 +45,7 @@ def check_ask_rate(ip: str, now: float | None = None) -> int:
 
 
 def rollback_ask_rate(ip: str, attempt_id: int | None) -> None:
-    """Do not charge a request that could not be answered due to a server failure."""
+    """Không tính lượt hỏi không trả lời được vì lỗi phía server."""
     if attempt_id is None:
         return
     with _lock:
@@ -57,6 +61,7 @@ def rollback_ask_rate(ip: str, attempt_id: int | None) -> None:
 
 
 def enter_ask_slot() -> None:
+    """Giữ một chỗ xử lý câu hỏi; hết chỗ thì báo 503 kèm Retry-After."""
     if not _ask_slots.acquire(blocking=False):
         raise HTTPException(
             503,
@@ -66,4 +71,5 @@ def enter_ask_slot() -> None:
 
 
 def leave_ask_slot() -> None:
+    """Trả chỗ xử lý câu hỏi đã giữ."""
     _ask_slots.release()

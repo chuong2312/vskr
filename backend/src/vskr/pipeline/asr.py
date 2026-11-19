@@ -6,14 +6,14 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .config import video_dir
+from ..config import video_dir
 from .ingest import probe_duration
-from .util import fmt_time, to_srt, write_json
+from ..util import fmt_time, to_srt, write_json
 
 
 @contextmanager
 def _audio_parts(audio_path, duration, part_duration, temp_root):
-    """Yield bounded WAV files with their offsets in the original audio."""
+    """Cắt audio thành các file WAV có độ dài giới hạn, kèm vị trí bắt đầu của mỗi phần trong audio gốc."""
     if duration <= part_duration:
         yield [(0.0, Path(audio_path), duration)]
         return
@@ -44,6 +44,13 @@ def _audio_parts(audio_path, duration, part_duration, temp_root):
 
 
 def run(cfg, video_ids, force=False, progress=None):
+    """Nhận dạng giọng nói cho các video chưa có ``transcript.json`` (mọi video nếu ``force``).
+
+    Nạp model faster-whisper một lần cho cả lượt, nhận dạng theo từng phần ``asr.segment_duration_s``
+    giây nhưng giữ mốc thời gian theo video gốc, ghi ``transcript.json`` và ``transcript.srt`` rồi
+    giải phóng VRAM. ``progress(video_id, phần, tổng_số_phần, bắt_đầu, kết_thúc)`` được gọi trước
+    mỗi phần.
+    """
     a = cfg["asr"]
     todo = []
     for vid in video_ids:
@@ -59,7 +66,7 @@ def run(cfg, video_ids, force=False, progress=None):
         return
 
     if a.get("unload_ollama_first", True):
-        from .qa import unload_ollama
+        from ..qa import unload_ollama
 
         if unload_ollama(cfg["llm"]):
             print("[asr] đã yêu cầu Ollama nhả model khỏi VRAM")

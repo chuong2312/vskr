@@ -9,12 +9,13 @@ from unittest import mock
 import numpy as np
 import yt_dlp
 
-from vskr import auth, qa
+from vskr.access import auth
+from vskr import qa
 from vskr.api import handlers
-from vskr.api.ssrf import validate_ingest_url
-from vskr.bm25 import BM25, tokenize
-from vskr.index import Index
-from vskr.retriever import Retriever
+from vskr.pipeline.url_safety import validate_ingest_url
+from vskr.retrieval.bm25 import BM25, tokenize
+from vskr.retrieval.index import Index
+from vskr.retrieval.retriever import Retriever
 from vskr.service import ModelBusyError, Service
 
 
@@ -76,15 +77,15 @@ class TestRiskProbes(unittest.TestCase):
             }
             FakeEmbedder.batch_sizes.clear()
             FakeEmbedder.embed_seconds.clear()
-            with mock.patch("vskr.embedder.Embedder", FakeEmbedder), \
-                    mock.patch("vskr.index.build_graph", return_value={"nodes": [], "edges": []}):
-                handlers._rebuild_index(cfg)
+            with mock.patch("vskr.retrieval.embedder.Embedder", FakeEmbedder), \
+                    mock.patch("vskr.retrieval.index.build_graph", return_value={"nodes": [], "edges": []}):
+                handlers.jobs._rebuild_index(cfg)
                 chunks.extend([
                     {"chunk_id": f"doc:{i}", "document_id": "doc", "section": i, "text": f"chunk {i}"}
                     for i in range(2, 10)
                 ])
                 section_file.write_text(json.dumps({"chunks": chunks}), encoding="utf-8")
-                handlers._rebuild_index(cfg)
+                handlers.jobs._rebuild_index(cfg)
 
         self.assertEqual(FakeEmbedder.batch_sizes, [2, 10])
         self.assertGreater(FakeEmbedder.embed_seconds[1], FakeEmbedder.embed_seconds[0])
@@ -103,9 +104,9 @@ class TestRiskProbes(unittest.TestCase):
         service.embedder = embedder
         service.retriever = Retriever(index, embedder, service.cfg["retrieval"])
 
-        with handlers._gpu_model_lock:
+        with handlers.runtime._gpu_model_lock:
             with self.assertRaises(ModelBusyError):
-                service.ask("Bài học?", llm_lock=handlers._gpu_model_lock, lock_timeout=0)
+                service.ask("Bài học?", llm_lock=handlers.runtime._gpu_model_lock, lock_timeout=0)
 
     def test_live_stream_without_duration_is_rejected_before_download(self):
         class FakeYDL:
@@ -129,12 +130,12 @@ class TestRiskProbes(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source_path = Path(temp_dir) / "source.mp4"
-            cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900}}
+            cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900, "max_upload_bytes": 1024}}
             FakeYDL.calls.clear()
             with mock.patch.object(yt_dlp, "YoutubeDL", FakeYDL), \
-                    mock.patch("vskr.ingest._extract_audio"), \
-                    mock.patch("vskr.ingest.probe_duration", return_value=60):
-                from vskr.ingest import ingest
+                    mock.patch("vskr.pipeline.ingest._extract_audio"), \
+                    mock.patch("vskr.pipeline.ingest.probe_duration", return_value=60):
+                from vskr.pipeline.ingest import ingest
 
                 with self.assertRaisesRegex(ValueError, "livestream"):
                     ingest("https://youtube.com/watch?v=live-id", cfg)
@@ -164,11 +165,11 @@ class TestRiskProbes(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source_path = Path(temp_dir) / "source.mp4"
-            cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900}}
+            cfg = {"paths": {"data_dir": temp_dir}, "ingest": {"max_duration_s": 900, "max_upload_bytes": 1024}}
             with mock.patch.object(yt_dlp, "YoutubeDL", FakeYDL), \
-                    mock.patch("vskr.ingest._extract_audio"), \
-                    mock.patch("vskr.ingest.probe_duration", return_value=60):
-                from vskr.ingest import ingest
+                    mock.patch("vskr.pipeline.ingest._extract_audio"), \
+                    mock.patch("vskr.pipeline.ingest.probe_duration", return_value=60):
+                from vskr.pipeline.ingest import ingest
 
                 FakeYDL.info = {"id": "unknown-duration", "duration": None, "is_live": False}
                 FakeYDL.downloads.clear()
@@ -201,7 +202,7 @@ class TestRiskProbes(unittest.TestCase):
         self.assertEqual(result["source_ns"], [])
 
     def test_long_prompt_is_sent_with_application_truncation(self):
-        lcfg = {"model": "mock-model", "num_ctx": 4096}
+        lcfg = {"model": "mock-model", "num_ctx": 4096, "base_url": "http://ollama.test"}
         messages = qa.build_messages("Hỏi", [{"chunk": {"text": "x " * 12_000}}])
         captured = {}
 
@@ -271,7 +272,7 @@ class TestRiskProbes(unittest.TestCase):
     def test_dns_answer_can_change_after_url_validation(self):
         public = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
         private = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))]
-        with mock.patch("vskr.api.ssrf.socket.getaddrinfo", side_effect=[public, private]):
+        with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", side_effect=[public, private]):
             self.assertEqual(validate_ingest_url("https://youtube.com/watch?v=abc"),
                              "https://youtube.com/watch?v=abc")
             downloader_resolution = socket.getaddrinfo("youtube.com", 443, type=socket.SOCK_STREAM)

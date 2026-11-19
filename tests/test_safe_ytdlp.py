@@ -5,10 +5,9 @@ import urllib.request
 from email.message import Message
 from unittest import mock
 
-from fastapi import HTTPException
 
-from vskr.api.ssrf import validate_ingest_url
-from vskr.safe_ytdlp import (
+from vskr.pipeline.url_safety import UnsafeUrlError, validate_ingest_url
+from vskr.pipeline.safe_ytdlp import (
     create_pinned_connection,
     make_pinned_redirect_handler,
     make_safe_youtube_dl,
@@ -23,14 +22,14 @@ _PRIVATE = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
 
 class TestSafeYtDlp(unittest.TestCase):
     def test_dns_rebinding_is_rejected_at_download_connection(self):
-        with mock.patch("vskr.api.ssrf.socket.getaddrinfo", side_effect=[[_PUBLIC], [_PRIVATE]]):
+        with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", side_effect=[[_PUBLIC], [_PRIVATE]]):
             self.assertEqual(validate_ingest_url("https://video.example/watch"),
                              "https://video.example/watch")
-            with self.assertRaises(HTTPException):
+            with self.assertRaises(UnsafeUrlError):
                 resolve_download_target("https://video.example/watch")
 
     def test_connection_uses_the_validated_numeric_ip_without_resolving_again(self):
-        with mock.patch("vskr.safe_ytdlp.socket.create_connection", return_value=mock.sentinel.socket) as connect:
+        with mock.patch("vskr.pipeline.safe_ytdlp.socket.create_connection", return_value=mock.sentinel.socket) as connect:
             connection = create_pinned_connection(http.client.HTTPConnection, "8.8.8.8", "video.example", 443)
             sock = connection._create_connection(("video.example", 443), 4, None)
 
@@ -60,7 +59,7 @@ class TestSafeYtDlp(unittest.TestCase):
         handler = make_pinned_redirect_handler()()
         request = urllib.request.Request("https://video.example/watch")
         private = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))
-        with mock.patch("vskr.api.ssrf.socket.getaddrinfo", return_value=[private]):
+        with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", return_value=[private]):
             with self.assertRaises(RequestError):
                 handler.redirect_request(
                     request, None, 302, "Found", Message(), "http://metadata.example/latest"
@@ -78,8 +77,8 @@ class TestSafeYtDlp(unittest.TestCase):
             handler for handler in opener.handlers if type(handler).__name__ == "PinnedHTTPHandler"
         )
         with mock.patch(
-            "vskr.safe_ytdlp.resolve_download_target",
-            side_effect=HTTPException(400, "private"),
+            "vskr.pipeline.safe_ytdlp.resolve_download_target",
+            side_effect=UnsafeUrlError("private"),
         ), self.assertRaises(RequestError):
             http_handler.http_open(urllib.request.Request("http://private.example/path"))
 
@@ -109,7 +108,7 @@ class TestSafeYtDlp(unittest.TestCase):
         import yt_dlp
         from yt_dlp.downloader import get_suitable_downloader
         from yt_dlp.downloader.external import FFmpegFD
-        from vskr.safe_ytdlp import UnsafeNetworkDownloaderError
+        from vskr.pipeline.safe_ytdlp import UnsafeNetworkDownloaderError
 
         safe_downloader = make_safe_youtube_dl(yt_dlp)({"quiet": True})
         info = {
@@ -131,7 +130,7 @@ class TestSafeYtDlp(unittest.TestCase):
         from yt_dlp.downloader import get_suitable_downloader
         from yt_dlp.downloader.external import FFmpegFD
         from yt_dlp.downloader.rtmp import RtmpFD
-        from vskr.safe_ytdlp import UnsafeNetworkDownloaderError
+        from vskr.pipeline.safe_ytdlp import UnsafeNetworkDownloaderError
 
         safe_downloader = make_safe_youtube_dl(yt_dlp)({"quiet": True})
         cases = (

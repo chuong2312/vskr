@@ -24,7 +24,7 @@ class ASGITestClient:
 
     def __enter__(self):
         if self.authenticated_learner:
-            from vskr.accounts import optional_learner_or_admin
+            from vskr.access.accounts import optional_learner_or_admin
             self._previous_overrides = dict(self.app.dependency_overrides)
             test_session = lambda: {"admin": True, "csrf_token": "test-csrf"}
             self.app.dependency_overrides[optional_learner_or_admin] = test_session

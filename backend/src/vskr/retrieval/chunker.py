@@ -55,10 +55,10 @@ def make_chunks(video_id, segments, window_s=50.0, overlap_s=10.0, min_chars=20,
 
 def make_scene_chunks(video_id, segments, scene_starts, window_s=50.0, overlap_s=10.0,
                       min_chars=20, extras=None):
-    """Create timestamped chunks aligned to detected visual scene boundaries.
+    """Chia lời giảng thành các đoạn có mốc thời gian, khớp với ranh giới cảnh đã dò được.
 
-    Long scenes are subdivided with the normal sliding window. Transcript segments
-    without a nearby detected scene boundary remain in a single fallback scene.
+    Cảnh dài được chia tiếp bằng cửa sổ trượt như bình thường. Lời giảng không gần ranh giới cảnh nào
+    được gom vào một cảnh dự phòng.
     """
     starts = sorted({max(0.0, float(t)) for t in scene_starts if float(t) >= 0})
     if not starts or starts[0] > 0:

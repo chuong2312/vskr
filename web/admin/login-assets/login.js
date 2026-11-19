@@ -1,3 +1,4 @@
+/** Trang đăng nhập quản trị: báo phiên đã hết hạn hoặc đã đăng xuất, gửi form đăng nhập. */
 const notice = document.querySelector("#notice");
 const error = document.querySelector("#error");
 if (new URLSearchParams(location.search).has("expired")) {

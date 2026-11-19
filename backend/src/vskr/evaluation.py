@@ -57,6 +57,9 @@ def validate_question(raw):
 
 
 def matches_reference(chunk, reference):
+    """Đoạn tìm được có khớp nguồn đúng không: cùng tài liệu và cùng mục, hoặc cùng video và
+    khoảng thời gian chồng lên nhau.
+    """
     if reference.get("document_id"):
         return (chunk.get("document_id") == reference["document_id"]
                 and chunk.get("section") == reference.get("section"))

@@ -2,12 +2,12 @@
 import subprocess
 from pathlib import Path
 
-from .config import video_dir
-from .util import safe_video_id, write_json
+from ..config import video_dir
+from ..util import safe_video_id, write_json
 
 
 def probe_duration(path):
-    """Read media duration using ffprobe without decoding the whole file."""
+    """Đọc thời lượng file media bằng ffprobe, không cần giải mã cả file."""
     proc = subprocess.run(
         [
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -27,7 +27,8 @@ def probe_duration(path):
 
 
 def check_duration(duration, cfg):
-    limit = int(cfg.get("ingest", {}).get("max_duration_s", 7200))
+    """Ném ``ValueError`` (thông báo tiếng Việt) nếu video dài hơn ``ingest.max_duration_s``; không rõ thời lượng thì bỏ qua."""
+    limit = int(cfg["ingest"]["max_duration_s"])
     if duration is not None and float(duration) > limit:
         limit_label = f"{limit // 3600} giờ" if limit >= 3600 and limit % 3600 == 0 else f"{limit // 60} phút"
         raise ValueError(
@@ -51,7 +52,7 @@ def _extract_audio(src, vdir):
 
 
 def ingest_file(path, cfg, video_id, title=None):
-    """Register a user-uploaded local video and extract 16 kHz mono audio."""
+    """Đăng ký video người dùng tải lên, tách audio 16 kHz mono và ghi ``meta.json``."""
     src = Path(path)
     if not src.is_file():
         raise FileNotFoundError(f"Không tìm thấy file video: {src}")
@@ -90,6 +91,11 @@ def resolve_source(vdir, meta):
 
 
 def ingest(url, cfg, with_video=False, video_id=None):
+    """Tải audio (thêm video nếu ``with_video``) từ URL qua bộ tải yt-dlp an toàn, rồi tách audio 16 kHz mono.
+
+    Từ chối livestream, video không rõ thời lượng hoặc dài quá ``ingest.max_duration_s``. Ghi và trả
+    về metadata của video (``meta.json``).
+    """
     import yt_dlp
     from .safe_ytdlp import make_safe_youtube_dl
 
@@ -111,7 +117,7 @@ def ingest(url, cfg, with_video=False, video_id=None):
         "noplaylist": True,
         "outtmpl": str(vdir / "source.%(ext)s"),
         "format": "bestaudio/best",
-        "max_filesize": int(cfg.get("ingest", {}).get("max_upload_bytes", 1_073_741_824)),
+        "max_filesize": int(cfg["ingest"]["max_upload_bytes"]),
     }
     if with_video:
         opts["format"] = "bv*[height<=720]+ba/b[height<=720]"

@@ -1,3 +1,7 @@
+/**
+ * Kiểm tra URL trước khi gắn vào trang quản trị: chỉ nhận http/https (chặn javascript:, data:...)
+ * hoặc đường dẫn cùng origin. Dùng được trong trình duyệt (window.VskrUrlSafety) và trong Node (test).
+ */
 (function (root) {
   function safeHttpUrl(value, origin = root.location?.origin) {
     try {

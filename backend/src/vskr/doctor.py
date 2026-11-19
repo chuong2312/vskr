@@ -47,6 +47,10 @@ def _gpu_test(cfg):
 
 
 def main(cfg, gpu_test=False):
+    """In báo cáo môi trường: Python, CPU, ổ đĩa, ffmpeg, thư viện, GPU/CUDA và Ollama.
+
+    ``gpu_test=True`` thì chạy thử faster-whisper thật trên GPU để kiểm tra cuBLAS/cuDNN.
+    """
     print(f"Python      : {sys.version.split()[0]} ({platform.platform()})")
     print(f"CPU         : {_cpu_name()} | số luồng: {os.cpu_count()}")
     d = data_dir(cfg)

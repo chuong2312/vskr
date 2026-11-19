@@ -7,7 +7,7 @@ import time
 
 from vskr.service import ModelBusyError, Service
 from vskr.config import load_config
-from vskr.api.handlers import _gpu_model_lock
+from vskr.api.handlers.runtime import _gpu_model_lock
 
 
 def main():

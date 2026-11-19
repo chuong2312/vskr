@@ -1,3 +1,8 @@
+/**
+ * Gọi API cho app người học: gửi cookie cùng origin, tự gắn token CSRF (lưu trong sessionStorage)
+ * vào request ghi, và đổi lỗi HTTP thành ApiError kèm mã trạng thái và Retry-After.
+ */
+/** Lỗi từ API: `status` là mã HTTP, `retryAfter` là số giây nên chờ (0 nếu server không gửi). */
 export class ApiError extends Error {
   constructor(message, status, retryAfter = 0) {
     super(message);
@@ -7,6 +12,11 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Gửi request tới API và trả về JSON; lỗi HTTP ném ApiError với thông báo `detail` của server.
+ * @param {string} path Đường dẫn API, ví dụ "/api/ask".
+ * @param {RequestInit} [options] Tuỳ chọn của fetch (method, body, headers...).
+ */
 export async function request(path, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   const csrf = sessionStorage.getItem("vskr-user-csrf");

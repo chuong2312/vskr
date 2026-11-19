@@ -1,16 +1,15 @@
-"""Describe diagrams/figures in lecture frames with a vision-language model.
+"""Mô tả sơ đồ, hình trong khung hình bài giảng bằng mô hình thị giác-ngôn ngữ (VLM).
 
-Runs after OCR. Frames whose area is mostly text (slides, code) are already
-covered by OCR, so only visual frames are captioned: frames with little OCR
-text, deduplicated by dHash and capped evenly over the lecture. The frame's
-OCR text is passed as context so the caption can name the parts of a diagram
-without copying text verbatim.
+Chạy sau OCR. Khung hình phần lớn là chữ (slide, code) đã có OCR, nên chỉ mô tả các khung hình
+thiên về hình ảnh: ít chữ OCR, đã lọc trùng bằng dHash và rải đều trên cả bài. Chữ OCR của khung
+hình được đưa vào prompt làm ngữ cảnh, để mô tả gọi đúng tên các phần của sơ đồ mà không chép lại
+nguyên văn.
 """
 import re
 import time
 
-from .config import video_dir
-from .util import read_json, write_json
+from ..config import video_dir
+from ..util import read_json, write_json
 
 EMPTY_ANSWERS = {"KHÔNG", "KHONG", "NONE", "NO"}
 
@@ -23,7 +22,7 @@ def _hash(frame):
 
 
 def select_frames(frames, ocr_frames, vcfg):
-    """Pick frames worth captioning; frames without OCR stats are treated as visual."""
+    """Chọn khung hình đáng mô tả; khung hình chưa có thống kê OCR được coi là thiên về hình ảnh."""
     from .frames import cap_evenly, hamming
 
     max_area = float(vcfg.get("max_text_area", 0.15))
@@ -44,8 +43,12 @@ def select_frames(frames, ocr_frames, vcfg):
 
 
 def build_prompt(ocr_text=""):
-    # English instructions with a Vietnamese answer: with a Vietnamese instruction the 3B
-    # model answered the opt-out word even for clear diagrams/charts (smoke test 2026-11-19).
+    # Yêu cầu viết bằng tiếng Anh nhưng đòi câu trả lời tiếng Việt: với yêu cầu tiếng Việt, model 3B trả
+    # lời từ khoá "không có hình" ngay cả với sơ đồ/biểu đồ rõ ràng (thử ngày 2026-11-19).
+    """Prompt cho VLM: mô tả hình bằng tiếng Việt, tối đa 2 câu, trả lời ``NONE`` nếu không có hình.
+
+    Kèm tối đa 300 ký tự chữ OCR của khung hình để tham khảo.
+    """
     prompt = (
         "Describe the diagram, chart, table, figure or software screen in this lecture video frame "
         "in Vietnamese, in at most 2 sentences: its main components and how they relate. "
@@ -58,8 +61,8 @@ def build_prompt(ocr_text=""):
     return prompt
 
 
-# The model sometimes explains the absence instead of answering NONE,
-# e.g. "Bản đồ này không có bất kỳ biểu đồ, bảng, hình ảnh hay giao diện phần mềm nào."
+# Đôi khi model giải thích là không có hình thay vì trả lời NONE,
+# ví dụ "Bản đồ này không có bất kỳ biểu đồ, bảng, hình ảnh hay giao diện phần mềm nào."
 _NO_FIGURE = re.compile(r"không\s+(có|chứa)\s+(bất\s*kỳ|sơ đồ|biểu đồ|hình minh họa)", re.IGNORECASE)
 
 
@@ -76,12 +79,13 @@ def clean_caption(caption, ocr_text=""):
 
 
 def is_empty_caption(text):
+    """Câu trả lời có nghĩa là "không có hình" không: ``NONE`` hoặc câu giải thích kiểu "không có sơ đồ..."."""
     cleaned = text.strip().strip(".!")
     return cleaned.upper() in EMPTY_ANSWERS or bool(_NO_FIGURE.search(cleaned))
 
 
 def fit_pixels(image, max_pixels):
-    """Downscale so width*height <= max_pixels; fewer visual tokens = faster, less VRAM."""
+    """Thu nhỏ ảnh để rộng × cao không quá ``max_pixels``: ít token hình hơn nên nhanh hơn và tốn ít VRAM hơn."""
     width, height = image.size
     if not max_pixels or width * height <= max_pixels:
         return image
@@ -94,7 +98,7 @@ def _load(cfg, vcfg):
     from transformers import AutoProcessor, BitsAndBytesConfig, Qwen2_5_VLForConditionalGeneration
 
     if vcfg.get("unload_ollama_first", True):
-        from .qa import unload_ollama
+        from ..qa import unload_ollama
 
         unload_ollama(cfg.get("llm", {}))
     name = vcfg.get("model", "Qwen/Qwen2.5-VL-3B-Instruct")
@@ -128,6 +132,10 @@ def _caption(torch, processor, model, image, prompt, max_new_tokens):
 
 
 def run(cfg, video_ids=None, force=False):
+    """Mô tả hình cho các khung hình được chọn của từng video và ghi ``captions.json``.
+
+    Chỉ nạp model khi có khung hình cần mô tả; bỏ các câu trả lời rỗng hoặc mang nghĩa "không có hình".
+    """
     from PIL import Image
 
     vcfg = cfg.get("vlm", {})

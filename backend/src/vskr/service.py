@@ -1,23 +1,33 @@
+"""Dịch vụ hỏi đáp: ghép chỉ mục, mô hình nhúng, bộ tìm kiếm và LLM.
+
+Server dùng chung một ``Service`` đã nạp sẵn trong RAM (xem ``api.handlers.runtime``); CLI
+``vskr ask`` tạo một bản riêng và không áp phân quyền.
+"""
 import time
 
-from . import index as index_mod
-from .embedder import Embedder
+from .retrieval import index as index_mod
+from .retrieval.embedder import Embedder
 from .qa import answer_question
-from .retriever import Retriever
-from .bm25 import BM25, tokenize
+from .retrieval.retriever import Retriever
+from .retrieval.bm25 import BM25, tokenize
 from .util import fmt_time, source_link
-from .visibility import is_visible
+from .access.visibility import is_visible
 
 
 class ModelBusyError(RuntimeError):
-    """The shared GPU slot stayed busy past the interactive wait limit."""
+    """Khe GPU dùng chung vẫn bận sau thời gian chờ cho phép của một câu hỏi."""
 
 
 class Service:
+    """Chỉ mục, mô hình nhúng và bộ tìm kiếm đã nạp sẵn, dùng để trả lời câu hỏi.
+
+    Ném ``RuntimeError`` nếu chỉ mục được dựng bằng cấu hình embedding hoặc chia đoạn khác cấu hình
+    hiện tại; khi đó cần chạy lại ``vskr index``.
+    """
     def __init__(self, cfg):
         self.cfg = cfg
         self.meta = index_mod.load_meta(cfg)
-        from .documents import list_documents
+        from .pipeline.documents import list_documents
 
         self.document_meta = {item["document_id"]: item for item in list_documents(cfg)}
         self.index = index_mod.load(cfg)
@@ -40,6 +50,7 @@ class Service:
         self.indexed_document_ids = {c.get("document_id") for c in self.index.chunks if c.get("document_id")}
 
     def videos(self):
+        """Danh sách video trong chỉ mục; file tải lên có link phát ``/api/videos/<id>/file``."""
         return [
             {
                 "video_id": m["video_id"],
@@ -58,6 +69,13 @@ class Service:
 
     def ask(self, question, mode=None, llm_lock=None, lock_timeout=10, owner_id=None,
             shared_only=False, allowed_sources=None, project_id=None, admin=False):
+        """Tìm nguồn rồi gọi LLM trả lời, chỉ trên những nguồn người hỏi được phép xem.
+
+        Nguồn được lọc theo quyền xem (``owner_id``, ``shared_only``, ``admin``) và theo ``project_id``
+        nếu có. ``llm_lock`` là khoá GPU dùng chung: chờ quá ``lock_timeout`` giây thì ném
+        ``ModelBusyError``. Trả về câu trả lời, danh sách nguồn kèm link tới đúng mốc thời gian/mục,
+        và thời gian của từng bước.
+        """
         t0 = time.time()
         retriever = self.retriever
         if retriever is None:

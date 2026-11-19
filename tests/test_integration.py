@@ -8,7 +8,7 @@ from unittest import mock
 
 import numpy as np
 
-from vskr import index as index_mod
+from vskr.retrieval import index as index_mod
 from vskr import qa
 from vskr.config import load_config, video_dir
 from vskr.util import write_json
@@ -57,7 +57,7 @@ class TestPipeline(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _retriever(self):
-        from vskr.retriever import Retriever
+        from vskr.retrieval.retriever import Retriever
 
         return Retriever(index_mod.load(self.cfg), self.emb, self.cfg["retrieval"])
 
@@ -88,8 +88,8 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(r.search("câu hỏi lạc đề hoàn toàn", mode="vector"), [])
 
     def test_vector_scope_excludes_unauthorized_chunks(self):
-        from vskr.bm25 import BM25, tokenize
-        from vskr.retriever import Retriever
+        from vskr.retrieval.bm25 import BM25, tokenize
+        from vskr.retrieval.retriever import Retriever
 
         idx = mock.Mock()
         idx.chunks = [
@@ -139,7 +139,7 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(res["sources"], [])
 
     def test_service_handles_document_chunks_created_by_documents_module(self):
-        from vskr.documents import ingest_document
+        from vskr.pipeline.documents import ingest_document
         from vskr.service import Service
 
         doc = self.tmp / "python-notes.txt"
@@ -161,7 +161,7 @@ class TestPipeline(unittest.TestCase):
                 self.assertIn("/api/documents/doc-real/sections/1", source["link"])
 
     def test_service_returns_video_and_document_sources_together(self):
-        from vskr.documents import ingest_document
+        from vskr.pipeline.documents import ingest_document
         from vskr.service import Service
 
         doc = self.tmp / "python-reference.txt"

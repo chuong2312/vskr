@@ -5,6 +5,7 @@ from .config import load_config
 
 
 def main():
+    """Đọc tham số dòng lệnh và chạy lệnh tương ứng: doctor, ingest, asr, frames, ocr, vlm, index, doc, ask, serve, admin."""
     ap = argparse.ArgumentParser(prog="vskr")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("doctor", help="kiểm tra môi trường")
@@ -84,7 +85,7 @@ def main():
 
         video_ids = args.video
         if not video_ids:
-            # index pulls in numpy/BM25; the OCR venv child always receives --video.
+            # Chỉ nạp index (kéo theo numpy/BM25) khi cần; tiến trình con trong .venv-vlm luôn nhận --video.
             from .retrieval.index import list_video_ids
 
             video_ids = list_video_ids(cfg)

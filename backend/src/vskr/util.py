@@ -1,3 +1,4 @@
+"""Tiện ích dùng chung: định dạng thời gian, phụ đề SRT, link nguồn có mốc thời gian, đọc/ghi JSON."""
 import hashlib
 import json
 import os
@@ -11,7 +12,7 @@ _json_write_lock = threading.Lock()
 
 
 def safe_video_id(raw) -> str:
-    """Return a filesystem-safe stable id for an extractor-provided id."""
+    """Id an toàn để làm tên thư mục: giữ nguyên id hợp lệ, id lạ thì băm SHA-256 (tiền tố ``ext-``)."""
     value = str(raw or "")
     if _SAFE_VIDEO_ID.fullmatch(value):
         return value
@@ -19,6 +20,7 @@ def safe_video_id(raw) -> str:
 
 
 def fmt_time(sec):
+    """Định dạng số giây thành ``mm:ss`` hoặc ``h:mm:ss`` để hiển thị."""
     sec = max(0, int(sec))
     h, rem = divmod(sec, 3600)
     m, s = divmod(rem, 60)
@@ -26,6 +28,7 @@ def fmt_time(sec):
 
 
 def fmt_srt_time(sec):
+    """Định dạng số giây theo chuẩn SRT: ``hh:mm:ss,mmm``."""
     ms = max(0, int(round(sec * 1000)))
     h, rem = divmod(ms, 3_600_000)
     m, rem = divmod(rem, 60_000)
@@ -57,7 +60,10 @@ def is_youtube_host(host):
 
 
 def source_link(url, video_id, start):
-    """Build a timestamp link where the platform convention is known; otherwise keep source URL."""
+    """Link tới đúng mốc thời gian: link YouTube được thêm tham số ``t``, nền tảng khác giữ nguyên URL.
+
+    Không có URL thì dựng link YouTube từ ``video_id``.
+    """
     if not url:
         return f"https://www.youtube.com/watch?v={video_id}&t={int(start)}s"
     parts = urlsplit(url)
@@ -70,15 +76,17 @@ def source_link(url, video_id, start):
 
 
 def read_json(path):
+    """Đọc một file JSON (UTF-8)."""
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
 def write_json(path, obj):
+    """Ghi JSON (UTF-8, có thụt lề) theo kiểu nguyên tử: ghi ra file tạm rồi thay thế file đích."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    # Replace is atomic on the same filesystem and prevents truncated metadata
-    # when a worker is interrupted during a write.
+    # os.replace là nguyên tử trên cùng một ổ đĩa: tiến trình bị ngắt giữa chừng cũng không để lại
+    # file metadata ghi dở.
     with _json_write_lock:
         temporary = target.with_name(target.name + ".tmp")
         with open(temporary, "w", encoding="utf-8") as f:

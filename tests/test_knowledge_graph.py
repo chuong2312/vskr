@@ -54,5 +54,60 @@ class TestKnowledgeGraph(unittest.TestCase):
         self.assertEqual(search_graph(self.graph, self.chunks, "quantum xyzzy"), [])
 
 
+def _video_chunks(*texts):
+    return [{"chunk_id": f"v:{i:04d}", "video_id": "v", "start": i * 60.0, "end": i * 60.0 + 50,
+             "text": text, "source_types": ["speech"]} for i, text in enumerate(texts)]
+
+
+class TestGraphRanking(unittest.TestCase):
+    """Đoạn khớp nhiều khái niệm (và khái niệm hiếm) phải đứng trước, không xếp theo thứ tự index."""
+
+    def _ids(self, hits):
+        return [hit["chunk"]["chunk_id"] for hit in hits]
+
+    def test_chunk_matching_more_query_concepts_ranks_first(self):
+        chunks = _video_chunks(
+            "nhiều thành viên đã thành công",          # chỉ khớp "thành", lại đứng đầu index
+            "cpu gồm alu cu và thanh ghi",              # khớp "cpu" và "gồm"
+            "thành phố lớn được thành lập",            # chỉ khớp "thành"
+        )
+        hits = search_graph(build_graph(chunks), chunks, "CPU gồm những thành phần nào?", top_k=3)
+        self.assertEqual(hits[0]["chunk"]["chunk_id"], "v:0001")
+        self.assertGreater(hits[0]["score"], hits[1]["score"])
+
+    def test_rare_concept_outweighs_common_concept(self):
+        chunks = _video_chunks(
+            "thành phố thành lập",
+            "thành viên thành công",
+            "thanh ghi nằm trong cpu",
+            "thành tích thành quả",
+        )
+        hits = search_graph(build_graph(chunks), chunks, "cpu thành", top_k=4)
+        self.assertEqual(hits[0]["chunk"]["chunk_id"], "v:0002")
+
+    def test_short_concept_does_not_match_inside_another_word(self):
+        chunks = _video_chunks("chi phí lưu trữ cao", "phần mềm được chia thành hai loại")
+        hits = search_graph(build_graph(chunks), chunks, "Phần mềm chia thành mấy loại?", top_k=5)
+        concepts = {term for hit in hits for term in hit["matched_concepts"]}
+        self.assertIn("chia", concepts)
+        self.assertNotIn("chi", concepts)
+        self.assertNotIn("v:0000", self._ids(hits))
+
+    def test_multi_word_relation_concept_still_matches_as_phrase(self):
+        chunks = _video_chunks("docker compose khởi chạy nhiều container cùng lúc", "học về mạng máy tính")
+
+        def extractor(_chunk):
+            return [{"head": "Docker Compose", "relation": "USES", "tail": "container",
+                     "evidence": "docker compose khởi chạy nhiều container"}]
+
+        graph = build_graph(chunks, relation_extractor=extractor)
+        hits = search_graph(graph, chunks, "dùng docker compose để làm gì", top_k=2)
+        self.assertEqual(hits[0]["chunk"]["chunk_id"], "v:0000")
+        self.assertIn("docker compose", hits[0]["matched_concepts"])
+        # Cụm từ chỉ khớp khi đứng liền nhau và đủ cả từ, không khớp một phần.
+        partial = search_graph(graph, chunks, "dockerx compose", top_k=2)
+        self.assertNotIn("docker compose", {t for hit in partial for t in hit["matched_concepts"]})
+
+
 if __name__ == "__main__":
     unittest.main()

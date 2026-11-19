@@ -676,10 +676,10 @@ function renderEvalResults(result) {
     return;
   }
   const rawLabels = result.method_labels || {
-    hybrid_graph: "Kết hợp ý nghĩa + từ khóa + liên kết (mặc định)", hybrid: "Kết hợp ý nghĩa + từ khóa",
+    hybrid_graph: "Kết hợp ý nghĩa + từ khóa + liên kết", hybrid: "Kết hợp ý nghĩa + từ khóa (mặc định)",
     vector: "Tìm theo ý nghĩa", bm25: "Tìm từ khóa", graph: "Tìm qua sơ đồ liên kết",
   };
-  const plainLabels = { hybrid_graph: "Kết hợp ý nghĩa + từ khóa + liên kết (mặc định)", hybrid: "Kết hợp ý nghĩa + từ khóa", vector: "Tìm theo ý nghĩa", bm25: "Tìm từ khóa", graph: "Tìm qua sơ đồ liên kết" };
+  const plainLabels = { hybrid_graph: "Kết hợp ý nghĩa + từ khóa + liên kết", hybrid: "Kết hợp ý nghĩa + từ khóa (mặc định)", vector: "Tìm theo ý nghĩa", bm25: "Tìm từ khóa", graph: "Tìm qua sơ đồ liên kết" };
   const labels = Object.fromEntries(Object.entries(rawLabels).map(([mode, label]) => [mode, plainLabels[mode] || String(label)
     .replace("Graph tăng trọng số từ hiếm (IDF)", "Kết hợp · ưu tiên chủ đề ít gặp")
     .replace("Graph mở rộng khái niệm bằng embedding E5", "Kết hợp · mở rộng chủ đề gần nghĩa (E5)")

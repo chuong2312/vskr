@@ -7,7 +7,7 @@ VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp ti�
 - `backend/src/vskr`: package Python của ứng dụng. Môi trường venv dùng Python 3.12, FFmpeg, yt-dlp, faster-whisper, PySceneDetect, E5-small, BM25/RRF và FastAPI. Embedding chạy CPU; ASR dùng GPU qua CTranslate2.
 - QA gọi Ollama API tại `localhost:11434`; cần cài/chạy Ollama riêng. VSKR chạy trực tiếp trong venv.
 - Dữ liệu nằm trong `./data`, model/download cache trong `./cache`.
-- Admin và CLI mặc định kết hợp **vector E5 + BM25 + truy xuất đồ thị**, rồi hợp nhất thứ hạng bằng RRF. App Người học lọc dữ liệu theo quyền tài khoản và dùng hybrid vector + BM25; admin có thể so sánh `hybrid`, `vector`, `bm25` và `graph`. Lệnh CLI `vskr ask` cũng nhận cờ `--mode`. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
+- Admin và CLI mặc định kết hợp **vector E5 + BM25** (`hybrid`), rồi hợp nhất thứ hạng bằng RRF. Trên bộ 36 câu hỏi đã duyệt, `hybrid` đạt Recall@5 / MRR 0.92 / 0.81, còn `hybrid_graph` (thêm truy xuất đồ thị) đạt 0.90 / 0.68. App Người học lọc dữ liệu theo quyền tài khoản và cũng dùng hybrid vector + BM25; admin có thể so sánh `hybrid_graph`, `vector`, `bm25` và `graph`. Lệnh CLI `vskr ask` cũng nhận cờ `--mode`. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.
 - Knowledge Graph hỗ trợ node phân cảnh có timestamp, node mục tài liệu, cạnh khái niệm, liên kết video–tài liệu bằng embedding và truy vấn tối đa ba bước. Trong giao diện và lệnh `vskr ingest`, video URL mặc định tải cả hình 720p để phát hiện cảnh; cấu hình mặc định bỏ qua 4 frame giữa các lần phân tích để giảm thời gian quét. Nếu bộ giải mã không đọc được cảnh, hệ thống vẫn tiếp tục lập chỉ mục từ transcript. Dùng `--audio-only` nếu không cần scene graph. Chạy `vskr index` để dựng lại sau khi đổi học liệu/cấu hình. Liên kết video–tài liệu dựa trên cosine và khái niệm chung (hoặc cosine rất cao), chưa có bước người duyệt.
 - Quan hệ có kiểu như `DEPENDS_ON`, `PART_OF`, `CAUSES` được trích từ transcript/tài liệu bằng Ollama trên tối đa 24 đoạn mỗi lần dựng index. Quan hệ chỉ được lưu nếu chủ thể, đối tượng và câu bằng chứng xuất hiện trong nguồn. Nếu Ollama không sẵn sàng, index vẫn tạo graph khái niệm và liên kết video–tài liệu.
 
@@ -133,7 +133,7 @@ Script so sánh model ASR hiện tại với `vinai/PhoWhisper-medium`, báo WER
 
 ## Cấu hình
 
-Sửa `configs/models.yaml`; venv đọc file này trực tiếp mỗi lần chạy lệnh. Nếu đổi `embedding.model`, tiền tố embedding hoặc tham số chunk, hãy chạy lại `vskr index`. Có thể ghi đè cấu hình bằng biến môi trường, ví dụ `VSKR__ASR__DEVICE=cpu`, `VSKR__FRAMES__FRAME_SKIP=4` hoặc `VSKR__RETRIEVAL__MODE=hybrid`. Ứng dụng cũng nạp `.env` ở thư mục gốc; biến đã export trong môi trường tiến trình được ưu tiên hơn nội dung `.env`.
+Sửa `configs/models.yaml`; venv đọc file này trực tiếp mỗi lần chạy lệnh. Nếu đổi `embedding.model`, tiền tố embedding hoặc tham số chunk, hãy chạy lại `vskr index`. Có thể ghi đè cấu hình bằng biến môi trường, ví dụ `VSKR__ASR__DEVICE=cpu`, `VSKR__FRAMES__FRAME_SKIP=4` hoặc `VSKR__RETRIEVAL__MODE=hybrid_graph`. Ứng dụng cũng nạp `.env` ở thư mục gốc; biến đã export trong môi trường tiến trình được ưu tiên hơn nội dung `.env`.
 
 ### Đo rebuild và thời gian chờ hỏi
 

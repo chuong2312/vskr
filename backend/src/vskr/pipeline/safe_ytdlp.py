@@ -8,9 +8,8 @@ import socket
 import urllib.request
 from urllib.parse import urlsplit
 
-from fastapi import HTTPException
 
-from .url_safety import resolve_ingest_target, validate_ingest_url
+from .url_safety import UnsafeUrlError, resolve_ingest_target, validate_ingest_url
 
 
 class UnsafeNetworkDownloaderError(RuntimeError):
@@ -43,8 +42,8 @@ def make_pinned_redirect_handler():
         def redirect_request(self, request, fp, code, message, headers, new_url):
             try:
                 validate_ingest_url(new_url)
-            except HTTPException as exc:
-                raise RequestError(str(exc.detail), cause=exc) from exc
+            except UnsafeUrlError as exc:
+                raise RequestError(str(exc), cause=exc) from exc
             return super().redirect_request(request, fp, code, message, headers, new_url)
 
     return PinnedRedirectHandler
@@ -68,8 +67,8 @@ def make_safe_youtube_dl(yt_dlp):
         def _open(self, request, connection_class, *, context=None):
             try:
                 _host, _port, pinned_ip = resolve_download_target(request.full_url)
-            except HTTPException as exc:
-                raise RequestError(str(exc.detail), cause=exc) from exc
+            except UnsafeUrlError as exc:
+                raise RequestError(str(exc), cause=exc) from exc
             factory = functools.partial(
                 create_pinned_connection,
                 connection_class,

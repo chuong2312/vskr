@@ -156,6 +156,8 @@ class TestIngestApi(unittest.TestCase):
                     headers=headers,
                 )
                 self.assertEqual(learner_response.status_code, 400, learner_response.text)
+                self.assertEqual(learner_response.json()["detail"],
+                                 "Người học hiện chỉ có thể dán link YouTube hoặc tải video lên.")
                 submit.assert_not_awaited()
 
             with ASGITestClient(api.app, authenticated_learner=False) as client:

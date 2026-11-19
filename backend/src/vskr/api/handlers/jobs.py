@@ -18,7 +18,7 @@ from ...config import data_dir, index_dir, load_config, video_dir, videos_dir
 from ...pipeline.ingest import check_duration, ingest, ingest_file, probe_duration
 from ...util import fmt_time, read_json, write_json
 from ...access import audit, accounts
-from ...pipeline.url_safety import validate_ingest_url
+from ...pipeline.url_safety import UnsafeUrlError, validate_ingest_url
 from .runtime import (
     _gpu_model_lock, _index_build_lock, _init_service, _job_executor, _job_reservations, _jobs, _jobs_lock,
     _safe_diagnostic, state,
@@ -325,7 +325,10 @@ async def start_ingest(url: Optional[str] = Form(None), file: Optional[UploadFil
     max_bytes = int(role_limits.get("max_upload_bytes", ingest_cfg.get("max_upload_bytes", 1_073_741_824)))
     max_duration = int(role_limits.get("max_duration_s", ingest_cfg.get("max_duration_s", 7200)))
     if clean_url:
-        validate_ingest_url(clean_url)
+        try:
+            validate_ingest_url(clean_url)
+        except UnsafeUrlError as exc:
+            raise HTTPException(400, str(exc)) from exc
     filename = None
     suffix = None
     if file:

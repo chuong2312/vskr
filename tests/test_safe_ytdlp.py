@@ -5,9 +5,8 @@ import urllib.request
 from email.message import Message
 from unittest import mock
 
-from fastapi import HTTPException
 
-from vskr.pipeline.url_safety import validate_ingest_url
+from vskr.pipeline.url_safety import UnsafeUrlError, validate_ingest_url
 from vskr.pipeline.safe_ytdlp import (
     create_pinned_connection,
     make_pinned_redirect_handler,
@@ -26,7 +25,7 @@ class TestSafeYtDlp(unittest.TestCase):
         with mock.patch("vskr.pipeline.url_safety.socket.getaddrinfo", side_effect=[[_PUBLIC], [_PRIVATE]]):
             self.assertEqual(validate_ingest_url("https://video.example/watch"),
                              "https://video.example/watch")
-            with self.assertRaises(HTTPException):
+            with self.assertRaises(UnsafeUrlError):
                 resolve_download_target("https://video.example/watch")
 
     def test_connection_uses_the_validated_numeric_ip_without_resolving_again(self):
@@ -79,7 +78,7 @@ class TestSafeYtDlp(unittest.TestCase):
         )
         with mock.patch(
             "vskr.pipeline.safe_ytdlp.resolve_download_target",
-            side_effect=HTTPException(400, "private"),
+            side_effect=UnsafeUrlError("private"),
         ), self.assertRaises(RequestError):
             http_handler.http_open(urllib.request.Request("http://private.example/path"))
 

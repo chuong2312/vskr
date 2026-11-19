@@ -16,7 +16,7 @@ from ..config import ROOT, data_dir, load_config
 from ..util import read_json, write_json
 from . import handlers
 from .limits import check_ask_rate, enter_ask_slot, leave_ask_slot, rollback_ask_rate
-from ..pipeline.url_safety import validate_learner_ingest_url
+from ..pipeline.url_safety import UnsafeUrlError, validate_learner_ingest_url
 
 router = APIRouter()
 
@@ -327,9 +327,12 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
                     "Khách chưa được phép ingest URL; cần bật guest_url_ingest_enabled "
                     "và xác nhận egress firewall trước.",
                 )
-            url = validate_learner_ingest_url(
-                url, allowed_domains=cfg.get("ingest", {}).get("allowed_domains")
-            )
+            try:
+                url = validate_learner_ingest_url(
+                    url, allowed_domains=cfg.get("ingest", {}).get("allowed_domains")
+                )
+            except UnsafeUrlError as exc:
+                raise HTTPException(400, str(exc)) from exc
         result = await handlers.jobs.start_ingest(url=url, file=file,
                                              owner_id=owner_id, project_id=project["project_id"])
     audit.write_event("ingest.start", target_id=result.get("job_id"), kind="upload" if file else "url")

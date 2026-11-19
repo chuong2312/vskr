@@ -96,15 +96,21 @@ def _is_local_host(value: str | None) -> bool:
     return bool(hostname and hostname.lower() in {"localhost", "127.0.0.1", "::1"})
 
 
+def _trusted_proxy_networks():
+    """Các dải IP proxy tin cậy trong ``VSKR_TRUSTED_PROXIES`` (phân tách bằng dấu phẩy).
+
+    Đọc lại ở mỗi request để đổi biến môi trường là có hiệu lực ngay. Ném ``ValueError`` nếu có giá trị
+    không phải dải IP; nơi gọi coi trường hợp đó là không tin proxy nào.
+    """
+    value = os.environ.get("VSKR_TRUSTED_PROXIES", "")
+    return [ipaddress.ip_network(item.strip(), strict=False) for item in value.split(",") if item.strip()]
+
+
 def _trusted_forwarded_request(request: Request) -> tuple[str | None, str | None]:
     peer = request.client.host if request.client else ""
-    trusted_value = os.environ.get("VSKR_TRUSTED_PROXIES", "").strip()
     try:
         peer_ip = ipaddress.ip_address(peer.split("%", 1)[0])
-        trusted_ranges = [
-            ipaddress.ip_network(item.strip(), strict=False)
-            for item in trusted_value.split(",") if item.strip()
-        ]
+        trusted_ranges = _trusted_proxy_networks()
         if not trusted_ranges or not any(peer_ip in network for network in trusted_ranges):
             return None, None
         proto_values = [value.strip().lower() for value in request.headers.get("x-forwarded-proto", "").split(",")]
@@ -158,17 +164,12 @@ def _same_origin(request: Request) -> bool:
 
 def client_ip(request: Request) -> str:
     peer = request.client.host if request.client else "unknown"
-    trusted_value = os.environ.get("VSKR_TRUSTED_PROXIES", "").strip()
-    if not trusted_value:
-        return peer
     try:
+        trusted_ranges = _trusted_proxy_networks()
+        if not trusted_ranges:
+            return peer
         peer_ip = ipaddress.ip_address(peer)
-        trusted_ranges = [
-            ipaddress.ip_network(item.strip(), strict=False)
-            for item in trusted_value.split(",")
-            if item.strip()
-        ]
-        if not trusted_ranges or not any(peer_ip in network for network in trusted_ranges):
+        if not any(peer_ip in network for network in trusted_ranges):
             return peer
         forwarded = [item.strip() for item in request.headers.get("x-forwarded-for", "").split(",") if item.strip()]
         chain = [ipaddress.ip_address(item.split("%", 1)[0]) for item in forwarded]

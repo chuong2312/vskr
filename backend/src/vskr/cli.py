@@ -18,10 +18,10 @@ def main():
     p = sub.add_parser("frames", help="trích frame (PySceneDetect + lấy mẫu định kỳ + lọc trùng)")
     p.add_argument("--video", action="append", help="video_id (mặc định: tất cả)")
     p.add_argument("--force", action="store_true")
-    p = sub.add_parser("ocr", help="đọc chữ trên frame bằng PaddleOCR (tùy chọn, cần requirements/ocr.txt)")
+    p = sub.add_parser("ocr", help="đọc chữ trên frame bằng EasyOCR (chạy trong .venv-vlm, xem README)")
     p.add_argument("--video", action="append", help="video_id (mặc định: tất cả)")
     p.add_argument("--force", action="store_true")
-    p = sub.add_parser("vlm", help="mô tả hình ảnh bằng VLM (tùy chọn, cần requirements/vlm.txt)")
+    p = sub.add_parser("vlm", help="mô tả sơ đồ/hình bằng VLM, sau OCR (chạy trong .venv-vlm, xem README)")
     p.add_argument("--video", action="append", help="video_id (mặc định: tất cả)")
     p.add_argument("--force", action="store_true")
     sub.add_parser("index", help="chunk + embedding + lưu chỉ mục")
@@ -80,9 +80,15 @@ def main():
         for vid in args.video or list_video_ids(cfg):
             frames.run(cfg, vid, force=args.force)
     elif args.cmd in ("ocr", "vlm"):
-        from .index import list_video_ids
-        module = __import__(f"vskr.{args.cmd}", fromlist=["run"])
-        module.run(cfg, args.video or list_video_ids(cfg), force=args.force)
+        from .steps import run_step
+
+        video_ids = args.video
+        if not video_ids:
+            # index pulls in numpy/BM25; the OCR venv child always receives --video.
+            from .index import list_video_ids
+
+            video_ids = list_video_ids(cfg)
+        run_step(cfg, args.cmd, video_ids, force=args.force)
     elif args.cmd == "index":
         from . import index
         from .embedder import Embedder

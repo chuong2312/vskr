@@ -125,7 +125,7 @@ async function loadTasks() {
       return;
     }
     const stateLabels = { queued: "Đang chờ", running: "Đang chạy", done: "Hoàn tất", error: "Lỗi" };
-    const phaseLabels = { queued: "Hàng đợi", ingest: "Tải/đọc nguồn", scenes: "Phát hiện phân cảnh", asr: "Nhận dạng lời nói (ASR)", index: "Lập chỉ mục", reload: "Nạp chỉ mục", done: "Hoàn tất", error: "Lỗi", document: "Đọc tài liệu" };
+    const phaseLabels = { queued: "Hàng đợi", ingest: "Tải/đọc nguồn", scenes: "Phát hiện phân cảnh", asr: "Nhận dạng lời nói (ASR)", frames: "Trích frame", ocr: "Đọc chữ trên màn hình (OCR)", vlm: "Mô tả hình minh họa (VLM)", index: "Lập chỉ mục", reload: "Nạp chỉ mục", done: "Hoàn tất", error: "Lỗi", document: "Đọc tài liệu" };
     list.innerHTML = jobs.map((job) => {
       const target = job.title || job.video_id || job.document_id || "Nội dung";
       const retry = job.status === "error" ? `<button class="small-action" type="button" data-task-retry="${esc(job.job_id)}">Thử lại</button>` : "";
@@ -639,7 +639,8 @@ $("#form").addEventListener("submit", async (e) => {
   const busyWatch = setInterval(async () => {
     try {
       const status = await (await adminFetch("/api/admin/status")).json();
-      if (status.gpu_busy) box.innerHTML = `<p class="hint">${status.phase === "asr" ? "Nhận dạng lời nói (ASR) đang dùng bộ xử lý đồ họa (GPU); câu hỏi đang chờ tới lượt tạo câu trả lời. Bước tìm nguồn vẫn chạy bình thường." : "Mô hình ngôn ngữ (LLM) đang bận; đang chờ để tạo câu trả lời…"}</p>`;
+      const gpuStep = { asr: "Nhận dạng lời nói (ASR)", ocr: "Đọc chữ trên màn hình (OCR)", vlm: "Mô tả hình minh họa (VLM)" }[status.phase];
+      if (status.gpu_busy) box.innerHTML = `<p class="hint">${gpuStep ? `${gpuStep} đang dùng bộ xử lý đồ họa (GPU); câu hỏi đang chờ tới lượt tạo câu trả lời. Bước tìm nguồn vẫn chạy bình thường.` : "Mô hình ngôn ngữ (LLM) đang bận; đang chờ để tạo câu trả lời…"}</p>`;
     } catch { /* Giữ trạng thái chờ hiện tại nếu tạm thời không đọc được trạng thái. */ }
   }, 900);
   try {

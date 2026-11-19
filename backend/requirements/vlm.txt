@@ -1,3 +1,17 @@
-transformers
-accelerate
-bitsandbytes
+# OCR (EasyOCR) and VLM share their own venv (.venv-vlm): both need a CUDA build
+# of torch, while the core .venv keeps the CPU build used by the embedder.
+# Install (see README):
+#   uv venv --python 3.12 .venv-vlm
+#   uv pip install --python .venv-vlm/bin/python -r backend/requirements/vlm.txt
+# The PyPI torch wheels for Linux are CUDA 13 builds (driver must report CUDA >= 13).
+torch==2.15.0
+torchvision==0.29.2
+transformers==5.22.1
+accelerate==1.16.0
+bitsandbytes==0.50.2
+easyocr==1.7.2
+Pillow
+# vskr.cli/config/util/qa imports needed to run `vskr vlm` inside this venv
+pyyaml
+python-dotenv
+httpx

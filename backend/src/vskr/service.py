@@ -1,10 +1,10 @@
 import time
 
-from . import index as index_mod
-from .embedder import Embedder
+from .retrieval import index as index_mod
+from .retrieval.embedder import Embedder
 from .qa import answer_question
-from .retriever import Retriever
-from .bm25 import BM25, tokenize
+from .retrieval.retriever import Retriever
+from .retrieval.bm25 import BM25, tokenize
 from .util import fmt_time, source_link
 from .visibility import is_visible
 

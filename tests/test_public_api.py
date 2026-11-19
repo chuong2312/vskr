@@ -12,9 +12,9 @@ import numpy as np
 from vskr.api import app, handlers, limits
 from vskr import accounts
 from vskr.api.public import _safe_source_link
-from vskr.bm25 import BM25, tokenize
-from vskr.index import Index
-from vskr.retriever import Retriever
+from vskr.retrieval.bm25 import BM25, tokenize
+from vskr.retrieval.index import Index
+from vskr.retrieval.retriever import Retriever
 from vskr.service import Service
 
 from tests.asgi_client import ASGITestClient

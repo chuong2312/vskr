@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from ..config import data_dir, index_dir, load_config, video_dir, videos_dir
 from ..evaluation import score_results, validate_question
-from ..index import load_meta
+from ..retrieval.index import load_meta
 from ..pipeline.ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
 from ..util import fmt_time, read_json, write_json
 from .. import audit, accounts
@@ -786,8 +786,8 @@ def _run_visual_steps(cfg, job_id, video_id, warnings):
 
 def _rebuild_index(cfg=None, job_id=None):
     cfg = cfg or load_config()
-    from .. import index as index_mod
-    from ..embedder import Embedder
+    from ..retrieval import index as index_mod
+    from ..retrieval.embedder import Embedder
 
     idir = index_dir(cfg)
     idir.parent.mkdir(parents=True, exist_ok=True)

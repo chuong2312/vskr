@@ -15,8 +15,8 @@ from vskr import accounts
 from vskr.accounts import COOKIE_NAME
 from vskr.api import app
 from vskr.api import handlers
-from vskr.bm25 import BM25, tokenize
-from vskr.index import Index
+from vskr.retrieval.bm25 import BM25, tokenize
+from vskr.retrieval.index import Index
 from vskr.service import Service
 from tests.asgi_client import ASGITestClient
 

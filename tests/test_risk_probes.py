@@ -12,9 +12,9 @@ import yt_dlp
 from vskr import auth, qa
 from vskr.api import handlers
 from vskr.pipeline.url_safety import validate_ingest_url
-from vskr.bm25 import BM25, tokenize
-from vskr.index import Index
-from vskr.retriever import Retriever
+from vskr.retrieval.bm25 import BM25, tokenize
+from vskr.retrieval.index import Index
+from vskr.retrieval.retriever import Retriever
 from vskr.service import ModelBusyError, Service
 
 
@@ -76,8 +76,8 @@ class TestRiskProbes(unittest.TestCase):
             }
             FakeEmbedder.batch_sizes.clear()
             FakeEmbedder.embed_seconds.clear()
-            with mock.patch("vskr.embedder.Embedder", FakeEmbedder), \
-                    mock.patch("vskr.index.build_graph", return_value={"nodes": [], "edges": []}):
+            with mock.patch("vskr.retrieval.embedder.Embedder", FakeEmbedder), \
+                    mock.patch("vskr.retrieval.index.build_graph", return_value={"nodes": [], "edges": []}):
                 handlers._rebuild_index(cfg)
                 chunks.extend([
                     {"chunk_id": f"doc:{i}", "document_id": "doc", "section": i, "text": f"chunk {i}"}

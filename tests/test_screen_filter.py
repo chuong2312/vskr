@@ -7,9 +7,9 @@ from io import StringIO
 from pathlib import Path
 
 from tests.test_integration import FakeEmbedder
-from vskr import index as index_mod
+from vskr.retrieval import index as index_mod
 from vskr.config import load_config, video_dir
-from vskr.screen_filter import filter_screen_text, frame_height
+from vskr.retrieval.screen_filter import filter_screen_text, frame_height
 from vskr.util import read_json, write_json
 
 H = 720

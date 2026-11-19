@@ -1,6 +1,6 @@
 import unittest
 
-from vskr.knowledge_graph import build_graph, search_graph
+from vskr.retrieval.knowledge_graph import build_graph, search_graph
 
 
 class TestKnowledgeGraph(unittest.TestCase):

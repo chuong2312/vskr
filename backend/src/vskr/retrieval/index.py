@@ -8,17 +8,17 @@ import numpy as np
 
 from .bm25 import BM25, tokenize
 from .chunker import make_chunks, make_scene_chunks
-from .config import data_dir, index_dir, video_dir, videos_dir
+from ..config import data_dir, index_dir, video_dir, videos_dir
 from .knowledge_graph import build_graph
 from .screen_filter import filter_screen_text, frame_height
-from .util import read_json, write_json
+from ..util import read_json, write_json
 
 
 def _relation_extractor(cfg):
     kg_cfg = cfg.get("knowledge_graph", {})
     if not kg_cfg.get("extract_relations", False):
         return None
-    from .qa import call_ollama
+    from ..qa import call_ollama
 
     max_chunks = max(0, int(kg_cfg.get("max_relation_chunks", 100)))
     quotas = {"video": (max_chunks + 1) // 2, "document": max_chunks // 2}

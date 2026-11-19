@@ -1,8 +1,8 @@
 import unittest
 
-from vskr.bm25 import BM25, tokenize
-from vskr.chunker import make_chunks
-from vskr.fusion import rrf_fuse
+from vskr.retrieval.bm25 import BM25, tokenize
+from vskr.retrieval.chunker import make_chunks
+from vskr.retrieval.fusion import rrf_fuse
 from vskr.qa import NOT_FOUND, build_messages, extract_citations, is_not_found, strip_think
 from vskr.util import fmt_time, source_link
 

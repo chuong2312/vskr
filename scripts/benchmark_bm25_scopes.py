@@ -7,8 +7,8 @@ import statistics
 import time
 from types import SimpleNamespace
 
-from vskr.bm25 import BM25, tokenize
-from vskr.retriever import Retriever
+from vskr.retrieval.bm25 import BM25, tokenize
+from vskr.retrieval.retriever import Retriever
 
 
 def measure(index, scopes, query_tokens, repeats):

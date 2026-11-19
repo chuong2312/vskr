@@ -139,7 +139,7 @@ class TestIngestDurationLimit(unittest.TestCase):
 class TestIndexEmbeddingMismatch(unittest.TestCase):
     def test_service_refuses_stale_index(self):
         from tests.test_integration import FakeEmbedder
-        from vskr import index as index_mod
+        from vskr.retrieval import index as index_mod
         from vskr.config import video_dir
         from vskr.service import Service
         from vskr.util import write_json

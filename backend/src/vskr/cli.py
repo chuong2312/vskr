@@ -70,12 +70,12 @@ def main():
             print(f"[ingest] {m['video_id']} | {m['title']} | {m['duration']}s")
     elif args.cmd == "asr":
         from .pipeline import asr
-        from .index import list_video_ids
+        from .retrieval.index import list_video_ids
 
         asr.run(cfg, args.video or list_video_ids(cfg), force=args.force)
     elif args.cmd == "frames":
         from .pipeline import frames
-        from .index import list_video_ids
+        from .retrieval.index import list_video_ids
 
         for vid in args.video or list_video_ids(cfg):
             frames.run(cfg, vid, force=args.force)
@@ -85,13 +85,13 @@ def main():
         video_ids = args.video
         if not video_ids:
             # index pulls in numpy/BM25; the OCR venv child always receives --video.
-            from .index import list_video_ids
+            from .retrieval.index import list_video_ids
 
             video_ids = list_video_ids(cfg)
         run_step(cfg, args.cmd, video_ids, force=args.force)
     elif args.cmd == "index":
-        from . import index
-        from .embedder import Embedder
+        from .retrieval import index
+        from .retrieval.embedder import Embedder
 
         emb = Embedder(cfg["embedding"])
         try:
@@ -99,9 +99,9 @@ def main():
         finally:
             emb.close()
     elif args.cmd == "doc":
-        from . import index
+        from .retrieval import index
         from .pipeline.documents import ingest_document
-        from .embedder import Embedder
+        from .retrieval.embedder import Embedder
 
         meta = ingest_document(args.file, cfg)
         emb = Embedder(cfg["embedding"])

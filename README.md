@@ -32,6 +32,7 @@ source scripts/activate-venv.sh
 uv pip install -r backend/requirements/base.txt -r backend/requirements/video.txt
 uv pip install torch --index-url https://download.pytorch.org/whl/cpu
 uv pip install -r backend/requirements/asr.txt -r backend/requirements/embedding.txt
+uv pip install -r backend/requirements/docs.txt   # đọc PDF/DOCX cho `vskr doc`
 uv pip install --editable backend --no-deps
 vskr doctor --gpu-test
 ```
@@ -118,6 +119,9 @@ có thể gọi Ollama theo cấu hình hiện tại.
 `python scripts/benchmark_ask_lock.py --question "..." --hold-seconds 12 --ask-timeout 10`
 đo retrieval và thời gian chờ của `Service.ask` khi benchmark giữ shared lock.
 Lock trong script được giả lập, không đại diện cho thời lượng ASR hoặc GPU thực.
+`python scripts/benchmark_bm25_scopes.py --chunks 10000 --scopes 200 --repeats 3`
+đo tốc độ chấm BM25 khi lọc theo nhiều tập quyền khác nhau; dùng dữ liệu tổng hợp,
+không đọc `data/`.
 
 ### Tài khoản quản trị
 

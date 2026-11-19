@@ -47,7 +47,6 @@ frames:                      # dò phân cảnh và lấy frame cho OCR/VLM; c�
   max_width: 1280
 
 ocr:
-  provider: paddleocr
   lang: vi
   device: gpu
   max_frames: 2000
@@ -55,7 +54,6 @@ ocr:
   unload_ollama_first: true
 
 vlm:
-  provider: transformers
   model: Qwen/Qwen2.5-VL-3B-Instruct
   device: cuda
   load_in_4bit: true
@@ -91,7 +89,6 @@ knowledge_graph:
   max_relation_chunks: 24    # tối đa 12 đoạn video + 12 mục tài liệu gửi qua Ollama mỗi lần lập chỉ mục
 
 llm:
-  provider: ollama
   base_url: http://localhost:11434   # Ollama local; đổi bằng VSKR__LLM__BASE_URL nếu cần
   model: qwen3.5:4b             # mặc định nhẹ hơn cho máy 24 GB RAM; 9b vẫn có thể chọn lại
   temperature: 0.1

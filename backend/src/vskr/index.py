@@ -169,7 +169,7 @@ def build(cfg, embedder, progress=None, output_dir=None):
 def load(cfg):
     idir = index_dir(cfg)
     if not (idir / "chunks.json").exists():
-        raise FileNotFoundError("Chưa có chỉ mục. Chạy: python -m vskr.cli index")
+        raise FileNotFoundError("Chưa có chỉ mục. Chạy: vskr index")
     chunks = read_json(idir / "chunks.json")
     vectors = np.load(idir / "vectors.npy")
     bm25 = BM25([tokenize(c["text"]) for c in chunks])

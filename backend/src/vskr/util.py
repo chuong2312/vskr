@@ -57,11 +57,6 @@ def source_link(url, video_id, start):
     return url
 
 
-def yt_link(video_id, start):
-    """Backward-compatible YouTube timestamp helper."""
-    return source_link(None, video_id, start)
-
-
 def read_json(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)

@@ -4,7 +4,7 @@ from vskr.bm25 import BM25, tokenize
 from vskr.chunker import make_chunks
 from vskr.fusion import rrf_fuse
 from vskr.qa import NOT_FOUND, build_messages, extract_citations, is_not_found, strip_think
-from vskr.util import fmt_time, yt_link
+from vskr.util import fmt_time, source_link
 
 
 def segs(n, step=10, length=10):
@@ -128,7 +128,7 @@ class TestUtil(unittest.TestCase):
         self.assertEqual(fmt_time(3725), "1:02:05")
 
     def test_link(self):
-        self.assertEqual(yt_link("ID", 32.9), "https://www.youtube.com/watch?v=ID&t=32s")
+        self.assertEqual(source_link(None, "ID", 32.9), "https://www.youtube.com/watch?v=ID&t=32s")
 
 
 if __name__ == "__main__":

@@ -575,20 +575,6 @@ def require_user(request: Request):
     return session
 
 
-def require_learner_or_admin(request: Request):
-    try:
-        return require_user(request)
-    except HTTPException as learner_error:
-        # A few management API paths are shared by both apps; a valid admin session
-        # may use them, while anonymous requests are still denied.
-        try:
-            return {"admin": True, **auth.validate_admin_request(request)}
-        except HTTPException as admin_error:
-            if admin_error.status_code in (401, 404):
-                raise learner_error
-            raise
-
-
 def optional_learner_or_admin(request: Request):
     """Return a signed-in learner/admin or a shared-library-only guest."""
     user_token = request.cookies.get(COOKIE_NAME)

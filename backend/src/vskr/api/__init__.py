@@ -75,21 +75,6 @@ class UploadBodyLimitMiddleware:
             return 5 * 1024 * 1024 + overhead
         return None
 
-    def _limit(self, path: str) -> int | None:
-        if self._test_limits is not None:
-            return self._test_limits.get(path)
-        from ..config import load_config
-
-        cfg = load_config()
-        overhead = UploadBodyLimitMiddleware.OVERHEAD_BYTES
-        if path == "/api/ingest":
-            return int(cfg.get("ingest", {}).get("max_upload_bytes", 1_073_741_824)) + overhead
-        if path == "/api/documents":
-            return 100 * 1024 * 1024 + overhead
-        if path == "/api/eval/questions/import":
-            return 5 * 1024 * 1024 + overhead
-        return None
-
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)

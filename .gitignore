@@ -1,6 +1,10 @@
 .venv/
 .venv-*/
-data/
+data/*
+!data/eval/
+data/eval/*
+!data/eval/*.schema.json
+!data/eval/questions.jsonl
 cache/
 __pycache__/
 *.py[cod]

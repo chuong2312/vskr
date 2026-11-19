@@ -13,7 +13,7 @@
 
 ## Việc tiếp theo
 1. Bộ câu hỏi đánh giá: sau khi chạy OCR/VLM, soạn ~10 câu về chữ trên màn hình/hình vẽ, rồi chạy `eval_variants.py`
-   - Phát hiện: chế độ `graph` cho Recall@5 = 0 trên 23 câu nháp. Mọi chunk khớp đều cùng điểm 1.0 nên kết quả theo thứ tự index; khái niệm ngắn còn khớp như chuỗi con ("chi" trong "chia"). Cần sửa (chưa duyệt)
+   - Đã sửa lỗi xếp hạng graph (nhánh `fix/graph-ranking`): graph trên 23 câu nháp tăng từ 0.00 lên 0.78 Recall@5. `hybrid_graph` vẫn ngang `hybrid` (0.89/0.76 so với 0.91/0.82); việc có giữ graph trong chế độ mặc định hay không sẽ quyết sau khi có câu hỏi đã duyệt
 2. Sửa test đang chạm vào `data/` thật
 3. Cập nhật SECURITY-REVIEW.md cho khớp code
 4. Dọn code bước 5–8 (gom hardcode vào yaml, kiểm tra link YouTube, SSRF, tách handlers.py)

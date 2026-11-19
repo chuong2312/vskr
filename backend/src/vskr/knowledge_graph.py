@@ -4,6 +4,7 @@ The graph remains a local JSON artifact: sources preserve evidence, concepts
 connect the modalities, and optional typed relations support multi-hop search.
 """
 from collections import Counter, defaultdict, deque
+import math
 import re
 
 from .bm25 import tokenize
@@ -17,6 +18,7 @@ _STOP_WORDS = set(
     "what how why when where which who video đoạn phần bài học ví dụ chúng ta "
     "mình bạn tôi họ ấy nhé thôi".split()
 )
+_SOURCE_KINDS = ("document_section", "video_segment", "video_scene_segment")
 _RELATION_TYPES = {
     "DEPENDS_ON", "PART_OF", "CAUSES", "USES", "DEFINES", "IS_A",
     "HAS_PROPERTY", "COMPARES_WITH", "RELATED_TO", "NEXT_SECTION",
@@ -164,11 +166,16 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
 
     The result shape matches the existing vector/BM25 retrievers, preserving
     the current answer generation and timestamp citation behavior.
+
+    Điểm của một đoạn = tổng trọng số các khái niệm trong câu hỏi mà đoạn đó chạm tới, chia cho
+    tổng trọng số mọi khái niệm của câu hỏi. Trọng số khái niệm là IDF theo số đoạn nhắc tới nó
+    (khái niệm hiếm nặng ký hơn); khái niệm chạm tới gián tiếp bị giảm theo expansion_weight mỗi bước.
+    Nhờ vậy đoạn khớp nhiều khái niệm, hoặc khái niệm hiếm, đứng trước thay vì cùng điểm 1.0.
     """
     nodes = {node["id"]: node for node in graph.get("nodes", [])}
     query_terms = list(dict.fromkeys(keywords(question, limit=32)))
     query_tokens = set(tokenize(question))
-    normalized_question = " ".join(tokenize(question))
+    padded_question = f" {' '.join(tokenize(question))} "
     anchor_weights = {
         f"concept:{term}": 1.0 for term in query_terms if f"concept:{term}" in nodes
     }
@@ -177,7 +184,8 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
             continue
         label_tokens = set(tokenize(node.get("label", "")))
         phrase = " ".join(tokenize(node.get("label", "")))
-        if (phrase and phrase in normalized_question) or (len(label_tokens) > 1 and label_tokens <= query_tokens):
+        # So khớp trọn từ: "chi" không được khớp bên trong "chia".
+        if (phrase and f" {phrase} " in padded_question) or (len(label_tokens) > 1 and label_tokens <= query_tokens):
             anchor_weights[node_id] = 1.0
     for label, similarity in (semantic_terms or {}).items():
         concept_id = f"concept:{label}"
@@ -187,6 +195,7 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
         return []
 
     adjacency = defaultdict(list)
+    mention_counts = Counter()
     for edge in graph.get("edges", []):
         left, right = edge.get("from"), edge.get("to")
         if left in nodes and right in nodes:
@@ -194,6 +203,18 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
             # Graph retrieval is evidence discovery, so traverse typed relations
             # in both directions while retaining their direction in the graph.
             adjacency[right].append((left, edge))
+            if edge.get("type") == "MENTIONS" and nodes[right].get("kind") in _SOURCE_KINDS:
+                mention_counts[left] += 1
+    n_sources = sum(1 for node in nodes.values() if node.get("kind") in _SOURCE_KINDS)
+
+    def concept_idf(concept_id):
+        df = min(mention_counts.get(concept_id, 0), n_sources)
+        return math.log(1 + (n_sources - df + 0.5) / (df + 0.5))
+
+    term_weights = {
+        anchor.removeprefix("concept:"): weight * concept_idf(anchor) for anchor, weight in anchor_weights.items()
+    }
+    total_weight = sum(term_weights.values()) or 1.0
 
     source_depth = {}
     matched_by_source = defaultdict(dict)
@@ -211,14 +232,13 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
             if key not in visited:
                 visited.add(key)
                 queue.append((neighbor, anchor, next_depth))
-            kind = nodes.get(neighbor, {}).get("kind")
-            if kind == "document_section" or kind in ("video_segment", "video_scene_segment"):
+            if nodes.get(neighbor, {}).get("kind") in _SOURCE_KINDS:
                 previous = source_depth.get(neighbor)
                 if previous is None or next_depth < previous:
                     source_depth[neighbor] = next_depth
                 term = anchor.removeprefix("concept:")
                 matched_by_source[neighbor][term] = max(
-                    matched_by_source[neighbor].get(term, 0.0), anchor_weights[anchor]
+                    matched_by_source[neighbor].get(term, 0.0), expansion_weight ** (next_depth - 1)
                 )
 
     ppr_scores = {}
@@ -269,9 +289,7 @@ def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_ho
         if item is not None:
             idx, chunk = item
             matched = matched_by_source[source_node_id]
-            score = expansion_weight ** max(0, depth - 1)
-            if matched:
-                score *= sum(matched.values()) / len(matched)
+            score = sum(decay * term_weights[term] for term, decay in matched.items()) / total_weight
             if idf_weights and matched:
                 query_idfs = [idf_weights.get(node_id.removeprefix("concept:"), 0.0) for node_id in anchor_weights]
                 mean_query_idf = sum(query_idfs) / len(query_idfs) if query_idfs else 0.0

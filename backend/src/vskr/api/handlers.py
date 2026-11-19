@@ -540,10 +540,6 @@ def admin_status():
     return full
 
 
-def _owner_is_visible(item_owner_id, owner_id=None, *, shared_only=False):
-    return is_visible({"owner_id": item_owner_id}, owner_id, shared_only=shared_only)
-
-
 def _meta_is_visible(meta, owner_id=None, *, shared_only=False):
     return is_visible(meta, owner_id, shared_only=shared_only)
 

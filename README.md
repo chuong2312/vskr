@@ -1,6 +1,6 @@
 # VSKR — hỏi đáp bài giảng và quản trị học liệu
 
-VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp tiếng Việt có trích dẫn. Khách mở app Người học ở `/` và hỏi trên thư viện chung mà không cần tài khoản; đăng nhập để lưu và xem lịch sử, hoặc thêm học liệu riêng. Bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. SQLite lưu tài khoản, phiên đăng nhập và lịch sử hội thoại; học liệu, job và index vẫn nằm trên filesystem. OCR/VLM là bước tùy chọn, chưa chạy tự động trong luồng MVP; frontend dùng HTML/CSS/JavaScript thuần.
+VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp tiếng Việt có trích dẫn. Khách mở app Người học ở `/` và hỏi trên thư viện chung mà không cần tài khoản; đăng nhập để lưu và xem lịch sử, hoặc thêm học liệu riêng. Bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. SQLite lưu tài khoản, phiên đăng nhập và lịch sử hội thoại; học liệu, job và index vẫn nằm trên filesystem. Job ingest tự chạy OCR rồi VLM sau ASR, trong venv riêng `.venv-vlm`; muốn tắt thì đặt `ocr.enabled`/`vlm.enabled` trong `configs/models.yaml` thành `false`. Frontend dùng HTML/CSS/JavaScript thuần.
 
 ## Thành phần đang dùng
 
@@ -38,6 +38,28 @@ vskr doctor --gpu-test
 ```
 
 Các thư viện CUDA tải lần đầu khá lớn. Script kích hoạt venv đặt `HF_HOME`, `PYTHONPATH` và đường dẫn cuBLAS/cuDNN cần cho faster-whisper. Chỉ tiếp tục khi `doctor --gpu-test` báo `OK`.
+
+### OCR và VLM (venv riêng `.venv-vlm`)
+
+Hai bước tùy chọn giúp tìm được cả nội dung **trên màn hình** bài giảng chứ không chỉ lời giảng viên nói:
+
+- **OCR** (EasyOCR, `['vi', 'en']`) đọc chữ trên slide và code. PaddleOCR không được dùng vì từ điển model của nó thiếu chữ tiếng Việt hai dấu (ấ, ữ, ệ, ớ…): "Truy vấn dữ liệu" bị đọc thành "Truy vn d liu".
+- **VLM** (Qwen2.5-VL-3B, nén 4-bit, khoảng 2,5 GB VRAM) mô tả sơ đồ, biểu đồ và hình minh họa bằng lời.
+
+Cả hai cần torch bản CUDA, còn `.venv` chính giữ torch CPU cho embedding, nên chúng dùng chung một venv riêng:
+
+```bash
+uv venv --python 3.12 .venv-vlm
+uv pip install --python .venv-vlm/bin/python -r backend/requirements/vlm.txt
+```
+
+Vẫn chạy lệnh bằng `.venv` chính; `vskr ocr` và `vskr vlm` tự gọi sang `.venv-vlm` theo `ocr.python`/`vlm.python` trong `configs/models.yaml`. Lần chạy đầu tải model EasyOCR (khoảng 100 MB) vào `cache/easyocr` và model VLM (khoảng 7,5 GB) vào `cache/huggingface`.
+
+Khi `ocr.enabled`/`vlm.enabled` bật, job ingest chạy thêm trích frame → OCR → VLM sau ASR. Bước nào lỗi (ví dụ chưa cài `.venv-vlm`) chỉ thành cảnh báo, video vẫn được lập chỉ mục bằng transcript. Tắt hai cờ này để ingest nhanh hơn. Chạy tay cho video đã có: `vskr frames --video <id>`, `vskr ocr --video <id>`, `vskr vlm --video <id>`, rồi `vskr index`.
+
+- `frames` dùng lại `scenes.json` nếu đã dò cảnh với cùng tham số, trích frame song song theo `frames.workers` và bỏ frame trùng bằng dHash.
+- OCR ghép các từ cùng hàng thành dòng, gộp dòng lặp lại qua các frame liên tiếp thành một khoảng thời gian, và ghi tỷ lệ diện tích chữ của từng frame vào `ocr_info.json`.
+- VLM chỉ mô tả frame **ít chữ**: frame mà chữ chiếm từ `vlm.max_text_area` (mặc định 15%) trở lên là slide/code đã được OCR đọc nên bị bỏ qua; frame gần giống frame đã chọn (`vlm.min_hash_dist`) cũng bị bỏ; số còn lại rải đều tối đa `vlm.max_frames`. Chữ OCR của frame được đưa vào prompt làm ngữ cảnh, và frame chỉ có người nói bị loại khỏi chỉ mục.
 
 ## Chạy pipeline trong venv
 
@@ -174,7 +196,7 @@ Không xóa `data/` hoặc `cache/` nếu còn cần video, transcript, index ha
 
 ## Phạm vi hiện tại
 
-Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect, không dùng LLM để sửa theo mạch bài giảng; trích quan hệ bằng Ollama có giới hạn số đoạn; liên kết video–tài liệu dựa trên embedding và khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; cần bộ câu hỏi đủ lớn, có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite cho job/index và frontend SvelteKit chưa bật mặc định. Docker sẽ được cấu hình ở giai đoạn đóng gói.
+Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect, không dùng LLM để sửa theo mạch bài giảng; trích quan hệ bằng Ollama có giới hạn số đoạn; liên kết video–tài liệu dựa trên embedding và khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; cần bộ câu hỏi đủ lớn, có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite cho job/index và frontend SvelteKit chưa bật mặc định. Docker sẽ được cấu hình ở giai đoạn đóng gói.
 
 ## Cấu trúc dự án
 

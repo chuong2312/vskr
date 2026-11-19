@@ -742,6 +742,7 @@ def _process_ingest_job(job_id, source):
             vdir = video_dir(cfg, video_id)
             if not (vdir / "transcript.json").is_file():
                 raise RuntimeError("ASR chưa tạo transcript; kiểm tra file audio và cấu hình ASR.")
+            _run_visual_steps(cfg, job_id, video_id, warnings)
 
         _update_job(job_id, phase="index", message="Đang chia đoạn và lập chỉ mục…")
         _rebuild_index(cfg, job_id=job_id)
@@ -767,6 +768,50 @@ def _process_ingest_job(job_id, source):
             _error_detail=_safe_diagnostic(exc),
         )
         audit.write_event("ingest.complete", target_id=job_id, kind=source.get("kind"), result="error")
+
+
+def _run_visual_steps(cfg, job_id, video_id, warnings):
+    """Extract frames, then OCR, then VLM, each when enabled; failures only add warnings.
+
+    On-screen text and figure captions improve search, but a lecture stays
+    usable from its transcript, so these steps must not fail the ingest job.
+    VLM runs after OCR because it uses OCR's per-frame text coverage to
+    caption only figure-like frames.
+    """
+    ocr_on = bool(cfg.get("ocr", {}).get("enabled"))
+    vlm_on = bool(cfg.get("vlm", {}).get("enabled"))
+    if not (ocr_on or vlm_on):
+        return
+    meta = read_json(video_dir(cfg, video_id) / "meta.json")
+    if not meta.get("has_video_file"):
+        return
+    from ..steps import run_step
+
+    try:
+        _update_job(job_id, phase="frames", message="Đang trích frame từ video…")
+        from ..frames import run as extract_frames
+
+        extract_frames(cfg, video_id)
+    except Exception as exc:
+        logging.warning("Frame extraction failed for %s; indexing transcript only (%s: %s)",
+                        video_id, type(exc).__name__, exc)
+        warnings.append("Không trích được frame; đã lập chỉ mục bằng transcript.")
+        return
+    steps = []
+    if ocr_on:
+        steps.append(("ocr", "Đang đọc chữ trên màn hình (OCR)…",
+                      "Không đọc được chữ trên màn hình (OCR); đã lập chỉ mục bằng transcript."))
+    if vlm_on:
+        steps.append(("vlm", "Đang mô tả sơ đồ/hình minh họa (VLM)…",
+                      "Không mô tả được hình minh họa (VLM); phần còn lại vẫn được lập chỉ mục."))
+    for step, running, failed in steps:
+        try:
+            _update_job(job_id, phase=step, message=running)
+            with _gpu_model_lock:
+                run_step(cfg, step, [video_id])
+        except Exception as exc:
+            logging.warning("%s step failed for %s (%s: %s)", step.upper(), video_id, type(exc).__name__, exc)
+            warnings.append(failed)
 
 
 def _rebuild_index(cfg=None, job_id=None):

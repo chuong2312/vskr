@@ -4,7 +4,7 @@ VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp ti�
 
 ## Thành phần đang dùng
 
-- `backend/src/vskr`: package Python của ứng dụng. Môi trường venv dùng Python 3.12, FFmpeg, yt-dlp, faster-whisper, PySceneDetect, E5-small, BM25/RRF và FastAPI. Embedding chạy CPU; ASR dùng GPU qua CTranslate2.
+- `backend/src/vskr`: package Python của ứng dụng, chia theo khâu: `pipeline/` (tải video, nhận dạng giọng nói, khung hình, OCR, VLM, tài liệu), `retrieval/` (chia đoạn, nhúng, BM25, đồ thị tri thức, tìm kiếm), `access/` (tài khoản, đăng nhập, quyền xem) và `api/` (web; nghiệp vụ nằm trong `api/handlers/`). Môi trường venv dùng Python 3.12, FFmpeg, yt-dlp, faster-whisper, PySceneDetect, E5-small, BM25/RRF và FastAPI. Embedding chạy CPU; ASR dùng GPU qua CTranslate2.
 - QA gọi Ollama API tại `localhost:11434`; cần cài/chạy Ollama riêng. VSKR chạy trực tiếp trong venv.
 - Dữ liệu nằm trong `./data`, model/download cache trong `./cache`.
 - Admin và CLI mặc định kết hợp **vector E5 + BM25** (`hybrid`), rồi hợp nhất thứ hạng bằng RRF. Trên bộ 36 câu hỏi đã duyệt, `hybrid` đạt Recall@5 / MRR 0.92 / 0.81, còn `hybrid_graph` (thêm truy xuất đồ thị) đạt 0.90 / 0.68. App Người học lọc dữ liệu theo quyền tài khoản và cũng dùng hybrid vector + BM25; admin có thể so sánh `hybrid_graph`, `vector`, `bm25` và `graph`. Lệnh CLI `vskr ask` cũng nhận cờ `--mode`. Chỉ mục được quét trực tiếp bằng NumPy; FAISS để dành khi dữ liệu lớn hơn.

@@ -14,3 +14,7 @@
 | 2026-11-19 | Lọc chữ rác OCR trước khi lập chỉ mục (bật mặc định) | Bỏ menu/watermark lặp ở mép màn hình và dòng có mã số sinh viên. Với `hybrid`: Recall@5 0.97 → 0.92 (2 câu vốn ở hạng 4), MRR 0.80 → 0.81; cần bộ câu hỏi lớn hơn để kết luận |
 | 2026-11-19 | Chế độ mặc định `hybrid` thay cho `hybrid_graph` | 36 câu đã duyệt, OCR đã lọc: `hybrid` 0.92 / 0.81, `hybrid_graph` 0.90 / 0.68 (Recall@5 / MRR); graph vẫn giữ để thử nghiệm |
 | 2026-11-19 | Hoãn "đọc code tốt hơn" (VLM đọc nguyên văn, VietOCR, Surya) | Câu hỏi về màn hình đã đạt Recall@5 0.90; VLM tốn ~5 giây/frame; cần thêm câu hỏi về đoạn code OCR đọc sai mới đo được |
+| 2026-11-19 | Giữ đủ bộ lọc OCR khi dùng `hybrid` | Chênh 2/36 câu chưa đủ kết luận; bộ lọc bỏ mã số sinh viên và chữ giao diện khỏi nguồn trích dẫn |
+| 2026-11-20 | Gom code theo khâu: `pipeline/`, `retrieval/`, `access/`, `api/handlers/` | Cấu trúc khớp sơ đồ hệ thống trong báo cáo; `handlers.py` 1341 dòng gánh 6 việc; phần lõi thôi phụ thuộc FastAPI |
+| 2026-11-20 | Giới hạn upload và địa chỉ Ollama chỉ nằm trong models.yaml, code không giữ số dự phòng | Sửa một chỗ là đủ; thiếu khoá thì báo lỗi rõ tên khoá thay vì âm thầm dùng số khác |
+| 2026-11-20 | Hoãn tách `app.js`/`admin.js` | Giao diện chưa có test chạy trên trình duyệt; tách JS cần thử tay từng màn hình |

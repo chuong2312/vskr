@@ -5,6 +5,7 @@ gộp hai nguồn thời điểm, rồi lọc frame trùng bằng dHash. Phần 
 import subprocess
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import video_dir
 from .ingest import resolve_source
@@ -137,6 +138,18 @@ def grab_frame(video_path, t, out_path, max_width=1280):
     )
 
 
+def _cached_scene_starts(vdir, fc):
+    """Scene starts saved by detect_scenes_only, if they were computed with the same settings."""
+    path = vdir / "scenes.json"
+    if not path.is_file():
+        return None
+    cached = read_json(path)
+    params = {"scene_threshold": fc.get("scene_threshold", 27.0), "frame_skip": fc.get("frame_skip", 0)}
+    if cached.get("detection_status") != "complete" or cached.get("params") != params:
+        return None
+    return [float(t) for t in cached.get("scene_starts", [])]
+
+
 def run(cfg, video_id, force=False):
     fc = cfg["frames"]
     vdir = video_dir(cfg, video_id)
@@ -150,11 +163,15 @@ def run(cfg, video_id, force=False):
         return
 
     t0 = time.time()
-    try:
-        starts = detect_scene_starts(vpath, fc.get("scene_threshold", 27.0), fc.get("frame_skip", 0))
-    except Exception as e:  # thiếu thư viện hoặc lỗi giải mã: vẫn chạy được bằng lấy mẫu định kỳ
-        print(f"[frames] PySceneDetect lỗi ({type(e).__name__}: {e}); chỉ dùng lấy mẫu định kỳ")
-        starts = []
+    starts = _cached_scene_starts(vdir, fc)
+    if starts is not None:
+        print(f"[frames] {video_id}: dùng lại {len(starts)} đầu cảnh từ scenes.json")
+    else:
+        try:
+            starts = detect_scene_starts(vpath, fc.get("scene_threshold", 27.0), fc.get("frame_skip", 0))
+        except Exception as e:  # thiếu thư viện hoặc lỗi giải mã: vẫn chạy được bằng lấy mẫu định kỳ
+            print(f"[frames] PySceneDetect lỗi ({type(e).__name__}: {e}); chỉ dùng lấy mẫu định kỳ")
+            starts = []
     t_scene = time.time() - t0
 
     cands = candidate_times(
@@ -166,11 +183,19 @@ def run(cfg, video_id, force=False):
 
     fdir = vdir / "frames"
     fdir.mkdir(exist_ok=True)
-    rows = []
-    for t, src in cands:
+    max_width = fc.get("max_width", 1280)
+
+    def extract(candidate):
+        t, src = candidate
         p = fdir / f"f_{t:09.2f}.jpg"
-        grab_frame(vpath, t, p, fc.get("max_width", 1280))
-        rows.append({"t": t, "source": src, "path": f"frames/{p.name}", "hash": dhash(p)})
+        grab_frame(vpath, t, p, max_width)
+        return {"t": t, "source": src, "path": f"frames/{p.name}", "hash": dhash(p)}
+
+    # Each grab is one short ffmpeg seek+decode; running several at once keeps
+    # the CPU busy instead of waiting on process start-up. map() keeps time order.
+    workers = max(1, int(fc.get("workers", 6)))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="vskr-frames") as pool:
+        rows = list(pool.map(extract, cands))
     keep = set(dedupe_hashes([r["hash"] for r in rows], fc.get("hash_dist", 4)))
     kept = []
     for i, r in enumerate(rows):

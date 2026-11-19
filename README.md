@@ -1,6 +1,6 @@
 # VSKR — hỏi đáp bài giảng và quản trị học liệu
 
-VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp tiếng Việt có trích dẫn. Khách mở app Người học ở `/` và hỏi trên thư viện chung mà không cần tài khoản; đăng nhập để lưu và xem lịch sử, hoặc thêm học liệu riêng. Bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. SQLite lưu tài khoản, phiên đăng nhập và lịch sử hội thoại; học liệu, job và index vẫn nằm trên filesystem. OCR/VLM là bước tùy chọn, chưa chạy tự động trong luồng MVP; frontend dùng HTML/CSS/JavaScript thuần.
+VSKR chuyển video bài giảng và tài liệu thành nguồn hỏi đáp tiếng Việt có trích dẫn. Khách mở app Người học ở `/` và hỏi trên thư viện chung mà không cần tài khoản; đăng nhập để lưu và xem lịch sử, hoặc thêm học liệu riêng. Bảng Quản trị ở `/admin` yêu cầu admin đăng nhập. Giai đoạn hiện tại chạy trực tiếp trong `.venv`; chưa cấu hình Docker. SQLite lưu tài khoản, phiên đăng nhập và lịch sử hội thoại; học liệu, job và index vẫn nằm trên filesystem. Job ingest tự chạy OCR rồi VLM sau ASR, trong venv riêng `.venv-vlm`; muốn tắt thì đặt `ocr.enabled`/`vlm.enabled` trong `configs/models.yaml` thành `false`. Frontend dùng HTML/CSS/JavaScript thuần.
 
 ## Thành phần đang dùng
 
@@ -196,7 +196,7 @@ Không xóa `data/` hoặc `cache/` nếu còn cần video, transcript, index ha
 
 ## Phạm vi hiện tại
 
-Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect, không dùng LLM để sửa theo mạch bài giảng; trích quan hệ bằng Ollama có giới hạn số đoạn; liên kết video–tài liệu dựa trên embedding và khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; cần bộ câu hỏi đủ lớn, có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. OCR/PaddleOCR, VLM, FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite cho job/index và frontend SvelteKit chưa bật mặc định. Docker sẽ được cấu hình ở giai đoạn đóng gói.
+Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/InstructKG đầy đủ: ranh giới cảnh lấy từ PySceneDetect, không dùng LLM để sửa theo mạch bài giảng; trích quan hệ bằng Ollama có giới hạn số đoạn; liên kết video–tài liệu dựa trên embedding và khái niệm, chưa có người duyệt. Truy vấn graph duyệt tối đa 3 cạnh; cần bộ câu hỏi đủ lớn, có đáp án và nguồn đúng trước khi kết luận graph tốt hơn hybrid. FAISS (requirements riêng tại `backend/requirements/faiss.txt`), SQLite cho job/index và frontend SvelteKit chưa bật mặc định. Docker sẽ được cấu hình ở giai đoạn đóng gói.
 
 ## Cấu trúc dự án
 

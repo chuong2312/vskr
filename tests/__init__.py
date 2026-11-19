@@ -1,4 +1,4 @@
-"""VSKR test suite.
+"""Bộ test của VSKR.
 
 Cả bộ test chạy trên một thư mục dữ liệu tạm, không bao giờ trên data/ thật: nhiều module (accounts,
 audit...) tự gọi load_config(), nên chỉ đổi cfg trong từng test là không đủ. File này được nạp trước

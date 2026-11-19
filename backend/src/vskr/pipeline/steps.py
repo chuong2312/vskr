@@ -78,5 +78,5 @@ def run_step(cfg, step, video_ids, force=False):
     if should_delegate(cfg, step):
         run_external(cfg, step, video_ids, force=force)
         return
-    module = importlib.import_module(f"{__package__}.{step}")  # vskr.pipeline.ocr / vskr.pipeline.vlm
+    module = importlib.import_module(f"{__package__}.{step}")  # ví dụ vskr.pipeline.ocr hoặc vskr.pipeline.vlm
     module.run(cfg, video_ids, force=force)

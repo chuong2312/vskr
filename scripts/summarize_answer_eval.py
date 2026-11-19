@@ -1,4 +1,4 @@
-"""Validate human answer-review JSONL and summarize its three quality labels."""
+"""Kiểm tra file JSONL người chấm câu trả lời và tổng hợp theo ba nhãn chất lượng."""
 
 import argparse
 import json

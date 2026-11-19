@@ -161,10 +161,10 @@ def build_graph(chunks, max_keywords_per_segment=12, vectors=None,
 def search_graph(graph, chunks, question, top_k=5, expansion_weight=0.55, max_hops=3,
                 semantic_terms=None, idf_weights=None, ppr=False, damping=0.5,
                 seed_weight=0.05):
-    """Traverse query concepts through typed relations and cross-modal links.
+    """Đi từ các khái niệm trong câu hỏi qua quan hệ có kiểu và liên kết giữa tài liệu với video.
 
-    The result shape matches the existing vector/BM25 retrievers, preserving
-    the current answer generation and timestamp citation behavior.
+    Kết quả có cùng dạng với bộ tìm kiếm vector/BM25, nên phần sinh câu trả lời và trích dẫn mốc
+    thời gian giữ nguyên.
 
     Điểm của một đoạn = tổng trọng số các khái niệm trong câu hỏi mà đoạn đó chạm tới, chia cho
     tổng trọng số mọi khái niệm của câu hỏi. Trọng số khái niệm là IDF theo số đoạn nhắc tới nó

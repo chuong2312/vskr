@@ -1,4 +1,4 @@
-"""ASGI test client that avoids the installed Starlette TestClient/AnyIO portal."""
+"""Client ASGI cho test, không dùng TestClient và portal AnyIO của bản Starlette đã cài."""
 
 import asyncio
 from unittest import mock

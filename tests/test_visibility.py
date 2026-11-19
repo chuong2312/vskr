@@ -1,6 +1,6 @@
 import unittest
 
-from vskr.visibility import is_visible
+from vskr.access.visibility import is_visible
 
 
 class TestVisibilityMatrix(unittest.TestCase):

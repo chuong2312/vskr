@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from .. import accounts, audit, auth
+from ..access import accounts, audit, auth
 from ..config import ROOT, data_dir, load_config
 from ..util import read_json, write_json
 from . import handlers

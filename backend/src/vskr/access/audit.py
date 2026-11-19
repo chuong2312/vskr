@@ -7,7 +7,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from .config import data_dir, load_config
+from ..config import data_dir, load_config
 
 _lock = threading.Lock()
 

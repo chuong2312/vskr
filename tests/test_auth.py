@@ -7,9 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from vskr import auth
+from vskr.access import auth
 from vskr.api import app
-from vskr.auth import hash_password
+from vskr.access.auth import hash_password
 
 from tests.asgi_client import ASGITestClient
 
@@ -161,7 +161,7 @@ class TestAdminAuth(unittest.TestCase):
 
     def test_learner_failures_do_not_throttle_admin_login(self):
         with mock.patch.dict(os.environ, self.env), \
-                mock.patch("vskr.auth.verify_login", return_value=True):
+                mock.patch("vskr.access.auth.verify_login", return_value=True):
             with ASGITestClient(app) as client:
                 headers = {"Origin": "http://localhost"}
                 for attempt in range(auth.LOGIN_IP_FAILURES):
@@ -203,7 +203,7 @@ class TestAdminAuth(unittest.TestCase):
 
     def test_absolute_and_idle_session_expiry(self):
         now = [100_000.0]
-        with mock.patch("vskr.auth.time.time", side_effect=lambda: now[0]):
+        with mock.patch("vskr.access.auth.time.time", side_effect=lambda: now[0]):
             idle_token, _ = auth.create_session()
             now[0] += auth.IDLE_TTL
             self.assertIsNone(auth.get_session(idle_token))

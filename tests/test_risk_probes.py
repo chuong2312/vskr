@@ -9,7 +9,8 @@ from unittest import mock
 import numpy as np
 import yt_dlp
 
-from vskr import auth, qa
+from vskr.access import auth
+from vskr import qa
 from vskr.api import handlers
 from vskr.pipeline.url_safety import validate_ingest_url
 from vskr.retrieval.bm25 import BM25, tokenize

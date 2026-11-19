@@ -19,8 +19,8 @@ from fastapi import HTTPException, Request
 
 from . import auth
 from .auth import _same_origin, _secure_cookie_request, hash_password
-from .config import data_dir, index_dir, load_config
-from .util import read_json, write_json
+from ..config import data_dir, index_dir, load_config
+from ..util import read_json, write_json
 
 COOKIE_NAME = "vskr_user"
 GUEST_COOKIE_NAME = "vskr_guest"

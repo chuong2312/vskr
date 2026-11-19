@@ -39,7 +39,7 @@ def main():
     args = ap.parse_args()
     if args.cmd == "admin":
         from getpass import getpass
-        from .auth import hash_password
+        from .access.auth import hash_password
 
         password = getpass("Mật khẩu admin: ")
         confirmation = getpass("Nhập lại mật khẩu: ")
@@ -122,7 +122,7 @@ def main():
         print(f"\nthời gian: tìm {res['timing']['retrieve_s']}s, LLM {res['timing']['llm_s']}s, chế độ {res['mode']}")
     elif args.cmd == "serve":
         import uvicorn
-        from .auth import admin_is_configured, warn_if_unconfigured
+        from .access.auth import admin_is_configured, warn_if_unconfigured
 
         warn_if_unconfigured(host=args.host)
         if args.host == "0.0.0.0" and not admin_is_configured():

@@ -6,7 +6,7 @@ from ..config import data_dir, load_config
 from ..util import read_json, write_json
 from fastapi.responses import FileResponse, RedirectResponse
 
-from .. import audit, auth, accounts
+from ..access import audit, auth, accounts
 from ..config import ROOT
 from . import handlers
 

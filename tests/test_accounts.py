@@ -11,8 +11,8 @@ import numpy as np
 from fastapi import HTTPException
 from fastapi.responses import Response
 
-from vskr import accounts
-from vskr.accounts import COOKIE_NAME
+from vskr.access import accounts
+from vskr.access.accounts import COOKIE_NAME
 from vskr.api import app
 from vskr.api import handlers
 from vskr.retrieval.bm25 import BM25, tokenize

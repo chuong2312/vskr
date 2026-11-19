@@ -23,8 +23,8 @@ from ..evaluation import score_results, validate_question
 from ..retrieval.index import load_meta
 from ..pipeline.ingest import check_duration, ingest, ingest_file, probe_duration, resolve_source
 from ..util import fmt_time, read_json, write_json
-from .. import audit, accounts
-from ..visibility import is_visible
+from ..access import audit, accounts
+from ..access.visibility import is_visible
 from ..pipeline.url_safety import validate_ingest_url
 
 

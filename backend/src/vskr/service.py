@@ -6,7 +6,7 @@ from .qa import answer_question
 from .retrieval.retriever import Retriever
 from .retrieval.bm25 import BM25, tokenize
 from .util import fmt_time, source_link
-from .visibility import is_visible
+from .access.visibility import is_visible
 
 
 class ModelBusyError(RuntimeError):

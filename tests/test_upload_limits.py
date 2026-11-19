@@ -13,11 +13,11 @@ class TestUploadBodyLimitMiddleware(unittest.TestCase):
         }
         middleware = UploadBodyLimitMiddleware(lambda *_args: None)
         with mock.patch("vskr.config.load_config", return_value=cfg), \
-                mock.patch("vskr.accounts.get_session", return_value=None):
+                mock.patch("vskr.access.accounts.get_session", return_value=None):
             guest_scope = {"path": "/api/ingest", "headers": []}
             self.assertEqual(middleware._limit_for_scope(guest_scope), 100 + middleware.OVERHEAD_BYTES)
         with mock.patch("vskr.config.load_config", return_value=cfg), \
-                mock.patch("vskr.accounts.get_session", return_value={"user_id": "u1"}):
+                mock.patch("vskr.access.accounts.get_session", return_value={"user_id": "u1"}):
             learner_scope = {"path": "/api/ingest", "headers": [(b"cookie", b"vskr_user=token")]}
             self.assertEqual(middleware._limit_for_scope(learner_scope), 1000 + middleware.OVERHEAD_BYTES)
 

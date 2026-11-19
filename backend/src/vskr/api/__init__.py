@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from ..auth import warn_if_unconfigured
+from ..access.auth import warn_if_unconfigured
 from . import admin, handlers, public
 
 
@@ -57,7 +57,7 @@ class UploadBodyLimitMiddleware:
         path = scope.get("path", "")
         if self._test_limits is not None:
             return self._test_limits.get(path)
-        from .. import accounts
+        from ..access import accounts
         from ..config import load_config
 
         cfg = load_config()

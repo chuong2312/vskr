@@ -8,10 +8,10 @@ from pathlib import Path
 from unittest import mock
 
 from vskr import api
-from vskr import accounts
+from vskr.access import accounts
 from vskr.api import handlers
-from vskr import auth
-from vskr.auth import hash_password
+from vskr.access import auth
+from vskr.access.auth import hash_password
 from vskr.config import load_config
 
 from tests.asgi_client import ASGITestClient

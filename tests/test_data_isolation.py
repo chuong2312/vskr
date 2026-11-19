@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from tests import TEST_DATA_DIR
-from vskr import accounts
+from vskr.access import accounts
 from vskr.config import ROOT, load_config
 
 

@@ -10,7 +10,7 @@ from unittest import mock
 import numpy as np
 
 from vskr.api import app, handlers, limits
-from vskr import accounts
+from vskr.access import accounts
 from vskr.api.public import _safe_source_link
 from vskr.retrieval.bm25 import BM25, tokenize
 from vskr.retrieval.index import Index

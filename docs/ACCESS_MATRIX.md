@@ -28,7 +28,7 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
 | `GET` | `/api/jobs/{job_id}` | Chủ job (admin session xem đầy đủ) | Người học chỉ xem job do tài khoản mình tạo, response tối thiểu; admin dùng session quản trị để xem diagnostic. |
 | `GET` | `/api/videos/{video_id}/file` | Public guest, learner session hoặc admin session | Khách chỉ mở file video dùng chung; learner mở nội dung dùng chung và của mình; admin mở toàn bộ. Kiểm tra trạng thái index và vị trí file. |
 | `GET` | `/api/documents/{document_id}/sections/{section}` | Public guest, learner session hoặc admin session | Khách chỉ mở mục tài liệu dùng chung; learner mở nội dung dùng chung và của mình; admin mở toàn bộ. |
-| `POST` | `/api/ask` | Public guest; learner session + CSRF; hoặc admin session + CSRF | Khách chỉ tìm thư viện dùng chung và không lưu lịch sử. Learner tìm nội dung dùng chung và của mình, lưu lượt hỏi theo tài khoản. Không nhận retrieval mode từ client; learner/guest dùng hybrid vector + BM25. Response chỉ chứa câu trả lời và nguồn được phép xem. |
+| `POST` | `/api/ask` | Public guest; learner session + CSRF; hoặc admin session + CSRF | Khách tìm nội dung dùng chung và private do chính guest cookie sở hữu, không lưu lịch sử; không được đọc private của guest khác. Learner tìm nội dung dùng chung và của mình, lưu lượt hỏi theo tài khoản. Không nhận retrieval mode từ client; learner/guest dùng hybrid vector + BM25. Response chỉ chứa câu trả lời và nguồn được phép xem. |
 | `GET` | `/api/conversations` | Learner session | Chỉ danh sách cuộc trò chuyện của tài khoản hiện tại. |
 | `GET` | `/api/conversations/{conversation_id}` | Learner session | Chỉ nội dung hỏi đáp và nguồn của chủ cuộc trò chuyện; ID của tài khoản khác trả `404`. |
 | `PATCH` | `/api/conversations/{conversation_id}` | Learner session + CSRF | Đổi tên cuộc trò chuyện của chính tài khoản hiện tại; tối đa 72 ký tự. |
@@ -79,3 +79,8 @@ từ việc ẩn nút hoặc đường dẫn trong giao diện.
   giữ response public tối thiểu trong khi vẫn đáp ứng dashboard quản trị.
 - `/api/admin/ask` là route thử hỏi của quản trị; nó không mở rộng quyền của
   endpoint public `/api/ask`.
+- Truy xuất luôn áp dụng visibility ở server, kể cả khi có `project_id` hoặc
+  danh sách nguồn được yêu cầu. Thiếu `visibility` được xem là `private`;
+  migration một lần ghi tường minh `public` cho dữ liệu legacy không có owner
+  (giữ hành vi thư viện chung cũ) và `private` cho metadata có owner. Admin ask
+  là luồng duy nhất được bỏ qua lọc visibility.

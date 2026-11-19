@@ -34,6 +34,50 @@ class TestAdminAuth(unittest.TestCase):
     def tearDown(self):
         self.data_dir.cleanup()
 
+    def test_secure_cookie_trusts_forwarded_https_only_from_configured_proxy(self):
+        from starlette.requests import Request
+
+        def request_from(peer, forwarded_headers):
+            headers = [(b"host", b"vskr-internal:8000"), *forwarded_headers]
+            return Request({
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                "method": "GET", "scheme": "http", "path": "/api/user/me",
+                "raw_path": b"/api/user/me", "query_string": b"", "root_path": "",
+                "headers": headers, "server": ("vskr", 8000), "client": (peer, 1234),
+            })
+
+        forwarded = [(b"x-forwarded-proto", b"https"), (b"x-forwarded-host", b"learn.example.test")]
+        with mock.patch.dict(os.environ, {
+            "VSKR_COOKIE_SECURE": "true", "VSKR_TRUSTED_PROXIES": "10.0.0.0/8",
+        }):
+            trusted = auth._secure_cookie_request(request_from("10.2.3.4", forwarded))
+            untrusted = auth._secure_cookie_request(request_from("192.0.2.5", forwarded))
+        self.assertTrue(trusted)
+        self.assertFalse(untrusted)
+
+    def test_secure_cookie_accepts_trusted_ipv6_proxy_and_rejects_bad_forwarded_proto(self):
+        from starlette.requests import Request
+
+        def request_with(proto):
+            return Request({
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                "method": "GET", "scheme": "http", "path": "/", "raw_path": b"/",
+                "query_string": b"", "root_path": "",
+                "headers": [
+                    (b"host", b"internal:8000"), (b"x-forwarded-host", b"app.example.test"),
+                    (b"x-forwarded-proto", proto),
+                ],
+                "server": ("app", 8000), "client": ("2001:db8::1", 443),
+            })
+
+        with mock.patch.dict(os.environ, {
+            "VSKR_COOKIE_SECURE": "true", "VSKR_TRUSTED_PROXIES": "2001:db8::/32",
+        }):
+            trusted = auth._secure_cookie_request(request_with(b"https"))
+            malformed = auth._secure_cookie_request(request_with(b"https,http"))
+        self.assertTrue(trusted)
+        self.assertFalse(malformed)
+
     def test_login_sets_http_only_same_site_cookie_and_returns_only_csrf(self):
         with mock.patch.dict(os.environ, self.env):
             with ASGITestClient(app) as client:

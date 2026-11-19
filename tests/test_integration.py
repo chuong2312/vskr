@@ -37,7 +37,10 @@ class TestPipeline(unittest.TestCase):
         self.cfg = load_config()
         self.cfg["paths"]["data_dir"] = str(self.tmp)
         vd = video_dir(self.cfg, "vid1")
-        write_json(vd / "meta.json", {"video_id": "vid1", "title": "Bài 1", "duration": 300, "url": "https://www.youtube.com/watch?v=vid1"})
+        write_json(vd / "meta.json", {
+            "video_id": "vid1", "title": "Bài 1", "duration": 300,
+            "url": "https://www.youtube.com/watch?v=vid1", "visibility": "public",
+        })
         segs = [
             {"start": 0, "end": 20, "text": "hôm nay ta học khai báo biến trong python bằng dấu bằng"},
             {"start": 20, "end": 45, "text": "biến x gán giá trị mười viết x bằng mười"},
@@ -118,7 +121,7 @@ class TestPipeline(unittest.TestCase):
         with mock.patch.object(qa, "call_ollama", return_value="Câu trả lời [9]."):
             res = svc.ask("khai báo biến python")
         self.assertFalse(res["cited"])
-        self.assertTrue(1 <= len(res["sources"]) <= 3)
+        self.assertEqual(res["sources"], [])
 
     def test_service_not_found(self):
         from vskr.service import Service

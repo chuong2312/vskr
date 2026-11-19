@@ -273,6 +273,22 @@ def _migrate_owner_fields(path: Path, key: bytes) -> None:
         write_json(path, value)
 
 
+def _migrate_legacy_visibility(path: Path, legacy_owners_by_id: dict[str, set[str]]) -> None:
+    if not path.is_file():
+        return
+    meta = read_json(path)
+    if not isinstance(meta, dict) or "visibility" in meta:
+        return
+    source_id = meta.get("video_id") or meta.get("document_id") or path.parent.name
+    owners = legacy_owners_by_id.get(source_id, set())
+    owner = meta.get("owner") or meta.get("owner_id")
+    if not owner and len(owners) == 1:
+        meta["owner_id"] = next(iter(owners))
+        owner = meta["owner_id"]
+    meta["visibility"] = "private" if owner or owners else "public"
+    write_json(path, meta)
+
+
 def migrate_legacy_guest_owners() -> None:
     root = data_dir(load_config())
     root_key = str(root.resolve())
@@ -284,6 +300,28 @@ def migrate_legacy_guest_owners() -> None:
             applied = db.execute(
                 "SELECT 1 FROM schema_migrations WHERE version = 'guest-owner-hmac-v1'"
             ).fetchone()
+            visibility_applied = db.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 'legacy-visibility-v1'"
+            ).fetchone()
+        if not visibility_applied:
+            chunks_path = index_dir(load_config()) / "chunks.json"
+            chunks = read_json(chunks_path) if chunks_path.is_file() else []
+            legacy_owners_by_id = {}
+            for chunk in chunks if isinstance(chunks, list) else []:
+                if not isinstance(chunk, dict):
+                    continue
+                source_id = chunk.get("video_id") or chunk.get("document_id")
+                owner_id = chunk.get("owner_id")
+                if isinstance(source_id, str) and isinstance(owner_id, str) and owner_id:
+                    legacy_owners_by_id.setdefault(source_id, set()).add(owner_id)
+            for pattern in ("videos/*/meta.json", "documents/*/meta.json"):
+                for path in root.glob(pattern):
+                    _migrate_legacy_visibility(path, legacy_owners_by_id)
+            with _connect() as db:
+                db.execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                    ("legacy-visibility-v1", int(time.time())),
+                )
         if applied:
             _guest_owner_migrated_roots.add(root_key)
             return

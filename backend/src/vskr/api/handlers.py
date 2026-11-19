@@ -1077,7 +1077,7 @@ def ask(req: AskRequest, *, mode_override=None, use_request_mode=True, admin=Fal
         try:
             return service.ask(q, mode=mode, llm_lock=_gpu_model_lock, lock_timeout=GPU_LOCK_TIMEOUT_S,
                                owner_id=owner_id, shared_only=shared_only, allowed_sources=allowed_sources,
-                               project_id=project_id)
+                               project_id=project_id, admin=admin)
         finally:
             _release_service(service)
     except HTTPException:

@@ -110,9 +110,18 @@ class TestLearnerAccounts(unittest.TestCase):
             video_meta = Path(self.temp.name) / "videos" / "old-video" / "meta.json"
             video_meta.parent.mkdir(parents=True)
             video_meta.write_text(json.dumps({"owner_id": legacy_owner}), encoding="utf-8")
+            legacy_public_meta = Path(self.temp.name) / "videos" / "legacy-public" / "meta.json"
+            legacy_public_meta.parent.mkdir(parents=True)
+            legacy_public_meta.write_text(json.dumps({"video_id": "legacy-public"}), encoding="utf-8")
+            legacy_owned_meta = Path(self.temp.name) / "videos" / "legacy-owned" / "meta.json"
+            legacy_owned_meta.parent.mkdir(parents=True)
+            legacy_owned_meta.write_text(json.dumps({"video_id": "legacy-owned"}), encoding="utf-8")
             chunks = Path(self.temp.name) / "index" / "chunks.json"
             chunks.parent.mkdir(parents=True)
-            chunks.write_text(json.dumps([{"owner_id": legacy_owner}]), encoding="utf-8")
+            chunks.write_text(json.dumps([
+                {"owner_id": legacy_owner},
+                {"video_id": "legacy-owned", "owner_id": legacy_owner},
+            ]), encoding="utf-8")
 
             public_owner = accounts.guest_owner_id(token)
 
@@ -122,6 +131,11 @@ class TestLearnerAccounts(unittest.TestCase):
             self.assertNotIn(token, video_meta.read_text(encoding="utf-8"))
             self.assertNotIn(token, chunks.read_text(encoding="utf-8"))
             self.assertEqual(json.loads(video_meta.read_text(encoding="utf-8"))["owner_id"], public_owner)
+            self.assertEqual(json.loads(video_meta.read_text(encoding="utf-8"))["visibility"], "private")
+            self.assertEqual(json.loads(legacy_public_meta.read_text(encoding="utf-8"))["visibility"], "public")
+            owned_meta = json.loads(legacy_owned_meta.read_text(encoding="utf-8"))
+            self.assertEqual(owned_meta["owner_id"], public_owner)
+            self.assertEqual(owned_meta["visibility"], "private")
             self.assertEqual(json.loads(chunks.read_text(encoding="utf-8"))[0]["owner_id"], public_owner)
 
     def test_self_registration_only_requires_a_unique_username(self):
@@ -236,7 +250,11 @@ class TestLearnerAccounts(unittest.TestCase):
                       {"version": 1, "nodes": [], "edges": []})
         service = object.__new__(Service)
         service.index = index
-        service.meta = {"shared": {"title": "Shared"}, "mine": {"title": "Mine"}, "theirs": {"title": "Theirs"}}
+        service.meta = {
+            "shared": {"title": "Shared", "visibility": "public"},
+            "mine": {"title": "Mine", "visibility": "private"},
+            "theirs": {"title": "Theirs", "visibility": "private"},
+        }
         service.document_meta = {}
         service.cfg = {"retrieval": {"mode": "hybrid", "top_k": 3}, "llm": {}}
         service.embedder = mock.Mock()
@@ -291,3 +309,43 @@ class TestLearnerAccounts(unittest.TestCase):
         with mock.patch("vskr.service.answer_question", side_effect=answer):
             service.ask("public topic", owner_id="g:guest", shared_only=True)
         self.assertEqual(observed["chunks"], ["public:1"])
+
+    def test_anonymous_service_queries_fail_closed_and_project_scope_checks_visibility(self):
+        chunks = [
+            {"chunk_id": "public:1", "video_id": "public", "project_id": "p1", "text": "public topic"},
+            {"chunk_id": "private:1", "video_id": "private", "owner_id": "user-a",
+             "project_id": "p1", "text": "private topic"},
+        ]
+        index = Index(chunks, np.asarray([[1., 0.], [0., 1.]]),
+                      BM25([tokenize(chunk["text"]) for chunk in chunks]), {},
+                      {"version": 1, "nodes": [], "edges": []})
+        service = object.__new__(Service)
+        service.index = index
+        service.meta = {
+            "public": {"video_id": "public", "visibility": "public"},
+            "private": {"video_id": "private", "owner_id": "user-a", "visibility": "private"},
+        }
+        service.document_meta = {}
+        service.cfg = {"retrieval": {"mode": "hybrid", "top_k": 3}, "llm": {}}
+        service.embedder = mock.Mock()
+        service.embedder.encode_query.return_value = np.asarray([1., 0.])
+        service.retriever = None
+        observed = {}
+
+        def answer(_question, hits, _cfg):
+            observed["chunks"] = [hit["chunk"]["chunk_id"] for hit in hits]
+            return {"answer": "ok", "found": bool(hits), "cited": False, "source_ns": []}
+
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("topic")
+        self.assertEqual(observed["chunks"], ["public:1"])
+
+        observed.clear()
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("topic", project_id="p1")
+        self.assertEqual(observed["chunks"], ["public:1"])
+
+        observed.clear()
+        with mock.patch("vskr.service.answer_question", side_effect=answer):
+            service.ask("topic", admin=True)
+        self.assertEqual(set(observed["chunks"]), {"public:1", "private:1"})

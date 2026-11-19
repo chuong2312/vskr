@@ -245,7 +245,7 @@ function setupPlayer() {
   if (!current) return;
   if (isUploaded(current)) {
     if (player && player.destroy) player.destroy();
-    $("#player").innerHTML = `<video id="local-player" controls playsinline preload="metadata" src="${esc(current.file_url)}"></video>`;
+    $("#player").innerHTML = `<video id="local-player" controls playsinline preload="metadata" src="${esc(VskrUrlSafety.safeSameOriginPath(current.file_url))}"></video>`;
     player = $("#local-player");
     player.addEventListener("loadedmetadata", () => {
       if (pendingJump && pendingJump.vid === current.video_id) {
@@ -260,7 +260,7 @@ function setupPlayer() {
   if (!isYouTube(current)) {
     if (player && player.destroy) player.destroy();
     player = null;
-    $("#player").innerHTML = `<div class="player-msg">Nền tảng này chưa hỗ trợ phát/nhảy thời điểm ngay trong trang.<br><a href="${esc(current.url)}" target="_blank" rel="noopener">Mở video trên nền tảng gốc</a></div>`;
+    $("#player").innerHTML = `<div class="player-msg">Nền tảng này chưa hỗ trợ phát/nhảy thời điểm ngay trong trang.<br><a href="${esc(VskrUrlSafety.safeHttpUrl(current.url))}" target="_blank" rel="noopener">Mở video trên nền tảng gốc</a></div>`;
     $("#tl-title").textContent = "Thời điểm nguồn (mở video gốc để đối chiếu)";
     return;
   }
@@ -403,7 +403,7 @@ function renderResult(d) {
           <strong>Nguồn ${s.n}</strong><span>${isDoc ? "Tài liệu · " : "Video · "}${esc(s.title || s.video_id || "")}</span><span class="t">${esc(s.label)}</span>
           ${s.cited ? "" : `<span class="tag">chưa được dẫn</span>`}
           <span class="src-actions">
-            ${isDoc ? `<button class="play" type="button" data-open-section="${s.n}">Xem mục</button>` : `<button class="play" type="button" data-jump="${s.n}">Phát từ ${fmt(s.start)}</button><a href="${esc(s.link)}" target="_blank" rel="noopener">Mở video nguồn</a>`}
+            ${isDoc ? `<button class="play" type="button" data-open-section="${s.n}">Xem mục</button>` : `<button class="play" type="button" data-jump="${s.n}">Phát từ ${fmt(s.start)}</button><a href="${esc(VskrUrlSafety.safeHttpUrl(s.link))}" target="_blank" rel="noopener">Mở video nguồn</a>`}
           </span>
         </div>
         <p>${esc(s.text)}</p><button class="more" type="button">Xem đầy đủ</button>

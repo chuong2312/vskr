@@ -70,6 +70,18 @@ class TestRetrievalLogic(unittest.TestCase):
         self.assertEqual(max(range(3), key=lambda i: s[i]), 0)
         self.assertEqual(bm.scores(tokenize("không có từ này")), [0.0, 0.0, 0.0])
 
+    def test_bm25_scores_use_only_authorized_documents_for_idf(self):
+        bm = BM25([
+            ["sharedterm"],
+            ["sharedterm", "private"],
+            ["sharedterm", "private"],
+        ])
+
+        score = bm.scores(["sharedterm"], allowed_docs=[True, False, False])
+
+        self.assertAlmostEqual(score[0], 0.28768207245178085)
+        self.assertEqual(score[1:], [0.0, 0.0])
+
     def test_rrf(self):
         fused = rrf_fuse([[1, 2, 3], [3, 1, 4]], k=60)
         ids = [i for i, _ in fused]

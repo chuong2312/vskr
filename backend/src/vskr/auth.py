@@ -85,6 +85,31 @@ def _is_local_host(value: str | None) -> bool:
     return bool(hostname and hostname.lower() in {"localhost", "127.0.0.1", "::1"})
 
 
+def _trusted_forwarded_request(request: Request) -> tuple[str | None, str | None]:
+    peer = request.client.host if request.client else ""
+    trusted_value = os.environ.get("VSKR_TRUSTED_PROXIES", "").strip()
+    try:
+        peer_ip = ipaddress.ip_address(peer.split("%", 1)[0])
+        trusted_ranges = [
+            ipaddress.ip_network(item.strip(), strict=False)
+            for item in trusted_value.split(",") if item.strip()
+        ]
+        if not trusted_ranges or not any(peer_ip in network for network in trusted_ranges):
+            return None, None
+        proto_values = [value.strip().lower() for value in request.headers.get("x-forwarded-proto", "").split(",")]
+        host_values = [value.strip() for value in request.headers.get("x-forwarded-host", "").split(",")]
+        if len(proto_values) != 1 or len(host_values) != 1 or proto_values[0] not in {"http", "https"}:
+            return None, None
+        forwarded_host = host_values[0]
+        parsed_host = urlsplit("//" + forwarded_host)
+        if (not parsed_host.hostname or parsed_host.username is not None or parsed_host.password is not None
+                or parsed_host.path or parsed_host.query or parsed_host.fragment):
+            return None, None
+        return proto_values[0], forwarded_host
+    except ValueError:
+        return None, None
+
+
 def _secure_cookie_request(request: Request) -> bool:
     origin = request.headers.get("origin")
     try:
@@ -92,11 +117,10 @@ def _secure_cookie_request(request: Request) -> bool:
         local_origin = bool(parsed_origin and _is_local_host(parsed_origin.netloc))
     except ValueError:
         return False
-    local_host = _is_local_host(request.headers.get("host"))
+    forwarded_scheme, forwarded_host = _trusted_forwarded_request(request)
+    local_host = _is_local_host(forwarded_host or request.headers.get("host"))
     if cookie_secure():
-        if parsed_origin is not None:
-            return parsed_origin.scheme == "https" or local_origin
-        return local_host or request.url.scheme == "https"
+        return local_origin or local_host or forwarded_scheme == "https" or request.url.scheme == "https"
     return local_host and (not parsed_origin or local_origin)
 
 

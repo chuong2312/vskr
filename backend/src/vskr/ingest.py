@@ -69,6 +69,7 @@ def ingest_file(path, cfg, video_id, title=None):
         "source_type": "upload",
         "has_video_file": True,
         "source_file": src.name,
+        "visibility": "public",
     }
     write_json(vdir / "meta.json", meta)
     return meta
@@ -93,6 +94,8 @@ def ingest(url, cfg, with_video=False, video_id=None):
 
     with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
         info = ydl.extract_info(url, download=False)
+    if info.get("is_live") or info.get("duration") is None:
+        raise ValueError("Không hỗ trợ livestream hoặc video không xác định được thời lượng.")
     check_duration(info.get("duration"), cfg)
     youtube_id = str(info["id"])
     vid = video_id or youtube_id
@@ -127,6 +130,7 @@ def ingest(url, cfg, with_video=False, video_id=None):
         "source_type": "url",
         "has_video_file": bool(with_video),
         "source_file": src.name,
+        "visibility": "public",
     }
     write_json(vdir / "meta.json", meta)
     return meta

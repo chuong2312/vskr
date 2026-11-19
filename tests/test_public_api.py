@@ -87,7 +87,8 @@ class TestPublicCatalog(unittest.TestCase):
     def test_project_filter_keeps_shared_material(self):
         service = SimpleNamespace(
             meta={
-                "shared": {"video_id": "shared", "title": "Chung", "url": "https://youtu.be/shared"},
+                "shared": {"video_id": "shared", "title": "Chung", "visibility": "public",
+                           "url": "https://youtu.be/shared"},
                 "owned": {"video_id": "owned", "title": "Riêng", "owner_id": "u1", "project_id": "p1",
                           "url": "https://youtu.be/owned"},
             },
@@ -271,7 +272,8 @@ class TestPublicCatalog(unittest.TestCase):
     def test_guest_catalog_contains_shared_but_not_account_owned_material(self):
         service = SimpleNamespace(
             meta={
-                "shared-video": {"video_id": "shared-video", "title": "Bài chung", "url": "https://youtu.be/shared"},
+                "shared-video": {"video_id": "shared-video", "title": "Bài chung", "visibility": "public",
+                                 "url": "https://youtu.be/shared"},
                 "private-video": {"video_id": "private-video", "title": "Bài riêng", "owner_id": "student-a", "url": "https://youtu.be/private"},
                 "mixed-video": {"video_id": "mixed-video", "title": "Metadata thiếu chủ", "url": "https://youtu.be/mixed"},
             },
@@ -290,8 +292,13 @@ class TestPublicCatalog(unittest.TestCase):
                 metadata = {"document_id": document_id, "title": document_id}
                 if owner_id:
                     metadata["owner_id"] = owner_id
+                elif document_id == "shared-doc":
+                    metadata["visibility"] = "public"
                 (root / "meta.json").write_text(json.dumps(metadata), encoding="utf-8")
                 (root / "sections.json").write_text(json.dumps({"chunks": [{"section": 1}]}), encoding="utf-8")
+            index_dir = Path(temp_dir) / "index"
+            index_dir.mkdir()
+            (index_dir / "chunks.json").write_text(json.dumps(service.index.chunks), encoding="utf-8")
             with mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir}), \
                     mock.patch.dict(handlers.state, {"service": service}):
                 with ASGITestClient(app, authenticated_learner=False) as client:
@@ -321,6 +328,7 @@ class TestPublicCatalog(unittest.TestCase):
                 "video-ready": {
                     "video_id": "video-ready", "title": "Bài giảng", "duration": 180,
                     "url": "https://lectures.example/watch?id=123&token=private", "source_type": "url",
+                    "visibility": "public",
                 },
                 "video-processing": {
                     "video_id": "video-processing", "title": "Đang xử lý", "url": "https://example.com/",
@@ -344,6 +352,7 @@ class TestPublicCatalog(unittest.TestCase):
                 root.mkdir(parents=True)
                 (root / "meta.json").write_text(json.dumps({
                     "document_id": document_id, "title": document_id, "filename": f"{document_id}.pdf",
+                    "visibility": "public",
                 }), encoding="utf-8")
                 (root / "sections.json").write_text(json.dumps({"chunks": [{"section": 1}, {"section": 2}]}), encoding="utf-8")
             service = SimpleNamespace(
@@ -426,7 +435,7 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(answer.status_code, 200, answer.text)
         self.assertNotIn("conversation_id", answer.json())
         self.assertEqual(history.status_code, 401)
-        self.assertTrue(ask.call_args.kwargs["shared_only"])
+        self.assertFalse(ask.call_args.kwargs["shared_only"])
         self.assertTrue(ask.call_args.kwargs["owner_id"].startswith("g:"))
 
     def test_conversation_source_is_forwarded_as_an_index_scope(self):
@@ -464,6 +473,33 @@ class TestPublicCatalog(unittest.TestCase):
         self.assertEqual(public_response.status_code, 200, public_response.text)
         self.assertEqual(private_response.status_code, 404)
         self.assertEqual(ask.call_args.kwargs["allowed_sources"], {"public-video"})
+
+    def test_guest_can_query_own_private_source_but_not_another_guests(self):
+        token = "guest-own-private-test"
+        fake_result = {"answer": "A", "found": True, "cited": False, "sources": []}
+
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.dict(os.environ, {"VSKR__PATHS__DATA_DIR": temp_dir, "VSKR_COOKIE_SECURE": "false"}):
+            owner_id = accounts.guest_owner_id(token)
+
+            def visible(_kind, source_id, viewer_id, *, shared_only=False):
+                return (source_id == "own-private" and viewer_id == owner_id and not shared_only)
+
+            with mock.patch("vskr.api.public.handlers.source_is_visible", side_effect=visible), \
+                    mock.patch("vskr.api.public.handlers.ask", return_value=fake_result) as ask:
+                with ASGITestClient(app, authenticated_learner=False) as client:
+                    client.cookies.set(accounts.GUEST_COOKIE_NAME, token)
+                    own_response = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung riêng", "source_id": "own-private", "source_type": "video",
+                    })
+                    other_response = client.post("/api/ask", json={
+                        "question": "Hỏi nội dung khách khác", "source_id": "other-private", "source_type": "video",
+                    })
+
+        self.assertEqual(own_response.status_code, 200, own_response.text)
+        self.assertEqual(other_response.status_code, 404)
+        self.assertFalse(ask.call_args.kwargs["shared_only"])
+        self.assertEqual(ask.call_args.kwargs["owner_id"], owner_id)
 
     def test_source_links_only_allow_safe_hosts_and_strip_query_tokens(self):
         self.assertEqual(

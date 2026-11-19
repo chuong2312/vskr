@@ -505,7 +505,7 @@ def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optio
         if source_type not in {"video", "document", "library"}:
             raise HTTPException(422, "Loại nguồn không hợp lệ.")
         owner_id = user.get("owner") or user.get("user_id")
-        shared_only = bool(user.get("guest"))
+        shared_only = False
         if scope_type == "source" and not handlers.source_is_visible(
                 source_type, source_id, owner_id, shared_only=shared_only):
             if payload.conversation_id and user.get("user_id"):

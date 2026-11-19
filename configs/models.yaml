@@ -7,6 +7,7 @@ ingest:
   max_upload_bytes: 1073741824 # 1 GiB cho file upload và tải từ URL
   max_queue_length: 20
   allowed_domains: [youtube.com, youtu.be, youtube-nocookie.com]
+  guest_url_ingest_enabled: false # Chỉ bật sau khi đã xác nhận egress firewall
 
 limits:
   guest:

@@ -65,6 +65,11 @@ def cookie_secure() -> bool:
     return value not in {"false", "0", "no", "off"}
 
 
+def egress_firewall_confirmed() -> bool:
+    value = os.environ.get("VSKR_EGRESS_FIREWALL_CONFIRMED", "").strip().lower()
+    return value in {"true", "1", "yes", "on"}
+
+
 def warn_if_unconfigured(host: str | None = None) -> None:
     if not admin_is_configured():
         logging.warning(
@@ -73,6 +78,12 @@ def warn_if_unconfigured(host: str | None = None) -> None:
         )
     if host == "0.0.0.0" and not admin_is_configured():
         logging.warning("VSKR is bound to 0.0.0.0 with admin authentication unconfigured.")
+    if not egress_firewall_confirmed():
+        logging.warning(
+            "Egress firewall is not confirmed; guest URL ingest remains disabled. "
+            "Configure VSKR_EGRESS_FIREWALL_CONFIRMED=true only after enforcing "
+            "non-public IPv4 and IPv6 egress restrictions."
+        )
 
 
 def _is_local_host(value: str | None) -> bool:

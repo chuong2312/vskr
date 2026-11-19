@@ -192,6 +192,10 @@ class TestPublicCatalog(unittest.TestCase):
                 mock.patch.dict(os.environ, {
                     "VSKR__PATHS__DATA_DIR": temp_dir,
                     "VSKR_COOKIE_SECURE": "false",
+                    "VSKR_EGRESS_FIREWALL_CONFIRMED": "true",
+                }), \
+                mock.patch("vskr.api.public.load_config", return_value={
+                    "ingest": {"allowed_domains": ["youtube.com"], "guest_url_ingest_enabled": True},
                 }), \
                 mock.patch("vskr.api.public.validate_learner_ingest_url", side_effect=lambda url, **_kwargs: url), \
                 mock.patch.object(handlers, "validate_ingest_url"), \

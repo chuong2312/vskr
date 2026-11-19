@@ -317,8 +317,18 @@ async def public_ingest(request: Request, user=Depends(accounts.require_learner_
         if url is not None and not isinstance(url, str):
             raise HTTPException(400, "Trường URL không hợp lệ.")
         if url:
+            cfg = load_config()
+            if user.get("guest") and (
+                not cfg.get("ingest", {}).get("guest_url_ingest_enabled", False)
+                or not auth.egress_firewall_confirmed()
+            ):
+                raise HTTPException(
+                    403,
+                    "Khách chưa được phép ingest URL; cần bật guest_url_ingest_enabled "
+                    "và xác nhận egress firewall trước.",
+                )
             url = validate_learner_ingest_url(
-                url, allowed_domains=load_config().get("ingest", {}).get("allowed_domains")
+                url, allowed_domains=cfg.get("ingest", {}).get("allowed_domains")
             )
         result = await handlers.start_ingest(url=url, file=file,
                                              owner_id=owner_id, project_id=project["project_id"])

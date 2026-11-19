@@ -105,6 +105,78 @@ class TestSafeYtDlp(unittest.TestCase):
         )
         self.assertEqual(hls_downloader.__name__, "HlsFD")
 
+    def test_live_hls_selected_for_ffmpeg_is_rejected_before_network_download(self):
+        import yt_dlp
+        from yt_dlp.downloader import get_suitable_downloader
+        from yt_dlp.downloader.external import FFmpegFD
+        from vskr.safe_ytdlp import UnsafeNetworkDownloaderError
+
+        safe_downloader = make_safe_youtube_dl(yt_dlp)({"quiet": True})
+        info = {
+            "url": "https://video.example/live.m3u8",
+            "protocol": "m3u8",
+            "is_live": True,
+        }
+        selected = get_suitable_downloader(info.copy(), safe_downloader.params)
+        self.assertIs(selected, FFmpegFD)
+
+        with mock.patch.object(FFmpegFD, "download") as download:
+            with self.assertRaisesRegex(UnsafeNetworkDownloaderError, "network downloader"):
+                safe_downloader.dl("unused.ts", info)
+
+        download.assert_not_called()
+
+    def test_native_hls_and_external_protocol_downloaders_fail_closed(self):
+        import yt_dlp
+        from yt_dlp.downloader import get_suitable_downloader
+        from yt_dlp.downloader.external import FFmpegFD
+        from yt_dlp.downloader.rtmp import RtmpFD
+        from vskr.safe_ytdlp import UnsafeNetworkDownloaderError
+
+        safe_downloader = make_safe_youtube_dl(yt_dlp)({"quiet": True})
+        cases = (
+            ({"url": "https://video.example/encrypted.m3u8", "protocol": "m3u8_native"}, "HlsFD"),
+            ({"url": "rtmp://video.example/live", "protocol": "rtmp"}, "RtmpFD"),
+        )
+        for info, expected_downloader in cases:
+            with self.subTest(protocol=info["protocol"]):
+                selected = get_suitable_downloader(info.copy(), safe_downloader.params)
+                self.assertEqual(selected.__name__, expected_downloader)
+                with mock.patch.object(FFmpegFD, "download") as ffmpeg_download:
+                    with self.assertRaises(UnsafeNetworkDownloaderError):
+                        safe_downloader.dl("unused.bin", info.copy())
+                    ffmpeg_download.assert_not_called()
+
+    def test_native_dash_segments_are_allowed_through_yt_dlp(self):
+        import yt_dlp
+        from yt_dlp.downloader import get_suitable_downloader
+        from yt_dlp.downloader.dash import DashSegmentsFD
+
+        safe_downloader = make_safe_youtube_dl(yt_dlp)({"quiet": True})
+        info = {
+            "url": "https://video.example/manifest.mpd",
+            "protocol": "http_dash_segments",
+            "is_live": False,
+        }
+        self.assertIs(get_suitable_downloader(info.copy(), safe_downloader.params), DashSegmentsFD)
+        with mock.patch.object(DashSegmentsFD, "download", return_value=True) as download:
+            self.assertTrue(safe_downloader.dl("segments.bin", info))
+        download.assert_called_once()
+
+    def test_ffmpeg_remains_allowed_for_local_file_processing(self):
+        import yt_dlp
+        from yt_dlp.downloader.external import FFmpegFD
+
+        safe_downloader = make_safe_youtube_dl(yt_dlp)({"quiet": True})
+        local_info = {
+            "url": "file:///tmp/source.mp4",
+            "protocol": "https",
+            "section_start": 1,
+        }
+        with mock.patch.object(FFmpegFD, "download", return_value=True) as download:
+            self.assertTrue(safe_downloader.dl("local.mp4", local_info))
+        download.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,10 +6,15 @@ import functools
 import http.client
 import socket
 import urllib.request
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
 from .api.ssrf import resolve_ingest_target, validate_ingest_url
+
+
+class UnsafeNetworkDownloaderError(RuntimeError):
+    """Raised when a selected downloader can bypass the pinned HTTP transport."""
 
 
 def resolve_download_target(url: str) -> tuple[str, int, str]:
@@ -117,6 +122,38 @@ def make_safe_youtube_dl(yt_dlp):
             params["external_downloader"] = "native"
             params["hls_prefer_native"] = True
             super().__init__(params)
+
+        @staticmethod
+        def _uses_only_local_urls(info):
+            urls = []
+            if info.get("url"):
+                urls.append(info["url"])
+            for item in info.get("requested_formats") or ():
+                if item.get("url"):
+                    urls.append(item["url"])
+            for fragment in info.get("fragments") or ():
+                if isinstance(fragment, dict) and fragment.get("url"):
+                    urls.append(fragment["url"])
+            return bool(urls) and all(
+                urlsplit(url).scheme.lower() in {"file", "data"}
+                for url in urls
+            )
+
+        def dl(self, name, info, subtitle=False, test=False):
+            from yt_dlp.downloader import get_suitable_downloader
+            from yt_dlp.downloader.dash import DashSegmentsFD
+            from yt_dlp.downloader.external import FFmpegFD
+            from yt_dlp.downloader.http import HttpFD
+
+            params = self.params
+            selected = get_suitable_downloader(info, params, to_stdout=name == "-")
+            if selected not in {HttpFD, DashSegmentsFD} and not (
+                selected is FFmpegFD and self._uses_only_local_urls(info)
+            ):
+                raise UnsafeNetworkDownloaderError(
+                    f"yt-dlp selected an unapproved network downloader: {selected.__name__}"
+                )
+            return super().dl(name, info, subtitle=subtitle, test=test)
 
         def build_request_director(self, handlers, preferences=None):
             director = super().build_request_director([PinnedUrllibRH], preferences)

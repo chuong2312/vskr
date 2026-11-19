@@ -34,6 +34,17 @@ class TestAdminAuth(unittest.TestCase):
     def tearDown(self):
         self.data_dir.cleanup()
 
+    def test_startup_warns_when_egress_firewall_is_not_confirmed(self):
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertLogs("root", level="WARNING") as logs:
+            auth.warn_if_unconfigured()
+        self.assertTrue(any("VSKR_EGRESS_FIREWALL_CONFIRMED" in line for line in logs.output))
+
+    def test_startup_does_not_warn_about_egress_when_operator_confirmed(self):
+        with mock.patch.dict(os.environ, {"VSKR_EGRESS_FIREWALL_CONFIRMED": "true"}, clear=True), \
+                self.assertLogs("root", level="WARNING") as logs:
+            auth.warn_if_unconfigured()
+        self.assertFalse(any("Egress firewall is not confirmed" in line for line in logs.output))
+
     def test_secure_cookie_trusts_forwarded_https_only_from_configured_proxy(self):
         from starlette.requests import Request
 

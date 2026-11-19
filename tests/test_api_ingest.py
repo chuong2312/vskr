@@ -127,7 +127,14 @@ class TestIngestApi(unittest.TestCase):
             "VSKR_ADMIN_USER": "test-admin",
             "VSKR_ADMIN_PASSWORD_HASH": TEST_PASSWORD_HASH,
             "VSKR_COOKIE_SECURE": "false",
-        }), mock.patch.object(handlers, "start_ingest", new=submit):
+            "VSKR_EGRESS_FIREWALL_CONFIRMED": "true",
+        }), mock.patch.object(handlers, "start_ingest", new=submit), \
+                mock.patch("vskr.api.public.load_config", return_value={
+                    "ingest": {
+                        "allowed_domains": ["youtube.com", "youtu.be", "youtube-nocookie.com"],
+                        "guest_url_ingest_enabled": True,
+                    },
+                }):
             with ASGITestClient(api.app, authenticated_learner=False) as client:
                 project = client.post("/api/projects", json={"name": "URL test"})
                 self.assertEqual(project.status_code, 200, project.text)
@@ -153,6 +160,44 @@ class TestIngestApi(unittest.TestCase):
                 )
         self.assertEqual(admin_response.status_code, 403, admin_response.text)
         submit.assert_not_awaited()
+
+    def test_guest_url_ingest_requires_firewall_confirmation_and_explicit_enable(self):
+        self.assertFalse(load_config()["ingest"]["guest_url_ingest_enabled"])
+        config = {
+            "ingest": {
+                "allowed_domains": ["youtube.com"],
+                "guest_url_ingest_enabled": True,
+            },
+        }
+        cases = (
+            ("false", True, 403),
+            ("true", False, 403),
+            ("true", True, 202),
+        )
+        submit = mock.AsyncMock(return_value={"job_id": "guest-url", "status": "queued"})
+        with mock.patch.object(handlers, "start_ingest", new=submit), \
+                mock.patch("vskr.api.public.load_config", return_value=config), \
+                mock.patch("vskr.api.public.validate_learner_ingest_url", side_effect=lambda url, **_kwargs: url):
+            for firewall_confirmed, enabled, expected_status in cases:
+                with self.subTest(firewall_confirmed=firewall_confirmed, enabled=enabled), \
+                        tempfile.TemporaryDirectory() as temp_dir, \
+                        mock.patch.dict(os.environ, {
+                            "VSKR__PATHS__DATA_DIR": temp_dir,
+                            "VSKR_COOKIE_SECURE": "false",
+                            "VSKR_EGRESS_FIREWALL_CONFIRMED": firewall_confirmed,
+                        }):
+                    config["ingest"]["guest_url_ingest_enabled"] = enabled
+                    with accounts._guest_identity_lock:
+                        accounts._guest_identity_attempts.clear()
+                    with ASGITestClient(api.app, authenticated_learner=False) as client:
+                        project = client.post("/api/projects", json={"name": "URL test"})
+                        response = client.post("/api/ingest", data={
+                            "url": "https://youtube.com/watch?v=abc",
+                            "project_id": project.json()["project_id"],
+                        })
+                    self.assertEqual(response.status_code, expected_status, response.text)
+
+        self.assertEqual(submit.await_count, 1)
 
     def test_document_upload_queues_processing_job(self):
         class FakeUpload:

@@ -1,7 +1,7 @@
 """OCR frames selected by :mod:`vskr.frames`.
 
-The model is imported only when this command runs. This keeps the core image
-small and lets the Paddle image own the Paddle/CUDA compatibility decision.
+The model is imported only when this command runs, so PaddleOCR stays an
+optional dependency (backend/requirements/ocr.txt) outside the core venv.
 """
 import time
 

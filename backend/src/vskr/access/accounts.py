@@ -676,4 +676,4 @@ def clear_cookie(response):
     """Xoá cookie phiên người học."""
     from .auth import cookie_secure
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True,
-                           secure=cookie_secure(), samesite="lax")
+                           secure=cookie_secure(), samesite="strict")

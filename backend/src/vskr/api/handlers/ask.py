@@ -9,14 +9,19 @@ from typing import Optional
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
+from ...config import load_config
+
 from .runtime import (
     _acquire_service, _gpu_model_lock, _init_service, _release_service, _safe_diagnostic, state,
 )
 
 
+MAX_QUESTION_CHARS = int(load_config()["limits"]["max_question_chars"])
+
+
 class AskRequest(BaseModel):
-    """Câu hỏi (tối đa 500 ký tự) và chế độ tìm kiếm tuỳ chọn."""
-    question: str = Field(max_length=500)
+    """Câu hỏi (tối đa ``limits.max_question_chars`` ký tự) và chế độ tìm kiếm tuỳ chọn."""
+    question: str = Field(max_length=MAX_QUESTION_CHARS)
     mode: Optional[str] = None
 
 

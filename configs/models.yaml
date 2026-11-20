@@ -23,6 +23,10 @@ limits:
     max_active_jobs: 2
     max_jobs_per_day: 20
   eval_import_bytes: 5242880      # 5 MB: tệp JSONL câu hỏi đánh giá mà admin nhập
+  ask_per_minute: 10              # mỗi IP tối đa 10 câu hỏi mỗi phút
+  ask_per_hour: 100               # và 100 câu hỏi mỗi giờ
+  ask_concurrent: 3               # cả server xử lý tối đa 3 câu hỏi cùng lúc (đọc lúc khởi động server)
+  max_question_chars: 500         # độ dài câu hỏi tối đa (đọc lúc khởi động); web/user/index.html cũng ghi 500, đổi thì sửa cả hai
 
 asr:
   engine: faster-whisper

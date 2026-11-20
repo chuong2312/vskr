@@ -7,7 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest import mock
 
+from fastapi import HTTPException
+
 from vskr.api import app, handlers
+from vskr.config import load_config
 from vskr.api.limits import _ask_slots, _ask_attempts, _lock, check_ask_rate, enter_ask_slot, leave_ask_slot
 from vskr.service import ModelBusyError, Service
 
@@ -129,6 +132,18 @@ class TestAskLimits(unittest.TestCase):
             check_ask_rate("198.51.100.21", now=now + attempt * 6)
         with self.assertRaises(Exception) as raised:
             check_ask_rate("198.51.100.21", now=now + 600)
+        self.assertEqual(raised.exception.status_code, 429)
+
+    def test_ask_limits_come_from_models_yaml(self):
+        cfg = load_config()["limits"]
+        self.assertEqual(_ask_slots._initial_value, cfg["ask_concurrent"])
+        self.assertEqual(handlers.ask.MAX_QUESTION_CHARS, cfg["max_question_chars"])
+        custom = {"limits": {"ask_per_minute": 2, "ask_per_hour": 100}}
+        with mock.patch("vskr.api.limits.load_config", return_value=custom):
+            check_ask_rate("198.51.100.99", now=1000.0)
+            check_ask_rate("198.51.100.99", now=1001.0)
+            with self.assertRaises(HTTPException) as raised:
+                check_ask_rate("198.51.100.99", now=1002.0)
         self.assertEqual(raised.exception.status_code, 429)
 
     def test_only_three_concurrent_ask_slots_are_available(self):

@@ -73,4 +73,4 @@ Tests don't use Starlette's TestClient. Use `tests/asgi_client.ASGITestClient(ap
 `tests/__init__.py` points `VSKR__PATHS__DATA_DIR` at a temp dir for the whole suite. This is needed because `accounts`/`audit` call `load_config()` themselves and once rewrote the real `data/` from a test. `tests/test_data_isolation.py` fails if that breaks. Never build data paths as `ROOT / "data"`; use `data_dir(cfg)`.
 
 ## Security notes
-`SECURITY-REVIEW.md`: yt-dlp URL ingest can bypass SSRF checks (redirects, HLS→ffmpeg). Egress firewalling is required before exposing ingest to untrusted users. Keep SSRF/visibility/CSRF checks server-side when touching these paths.
+`SECURITY-REVIEW.md` tracks open findings. yt-dlp downloads are IP-pinned, redirects are re-checked and network FFmpeg/HLS downloaders are refused (`pipeline/safe_ytdlp.py`); egress firewalling is still required before exposing URL ingest to untrusted users. Guest cookie tokens have no server-side expiry yet. Keep SSRF/visibility/CSRF checks server-side when touching these paths.

@@ -18,3 +18,6 @@
 | 2026-11-20 | Gom code theo khâu: `pipeline/`, `retrieval/`, `access/`, `api/handlers/` | Cấu trúc khớp sơ đồ hệ thống trong báo cáo; `handlers.py` 1341 dòng gánh 6 việc; phần lõi thôi phụ thuộc FastAPI |
 | 2026-11-20 | Giới hạn upload và địa chỉ Ollama chỉ nằm trong models.yaml, code không giữ số dự phòng | Sửa một chỗ là đủ; thiếu khoá thì báo lỗi rõ tên khoá thay vì âm thầm dùng số khác |
 | 2026-11-20 | Hoãn tách `app.js`/`admin.js` | Giao diện chưa có test chạy trên trình duyệt; tách JS cần thử tay từng màn hình |
+| 2026-11-20 | Quy tắc lọc chữ cố định ở giữa màn hình (`persistent_ratio`) đưa vào code nhưng để tắt | Chế độ mặc định gần như không đổi (0.92/0.79 → 0.92/0.80); bật cần dựng lại chỉ mục |
+| 2026-11-20 | Không lọc chữ trên poster trong vùng camera | Chỉ 7 dòng; quy tắc theo tần suất không phân biệt được với slide, dễ xoá nhầm |
+| 2026-11-20 | Câu trả lời của LLM do chủ dự án chấm, AI không tự chấm | Kết quả chấm phải do người hiểu học liệu đánh giá mới đáng tin để đưa vào báo cáo |

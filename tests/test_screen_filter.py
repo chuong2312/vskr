@@ -43,13 +43,24 @@ class TestFilterScreenText(unittest.TestCase):
         kept, stats = self._kept()
         self.assertEqual(kept, ["Kiến trúc vật lý của PostgreSQL", "hire_date timestamp without time zone",
                                 "Bảng employees"])
-        self.assertEqual(stats, {"rows": 7, "kept": 3, "boilerplate": 3, "long_number": 1})
+        self.assertEqual(stats, {"rows": 7, "kept": 3, "boilerplate": 3, "long_number": 1, "persistent": 0})
 
     def test_frequent_line_in_the_middle_of_the_screen_is_kept(self):
         # Một slide nội dung có thể lặp nhiều, nhưng ở giữa màn hình thì không bị coi là rác.
         self.rows.append(_row("WECOMMIT.COM.VN TRANQUOCHUY", 0, 390, 360))
         kept, _ = self._kept()
         self.assertIn("WECOMMIT.COM.VN TRANQUOCHUY", kept)
+
+    def test_persistent_rule_drops_repeated_text_anywhere_when_enabled(self):
+        # Watermark lọt vào giữa màn hình ở mọi frame: mặc định giữ, bật persistent_ratio thì bỏ.
+        self.rows.append(_row("WECOMMIT.COM.VN TRANQUOCHUY", 0, 390, 360))
+        kept, stats = self._kept()
+        self.assertIn("WECOMMIT.COM.VN TRANQUOCHUY", kept)
+        self.assertEqual(stats["persistent"], 0)
+        kept, stats = self._kept(persistent_ratio=0.6)
+        self.assertNotIn("WECOMMIT.COM.VN TRANQUOCHUY", kept)
+        self.assertEqual(stats["persistent"], 1)
+        self.assertIn("Kiến trúc vật lý của PostgreSQL", kept)
 
     def test_few_frames_disable_the_frequency_rule(self):
         kept, stats = filter_screen_text(self.rows, FRAMES[:5], H, {})

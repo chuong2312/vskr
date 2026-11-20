@@ -35,9 +35,11 @@ VARIANTS = {
     "ocr": (OCR_FILES, {}),
     "vlm": (("captions.json",), {}),
     "ocr_vlm": (OCR_FILES + ("captions.json",), {}),
+    # Thử nghiệm: bỏ thêm chữ có mặt ở hầu hết frame dù nằm giữa màn hình (screen_filter.persistent_ratio).
+    "ocr_vlm_persistent": (OCR_FILES + ("captions.json",), {"screen_text_filter": {"persistent_ratio": 0.6}}),
 }
 VARIANT_LABELS = {"transcript": "chỉ transcript", "ocr_raw": "+ OCR chưa lọc", "ocr": "+ OCR",
-                  "vlm": "+ VLM", "ocr_vlm": "+ OCR + VLM"}
+                  "vlm": "+ VLM", "ocr_vlm": "+ OCR + VLM", "ocr_vlm_persistent": "+ OCR + VLM, lọc thêm"}
 REQUIRED_EXTRAS = ("screen_text.json", "captions.json")
 GROUP_LABELS = {"spoken": "lời nói", "screen": "màn hình", "figure": "hình vẽ",
                 "unspecified": "chưa gắn", "all": "tất cả"}
@@ -88,6 +90,17 @@ def stage_variant(source, target, extra_files):
     return found
 
 
+def apply_chunk_overrides(chunk_cfg, overrides):
+    """Ghép tuỳ chọn riêng của biến thể vào cấu hình chunk; khoá dạng dict được gộp, không thay cả khối."""
+    merged = dict(chunk_cfg)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    return merged
+
+
 def run_variant(cfg, name, questions, embedder, workdir, relations=False):
     vcfg = copy.deepcopy(cfg)
     vdata = Path(workdir) / name
@@ -98,7 +111,7 @@ def run_variant(cfg, name, questions, embedder, workdir, relations=False):
             print(f"[cảnh báo] {name}: chưa video nào có {artifact}, biến thể này sẽ giống 'transcript'.")
     vcfg["paths"]["data_dir"] = str(vdata)
     vcfg["chunk"]["use_screen_text"] = True
-    vcfg["chunk"].update(chunk_overrides)
+    vcfg["chunk"] = apply_chunk_overrides(vcfg["chunk"], chunk_overrides)
     vcfg.setdefault("knowledge_graph", {})["extract_relations"] = bool(relations)
     print(f"\n[{name}] dựng index tạm ở {vdata / 'index'}")
     index_mod.build(vcfg, embedder)

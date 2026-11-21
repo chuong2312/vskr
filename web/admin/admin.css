@@ -271,6 +271,8 @@ body { min-height:100vh; padding-left:240px; background:var(--canvas); }
 .app-nav button[aria-current="page"] { background:#294956; color:#fff; font-weight:700; }
 .app-nav button[aria-current="page"]::before { content:""; position:absolute; left:-14px; top:7px; bottom:7px; width:3px; background:#7bc4bb; border-radius:0 3px 3px 0; }
 main.library-main, main#qa-screen { display:block; max-width:1500px; margin:0 auto; padding:28px; }
+/* Trang Thử hỏi giờ là 1 cột (video ở trên, ô hỏi ở dưới); khung video dính sẽ che ô hỏi khi cuộn, nên để nó cuộn theo trang. */
+main#qa-screen .stage { position:static; }
 main[hidden] { display:none!important; }
 main .panel { border-radius:14px; box-shadow:0 3px 16px #142b3809; }
 .screen-title { font-size:1.45rem; letter-spacing:-.02em; }

@@ -203,20 +203,22 @@ Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/Instruct
 
 ## Cấu trúc dự án
 
+Sơ đồ các khối, luồng nạp video, luồng hỏi đáp và bảng thư mục chi tiết nằm ở [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ```text
 vskr/
+├── README.md, CLAUDE.md
 ├── backend/
-│   ├── src/vskr/          # mã nguồn Python
+│   ├── src/vskr/          # mã nguồn: pipeline/, retrieval/, access/, api/ và các module chung
 │   ├── requirements/      # dependencies chia theo nhóm; core.lock.txt ghim phiên bản core venv
 │   └── pyproject.toml     # metadata và entry point CLI
-├── configs/models.yaml    # cấu hình model và pipeline
+├── configs/models.yaml    # file cấu hình duy nhất
+├── docs/                  # ARCHITECTURE, STATUS, DECISIONS, SECURITY-REVIEW, ACCESS_MATRIX
 ├── scripts/               # activate-venv.sh; bench/ đo tốc độ, eval/ chấm chất lượng
-├── tests/                 # unit/integration tests
-├── docs/                  # ma trận quyền, trạng thái, quyết định, rà soát bảo mật
-├── web/                   # giao diện demo MVP
+├── tests/                 # chia theo khâu giống backend, thêm web/ và scripts/
+├── web/                   # user/ (PWA người học), admin/, shared/
 ├── data/                  # video, transcript, index (local, không commit)
-├── cache/                 # model/download cache (local, không commit)
-└── README.md
+└── cache/                 # model/download cache (local, không commit)
 ```
 
 `data/`, `cache/`, `.venv/` và `.env` là dữ liệu/môi trường local, không đưa vào Git. Không xóa chúng nếu còn cần video, model đã tải hoặc môi trường venv.

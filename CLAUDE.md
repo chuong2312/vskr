@@ -42,7 +42,7 @@ External runtime deps: Ollama at `localhost:11434` (QA + typed-relation extracti
 - Upload, document and eval-import limits and the Ollama URL live only in models.yaml; code reads those keys directly, with no fallback numbers (`config.role_limit` falls back from `limits.<role>` to `ingest`). A partial config built in a test must set the keys the code under test reads.
 
 ## Architecture
-Package: `backend/src/vskr/`, grouped by stage: `pipeline/` (ingest, frames, ASR, OCR, VLM, documents), `retrieval/` (chunking, embedding, BM25, knowledge graph, search), `access/` (accounts, auth, audit, visibility) and `api/` (routes in `public.py`/`admin.py`, business logic in `api/handlers/`). `cli`, `config`, `util`, `service`, `qa` and `evaluation` stay at the top level.
+Package: `backend/src/vskr/`, grouped by stage: `pipeline/` (ingest, frames, ASR, OCR, VLM, documents), `retrieval/` (chunking, embedding, BM25, knowledge graph, search), `access/` (accounts, auth, audit, visibility) and `api/` (routes in `public.py`/`admin.py`, business logic in `api/handlers/`). `cli`, `config`, `util`, `service`, `qa` and `evaluation` stay at the top level. `docs/ARCHITECTURE.md` draws these flows and lists every folder; update it when a stage, folder or route count changes.
 
 - **Pipeline modules:** `ingest` (yt-dlp via `safe_ytdlp`; `url_safety` checks URLs and raises `UnsafeUrlError`, which the API maps to 400) → `frames.detect_scenes_only` (PySceneDetect, installed as `scenedetect-headless`) → `asr` (faster-whisper, 15-min segments, original timestamps kept) → visual steps → `index` (chunker + E5 `embedder` + `bm25` + `knowledge_graph`). `documents` handles TXT/MD/RST/PDF/DOCX sections.
 - **Visual steps** (`handlers.jobs._run_visual_steps`, after ASR, each under `_gpu_model_lock`; a failure only adds a job warning and indexing continues from the transcript):
@@ -62,12 +62,14 @@ Package: `backend/src/vskr/`, grouped by stage: `pipeline/` (ingest, frames, ASR
 - **Visibility:** `visibility.is_visible` is the single rule for the catalog, file access and retrieval. New content is `private` (owner only); an owner can propose `pending`, and an admin approves it to `public`. Legacy items without an owner are public. Learners and guests are always restricted to hybrid vector+BM25; a client-supplied mode is ignored outside `/api/admin/ask`.
 - **Access matrix:** `docs/ACCESS_MATRIX.md` lists the permission for every route. Classify any new `/api/*` route there, and enforce the permission on the server.
 - **Frontend:** plain HTML/CSS/JS with no build step. `web/user` is the learner PWA (`sw.js` caches static assets only, never the API), `web/admin` is the admin bundle (served only after admin auth through routes, not a public static mount), and `web/shared` holds `api.js` and `tokens.css`.
-- **Evaluation:** `evaluation.py` runs retrieval only (Recall@5, MRR), with questions from `data/eval/questions.jsonl`. That file is empty on purpose: the admin deleted the old set, per `audit.jsonl`.
+- **Evaluation:** `evaluation.py` runs retrieval only (Recall@5, MRR), with questions from `data/eval/questions.jsonl`. It holds the 36 questions the owner approved (23 spoken, 10 screen, 3 figure); the admin deleted the older set, per `audit.jsonl`. `scripts/eval/eval_variants.py` compares index variants (transcript only, with OCR, with OCR and VLM).
 
 ## Data
 `data/` holds videos, transcripts, frames/OCR/caption artifacts, the index, documents, eval data, `audit.jsonl` and the accounts DB. `cache/` holds HF (incl. the ~7.5 GB VLM model) and yt-dlp caches. Both are git-ignored and local (only `data/eval/*.schema.json` and `questions.jsonl` are tracked). Don't delete them. The C: drive hosting WSL has limited free space; check `df -h /mnt/c` before large downloads.
 
 ## Tests
+Tests mirror the package: `tests/pipeline/`, `retrieval/`, `access/`, `api/`, plus `web/` and `scripts/`; cross-stage tests (integration, risk probes, data isolation, evaluation) stay at the top of `tests/`. A test in a subfolder finds the repo root with `Path(__file__).parents[2]`.
+
 Tests don't use Starlette's TestClient. Use `tests/asgi_client.ASGITestClient(app, authenticated_learner=...)`, which overrides `optional_learner_or_admin`. Tests reset module-level state (e.g. `auth._sessions`, `auth._failures` under their locks) and use temp data dirs. Visual-step tests mock `vskr.pipeline.frames.run` / `vskr.pipeline.steps.run_step`, so they need neither GPU nor the step venvs.
 
 `tests/__init__.py` points `VSKR__PATHS__DATA_DIR` at a temp dir for the whole suite. This is needed because `accounts`/`audit` call `load_config()` themselves and once rewrote the real `data/` from a test. `tests/test_data_isolation.py` fails if that breaks. Never build data paths as `ROOT / "data"`; use `data_dir(cfg)`.

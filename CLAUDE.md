@@ -26,10 +26,10 @@ Runs directly in `.venv` (Python 3.12, WSL2). There's no Docker. Always activate
 - Pipeline CLI (`backend/src/vskr/cli.py`): `vskr ingest <url>` → `vskr asr --video <id>` → (`vskr frames` → `vskr ocr` → `vskr vlm`) → `vskr index`; `vskr doc <file>`; `vskr ask "..." [--mode hybrid|vector|bm25|graph|hybrid_graph]`; `vskr serve --host 127.0.0.1 --port 8000`; `vskr admin hash-password`.
 - Tests use stdlib `unittest` (pytest also works as a runner):
   - all: `python -m unittest discover -s tests -t .`
-  - one: `python -m unittest tests.test_access_control` or `tests.test_auth.TestX.test_y`
+  - one: `python -m unittest tests.access.test_access_control` or `tests.access.test_auth.TestX.test_y`
   - Without a local `.env`, set `VSKR_COOKIE_SECURE=false` or 2 project tests in `test_public_api` fail.
   - In a git worktree, point `PYTHONPATH` at that worktree's `backend/src`; the activate script points at `~/vskr`.
-  - Node: `node tests/test_admin_url_safety.cjs`; `node --check web/admin/admin.js` after editing frontend JS.
+  - Node: `node tests/web/test_admin_url_safety.cjs`; `node --check web/admin/admin.js` after editing frontend JS.
 - There's no linter or formatter config.
 
 External runtime deps: Ollama at `localhost:11434` (QA + typed-relation extraction; index still builds without it), FFmpeg, yt-dlp, NVIDIA GPU (RTX 4060 Laptop, 8 GB VRAM) for ASR/OCR/VLM.

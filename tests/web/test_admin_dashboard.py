@@ -19,14 +19,14 @@ TEST_HASH = hash_password(TEST_PASSWORD)
 
 class TestAdminDashboardApi(unittest.TestCase):
     def test_admin_api_client_does_not_replace_global_fetch(self):
-        admin_bundle = Path(__file__).parents[1] / "web" / "admin" / "admin.js"
+        admin_bundle = Path(__file__).parents[2] / "web" / "admin" / "admin.js"
         source = admin_bundle.read_text(encoding="utf-8")
         self.assertIn("async function adminFetch", source)
         self.assertNotIn("window.fetch =", source)
         self.assertGreaterEqual(source.count("adminFetch("), 10)
 
     def test_library_deletion_actions_require_a_confirmation_prompt(self):
-        admin_bundle = Path(__file__).parents[1] / "web" / "admin" / "admin.js"
+        admin_bundle = Path(__file__).parents[2] / "web" / "admin" / "admin.js"
         self.assertIn("window.confirm(`Xóa ${kindLabel}", admin_bundle.read_text(encoding="utf-8"))
         self.assertIn("window.confirm(\"Xóa tác vụ lỗi", admin_bundle.read_text(encoding="utf-8"))
 

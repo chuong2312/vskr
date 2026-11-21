@@ -50,20 +50,20 @@ Các test được thay đổi hoặc thêm so với HEAD lúc đó:
 
 | Test file | Lý do | Đánh giá độ chặt |
 |---|---|---|
-| `tests/test_access_control.py` | Đưa `/api/projects` vào danh sách route được phân loại; cô lập state auth giữa test. | Không bỏ assertion quyền. |
-| `tests/test_accounts.py` | Quota project/guest, HMAC migration, retrieval theo owner; vòng 3 thêm token opacity và cookie Max-Age. | Migration chạy lặp được kiểm tra byte-for-byte; không nới quyền. |
-| `tests/test_admin_url_safety.cjs` | Test URL không cho phép `javascript:` và chỉ chấp nhận path cùng origin. | File test mới. |
-| `tests/test_api_ingest.py` | Cập nhật test theo guest/learner ingest cần `project_id`; thêm cleanup, quota, concurrent active-job và document quota. | Test “unauthenticated upload denied” được thay bằng test guest upload vì guest ingest là route public theo hợp đồng; admin bị từ chối URL ingest được kiểm tra riêng. |
-| `tests/test_ask_limits.py` | Fixture Service có `index.chunks` cho lọc visibility mới. | Chỉ bổ sung fixture. |
-| `tests/test_auth.py` | Trusted proxy, IPv6 và tách learner/admin failure counters. | Thêm coverage, không xóa kiểm tra cũ. |
+| `tests/access/test_access_control.py` | Đưa `/api/projects` vào danh sách route được phân loại; cô lập state auth giữa test. | Không bỏ assertion quyền. |
+| `tests/access/test_accounts.py` | Quota project/guest, HMAC migration, retrieval theo owner; vòng 3 thêm token opacity và cookie Max-Age. | Migration chạy lặp được kiểm tra byte-for-byte; không nới quyền. |
+| `tests/web/test_admin_url_safety.cjs` | Test URL không cho phép `javascript:` và chỉ chấp nhận path cùng origin. | File test mới. |
+| `tests/api/test_api_ingest.py` | Cập nhật test theo guest/learner ingest cần `project_id`; thêm cleanup, quota, concurrent active-job và document quota. | Test “unauthenticated upload denied” được thay bằng test guest upload vì guest ingest là route public theo hợp đồng; admin bị từ chối URL ingest được kiểm tra riêng. |
+| `tests/api/test_ask_limits.py` | Fixture Service có `index.chunks` cho lọc visibility mới. | Chỉ bổ sung fixture. |
+| `tests/access/test_auth.py` | Trusted proxy, IPv6 và tách learner/admin failure counters. | Thêm coverage, không xóa kiểm tra cũ. |
 | `tests/test_integration.py` | Metadata fixture khai báo `public`; cập nhật kỳ vọng câu trả lời không citation thành `sources=[]`. | Đây là thay đổi hợp đồng có chủ đích; đã ghi vào ACCESS_MATRIX. |
 | `tests/test_logic.py` | Kiểm tra BM25 IDF chỉ dùng tài liệu được phép. | Thêm kiểm tra riêng. |
-| `tests/test_public_api.py` | Project/API contract, guest owner HMAC, visibility, hybrid mode và rate limit. | `shared_only=True` đổi thành `False` cho ask guest để hỗ trợ private của chính guest; test guest khác vẫn bị từ chối. |
-| `tests/test_retriever.py` | LRU cache giới hạn và phân biệt tập quyền. | Vòng 3 siết assertion từ `<513` thành `==512`; không làm yếu kiểm tra. |
+| `tests/api/test_public_api.py` | Project/API contract, guest owner HMAC, visibility, hybrid mode và rate limit. | `shared_only=True` đổi thành `False` cho ask guest để hỗ trợ private của chính guest; test guest khác vẫn bị từ chối. |
+| `tests/retrieval/test_retriever.py` | LRU cache giới hạn và phân biệt tập quyền. | Vòng 3 siết assertion từ `<513` thành `==512`; không làm yếu kiểm tra. |
 | `tests/test_risk_probes.py` | Mock probes cho C3/C4, B1/B4/B7, C1 và D2/D4. | Mọi kết luận từ mocks được ghi rõ; không coi là đo GPU/Ollama/proxy/network thật. |
-| `tests/test_answer_evaluation.py` | Kiểm tra percentile candidate và validation/tổng hợp nhãn người đánh giá. | File mới, không chứa dữ liệu ground truth. |
-| `tests/test_safe_ytdlp.py` | DNS rebinding, IP pinning, redirect/private IP, IPv6/CGNAT và không có HTTP fallback không pin. | Mock DNS/socket, không có truy cập mạng ngoài. |
-| `tests/test_visibility.py` | Ma trận anonymous/guest/learner/admin × public/private. | File mới. |
+| `tests/scripts/test_answer_evaluation.py` | Kiểm tra percentile candidate và validation/tổng hợp nhãn người đánh giá. | File mới, không chứa dữ liệu ground truth. |
+| `tests/pipeline/test_safe_ytdlp.py` | DNS rebinding, IP pinning, redirect/private IP, IPv6/CGNAT và không có HTTP fallback không pin. | Mock DNS/socket, không có truy cập mạng ngoài. |
+| `tests/access/test_visibility.py` | Ma trận anonymous/guest/learner/admin × public/private. | File mới. |
 
 ## Kiểm chứng
 

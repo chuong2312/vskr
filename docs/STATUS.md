@@ -1,16 +1,16 @@
-# Trạng thái dự án (cập nhật 2026-11-20, chiều)
+# Trạng thái dự án (cập nhật 2026-11-21)
 
 ## Đã xong
-- PR #5–#16 đã gộp vào `main`:
+- PR #5–#18 đã gộp vào `main`:
   - Vá bảo mật 4 vòng (#5), dọn dẹp (#6), OCR + VLM trong ingest (#7), bộ đánh giá + sửa graph + test chạy trên thư mục tạm (#8–#10)
   - 36 câu hỏi đánh giá đã duyệt: 23 lời giảng, 10 chữ trên màn hình, 3 hình vẽ (#11, #13); lọc chữ rác OCR (#13)
   - Chế độ tìm kiếm mặc định `hybrid` (#14)
   - Sắp xếp code theo khâu (`pipeline/`, `retrieval/`, `access/`, `api/handlers/`), gom cấu hình, gộp code trùng, docstring tiếng Việt (#15, #16)
+  - Giới hạn hỏi đáp vào `models.yaml`, cookie SameSite, `doctor`, rà lại `docs/SECURITY-REVIEW.md` với code (#17)
+  - Quy tắc lọc chữ cố định ở giữa màn hình `persistent_ratio`, đang tắt, kèm biến thể đo (#18)
 - Video thứ 3 ("[Khóa học sử dụng SQL server] - Bài 2: Tạo database") đã chạy đủ ASR, khung hình, OCR, VLM; chỉ mục thật giờ có 196 đoạn từ 3 video
 - Đã sinh câu trả lời của hệ thống cho 36 câu (trung bình 1,8 giây/câu) và dựng trang chấm `data/eval/drafts/answers-review.md`
-- Đang chờ gộp:
-  - PR #17: giới hạn hỏi đáp vào `models.yaml`, cookie SameSite, import thừa, `doctor`; cập nhật nội dung `docs/SECURITY-REVIEW.md`
-  - PR #18: quy tắc lọc chữ cố định ở giữa màn hình (`persistent_ratio`, đang tắt) + biến thể đo; file này
+- Đang chờ gộp: PR sắp xếp thư mục (`chore/repo-layout`): tài liệu vào `docs/`, `scripts/bench/` và `scripts/eval/`, `tests/` chia theo khâu, thêm `docs/ARCHITECTURE.md`. Bộ test vẫn 276 test, tên không đổi
 
 ## Kết quả đo (36 câu, 3 video, 196 đoạn, Recall@5 / MRR)
 Index gồm lời giảng + OCR đã lọc + VLM (giống index thật):
@@ -28,7 +28,7 @@ Câu trả lời (đếm tự động, chưa phải điểm chấm): 35/36 câu 
 Bộ nhỏ: chênh 1 câu ≈ 0.04 (lời giảng), 0.10 (màn hình), 0.33 (hình vẽ).
 
 ## Đang chờ chủ dự án
-- Gộp PR #17 và #18
+- Gộp PR sắp xếp thư mục
 - Chấm 36 câu trả lời trong `data/eval/drafts/answers-review.md` (3 nhãn: trả lời đúng, dựa vào nguồn, trích dẫn đúng)
 - Tài khoản `copilot-test-20261116-0751` trong DB thật: xoá hay giữ
 - Xoá 11 nhánh đã gộp trên GitHub (nội dung đều đã có trong `main`); nhánh `feat/vskr-hardening` còn 1 commit chưa gộp, giữ hay bỏ
@@ -49,4 +49,5 @@ Bộ nhỏ: chênh 1 câu ≈ 0.04 (lời giảng), 0.10 (màn hình), 0.33 (hì
 ## Ghi chú
 - Ollama chạy bằng `ollama serve` (WSL không có systemd), nên đóng terminal là tắt Ollama. Ngày 2026-11-20 đã bật lại ở chế độ tách khỏi terminal; log ở `~/.ollama/logs/serve.log`
 - Server cần "Tải lại chỉ mục" (trang admin) hoặc khởi động lại sau mỗi lần chạy `vskr index`
-- Backup: ~/vskr-backup-2026-11-19 · Ổ C: còn ~44 GB
+- Ngày 2026-11-21 WSL khởi động lại, Ollama và server đều tắt; bật lại theo thứ tự: `ollama serve` rồi `vskr serve`
+- Backup: ~/vskr-backup-2026-11-19 · Ổ C: còn ~42 GB

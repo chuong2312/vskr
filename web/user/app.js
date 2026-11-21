@@ -1064,6 +1064,13 @@ function setTurnStatus(turn, message, kind = "") {
 /** Gửi câu hỏi: hiện lượt chờ, gọi API hỏi đáp, hiển thị kết quả và nhớ id cuộc trò chuyện; quá tải thì chờ rồi cho gửi lại. */
 async function submitQuestion(question = $("#question-input").value.trim(), options = {}) {
   if (!question || state.asking || $("#source-deleted-banner").hidden === false) return;
+  // Câu gõ trong khung chat được xoá ngay khi gửi; nếu gửi lỗi thì điền lại để người dùng gửi lại.
+  const composerText = $("#question-input").value;
+  const fromComposer = !options.retryTurn && question === composerText.trim();
+  if (fromComposer) {
+    $("#question-input").value = "";
+    updateQuestionInput();
+  }
   const previousDraftKey = currentDraftKey();
   const retryTurn = options.retryTurn || null;
   if (state.segmentContext && question && !question.startsWith("Tại ")) {
@@ -1108,8 +1115,11 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
       updateConversationUrl(result.conversation_id);
       loadConversations();
     }
-    $("#question-input").value = "";
-    updateQuestionInput();
+    // Câu từ khung chat đã được xoá lúc gửi; không xoá nữa để giữ câu người dùng đang gõ tiếp.
+    if (!fromComposer) {
+      $("#question-input").value = "";
+      updateQuestionInput();
+    }
     const resultNode = make("div", "result");
     turn.querySelector(".turn-content").replaceChildren(resultNode);
     turn.removeAttribute("data-pending");
@@ -1132,6 +1142,10 @@ async function submitQuestion(question = $("#question-input").value.trim(), opti
       setStatus("Phiên đăng nhập đã hết hạn. Câu trả lời này chưa được lưu; bạn vẫn có thể tiếp tục hỏi bài với tư cách khách.", "error");
     }
   } catch (error) {
+    if (fromComposer && !$("#question-input").value) {
+      $("#question-input").value = composerText;
+      updateQuestionInput();
+    }
     const followThread = isThreadNearEnd();
     if (!navigator.onLine) {
       setTurnStatus(turn, "Bạn đang ngoại tuyến. Kết nối lại internet rồi thử gửi lại câu hỏi.", "error");

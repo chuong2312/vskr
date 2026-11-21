@@ -207,7 +207,7 @@ Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/Instruct
 vskr/
 ├── backend/
 │   ├── src/vskr/          # mã nguồn Python
-│   ├── requirements/      # dependencies chia theo nhóm chức năng
+│   ├── requirements/      # dependencies chia theo nhóm; core.lock.txt ghim phiên bản core venv
 │   └── pyproject.toml     # metadata và entry point CLI
 ├── configs/models.yaml    # cấu hình model và pipeline
 ├── scripts/               # tiện ích phát triển local (venv)
@@ -216,7 +216,6 @@ vskr/
 ├── web/                   # giao diện demo MVP
 ├── data/                  # video, transcript, index (local, không commit)
 ├── cache/                 # model/download cache (local, không commit)
-├── requirements.lock.txt  # phiên bản đã freeze cho core venv
 └── README.md
 ```
 

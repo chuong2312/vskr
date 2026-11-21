@@ -20,7 +20,7 @@ Runs directly in `.venv` (Python 3.12, WSL2). There's no Docker. Always activate
 
     source scripts/activate-venv.sh
 
-- Install: see README "Cài đặt venv" (uv + split requirement files in `backend/requirements/*.txt`; `uv pip install --editable backend --no-deps`). `requirements.lock.txt` pins the core venv. `docs.txt` adds PDF/DOCX reading for `vskr doc`.
+- Install: see README "Cài đặt venv" (uv + split requirement files in `backend/requirements/*.txt`; `uv pip install --editable backend --no-deps`). `backend/requirements/core.lock.txt` pins the core venv. `docs.txt` adds PDF/DOCX reading for `vskr doc`.
 - OCR (EasyOCR) and VLM share their **own venv** `.venv-vlm` (`backend/requirements/vlm.txt`; see README), because both need CUDA torch while `.venv` keeps CPU torch for the embedder. Never install CUDA torch into `.venv`. PaddleOCR was tried and dropped: its recognition dictionaries (incl. PP-OCRv6) lack Vietnamese two-diacritic letters (ấ, ữ, ệ, ớ…). Its GPU build also pins older cuDNN/cuBLAS/numpy than ASR uses and does not resolve together with torch 2.15.
 - Env check: `vskr doctor --gpu-test`
 - Pipeline CLI (`backend/src/vskr/cli.py`): `vskr ingest <url>` → `vskr asr --video <id>` → (`vskr frames` → `vskr ocr` → `vskr vlm`) → `vskr index`; `vskr doc <file>`; `vskr ask "..." [--mode hybrid|vector|bm25|graph|hybrid_graph]`; `vskr serve --host 127.0.0.1 --port 8000`; `vskr admin hash-password`.

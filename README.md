@@ -45,7 +45,7 @@ Hai bước tùy chọn giúp tìm được cả nội dung **trên màn hình**
 
 - **OCR** (EasyOCR, `['vi', 'en']`) đọc chữ trên slide và code. PaddleOCR không được dùng vì từ điển model của nó thiếu chữ tiếng Việt hai dấu (ấ, ữ, ệ, ớ…): "Truy vấn dữ liệu" bị đọc thành "Truy vn d liu".
 - **VLM** (Qwen2.5-VL-3B, nén 4-bit, khoảng 2,5 GB VRAM) mô tả sơ đồ, biểu đồ và hình minh họa bằng lời.
-- **Lọc chữ rác OCR** khi lập chỉ mục (`chunk.screen_text_filter`). Bỏ các dòng mà phần lớn từ lặp lại ở nhiều frame của video và nằm ở mép trên/dưới màn hình, như menu phần mềm, watermark kênh hay thanh trạng thái. Bỏ cả dòng có dãy từ 9 chữ số trở lên, thường là mã số sinh viên trong khung chat họp trực tuyến. File `screen_text.json` gốc giữ nguyên; muốn đổi ngưỡng thì chỉ cần chạy lại `vskr index`. `python scripts/eval_variants.py` so sánh được OCR trước và sau khi lọc (`ocr_raw` với `ocr`).
+- **Lọc chữ rác OCR** khi lập chỉ mục (`chunk.screen_text_filter`). Bỏ các dòng mà phần lớn từ lặp lại ở nhiều frame của video và nằm ở mép trên/dưới màn hình, như menu phần mềm, watermark kênh hay thanh trạng thái. Bỏ cả dòng có dãy từ 9 chữ số trở lên, thường là mã số sinh viên trong khung chat họp trực tuyến. File `screen_text.json` gốc giữ nguyên; muốn đổi ngưỡng thì chỉ cần chạy lại `vskr index`. `python scripts/eval/eval_variants.py` so sánh được OCR trước và sau khi lọc (`ocr_raw` với `ocr`).
 
 Cả hai cần torch bản CUDA, còn `.venv` chính giữ torch CPU cho embedding, nên chúng dùng chung một venv riêng:
 
@@ -88,11 +88,11 @@ Thêm tài liệu TXT, MD, RST, PDF hoặc DOCX bằng `vskr doc <đường_dẫ
 
 Màn **Đánh giá** nhận bộ câu hỏi qua giao diện hoặc `data/eval/questions.jsonl`; mỗi dòng có dạng `{"id":"...","question":"...","type":"fact","relevant":[{"video_id":"...","start":12,"end":28}]}` hoặc dùng `document_id` và `section`. `multihop` có thể có nhiều mục đúng. Recall@5 tính một câu fact là tìm thấy nếu có ít nhất một mục đúng; với multihop là tỷ lệ mục đúng được phủ. MRR là trung bình nghịch đảo thứ hạng của kết quả đúng đầu tiên. Đánh giá chỉ chạy retrieval, không gọi LLM; nó không đo tính đúng của câu trả lời, mức độ trung thực hay độ chính xác của trích dẫn. Bộ câu hỏi và kết quả lưu trong `data/`, vốn bị Git bỏ qua; checkout mới không có ground truth cho tới khi người quản trị nhập câu hỏi và kiểm chứng nguồn đúng. Không dùng kết quả trên bộ nhỏ hoặc chưa được rà soát để kết luận graph hay phương thức nào tốt hơn. Tối thiểu nên có 20 câu đã được người hiểu học liệu kiểm tra, gồm câu fact và multihop, trước khi so sánh retrieval; cần đánh giá riêng câu trả lời và citation trước khi kết luận về chất lượng RAG. Nếu bộ câu hỏi thay đổi, giao diện sẽ đánh dấu kết quả cũ; admin cần chạy lại để có số liệu khớp. Kết quả mới được lưu tại `data/eval/results.json`.
 
-Mỗi câu có thể ghi thêm `"evidence"` để cho biết đáp án nằm ở đâu: `spoken` (giảng viên nói ra), `screen` (chữ trên màn hình nhưng không được đọc ra) hoặc `figure` (chỉ có trong sơ đồ/hình). Kết quả đánh giá có thêm `by_evidence`, chia điểm theo ba nhóm này. Muốn đo OCR/VLM giúp được bao nhiêu thì chạy `python scripts/eval_variants.py`. Script dựng index tạm cho ba biến thể (chỉ transcript, + OCR, + OCR + VLM) từ bản sao các file JSON trong `data/videos`, nên không đụng `data/index`. Sau đó nó in Recall@5 / MRR theo từng chế độ tìm kiếm và từng nhóm `evidence`, đồng thời ghi bản đầy đủ vào `data/eval/variants.json`. Mặc định script không gọi Ollama để trích quan hệ cho đồ thị, vì đầu ra của LLM thay đổi giữa các lần dựng; thêm `--relations` nếu muốn bật. Biến thể nào chưa có `screen_text.json`/`captions.json` thì script sẽ cảnh báo, vì khi đó kết quả giống hệt biến thể chỉ transcript.
+Mỗi câu có thể ghi thêm `"evidence"` để cho biết đáp án nằm ở đâu: `spoken` (giảng viên nói ra), `screen` (chữ trên màn hình nhưng không được đọc ra) hoặc `figure` (chỉ có trong sơ đồ/hình). Kết quả đánh giá có thêm `by_evidence`, chia điểm theo ba nhóm này. Muốn đo OCR/VLM giúp được bao nhiêu thì chạy `python scripts/eval/eval_variants.py`. Script dựng index tạm cho ba biến thể (chỉ transcript, + OCR, + OCR + VLM) từ bản sao các file JSON trong `data/videos`, nên không đụng `data/index`. Sau đó nó in Recall@5 / MRR theo từng chế độ tìm kiếm và từng nhóm `evidence`, đồng thời ghi bản đầy đủ vào `data/eval/variants.json`. Mặc định script không gọi Ollama để trích quan hệ cho đồ thị, vì đầu ra của LLM thay đổi giữa các lần dựng; thêm `--relations` nếu muốn bật. Biến thể nào chưa có `screen_text.json`/`captions.json` thì script sẽ cảnh báo, vì khi đó kết quả giống hệt biến thể chỉ transcript.
 
-`min_vector_score` vẫn mặc định `null`, tức là chưa bật bộ lọc ngưỡng. Sau khi có ground truth retrieval do con người xác minh, có thể chạy `python scripts/calibrate_retrieval_threshold.py --questions data/eval/questions.jsonl` để xem phân phối điểm và ngưỡng ứng viên theo phân vị 5% của điểm tốt nhất trên nguồn liên quan. Đây chỉ là ứng viên thiên về recall; nếu chưa có câu hỏi không thể trả lời đã được gán nhãn thì chưa đo được tỷ lệ nhận nhầm, vì vậy không bật ngưỡng chỉ dựa trên báo cáo này.
+`min_vector_score` vẫn mặc định `null`, tức là chưa bật bộ lọc ngưỡng. Sau khi có ground truth retrieval do con người xác minh, có thể chạy `python scripts/eval/calibrate_retrieval_threshold.py --questions data/eval/questions.jsonl` để xem phân phối điểm và ngưỡng ứng viên theo phân vị 5% của điểm tốt nhất trên nguồn liên quan. Đây chỉ là ứng viên thiên về recall; nếu chưa có câu hỏi không thể trả lời đã được gán nhãn thì chưa đo được tỷ lệ nhận nhầm, vì vậy không bật ngưỡng chỉ dựa trên báo cáo này.
 
-Đánh giá chất lượng câu trả lời dùng ground truth riêng do người hiểu học liệu tạo, không sinh dữ liệu mẫu tự động. Mỗi dòng `data/eval/answer-ground-truth.jsonl` tuân theo `data/eval/answer-ground-truth.schema.json` và ghi `id`, câu hỏi, đáp án kỳ vọng cùng nguồn đúng; sau khi đọc câu trả lời và nguồn thực tế, người đánh giá ghi các nhãn boolean `answer_correct`, `grounded`, `citation_correct` vào `data/eval/answer-reviews.jsonl` theo `data/eval/answer-review.schema.json`. Tổng hợp nhãn bằng `python scripts/summarize_answer_eval.py --ground-truth data/eval/answer-ground-truth.jsonl --reviews data/eval/answer-reviews.jsonl`. Script chỉ kiểm tra tính đầy đủ/định dạng và tổng hợp phán đoán của người đánh giá; không tự chấm ngữ nghĩa và không tạo ground truth.
+Đánh giá chất lượng câu trả lời dùng ground truth riêng do người hiểu học liệu tạo, không sinh dữ liệu mẫu tự động. Mỗi dòng `data/eval/answer-ground-truth.jsonl` tuân theo `data/eval/answer-ground-truth.schema.json` và ghi `id`, câu hỏi, đáp án kỳ vọng cùng nguồn đúng; sau khi đọc câu trả lời và nguồn thực tế, người đánh giá ghi các nhãn boolean `answer_correct`, `grounded`, `citation_correct` vào `data/eval/answer-reviews.jsonl` theo `data/eval/answer-review.schema.json`. Tổng hợp nhãn bằng `python scripts/eval/summarize_answer_eval.py --ground-truth data/eval/answer-ground-truth.jsonl --reviews data/eval/answer-reviews.jsonl`. Script chỉ kiểm tra tính đầy đủ/định dạng và tổng hợp phán đoán của người đánh giá; không tự chấm ngữ nghĩa và không tạo ground truth.
 
 Trong giao diện, các thử nghiệm IDF, mở rộng khái niệm từ những đoạn gần nghĩa theo embedding E5 và Personalized PageRank (PPR) chạy trên cùng bộ câu hỏi với baseline. Mỗi lựa chọn được đo riêng; nếu bật nhiều lựa chọn, giao diện cũng đo tổ hợp của chúng. Các điều khiển ở trang graph áp dụng ngay cho truy vấn đang xem và đồng bộ với cấu hình đánh giá. PPR dùng `damping` để điều khiển mức lan truyền và `seed_weight` để phân bổ điểm ban đầu cho các nguồn khớp trực tiếp.
 
@@ -126,7 +126,7 @@ Sau khi điền các transcript chuẩn, chạy:
 
 ```bash
 source scripts/activate-venv.sh
-python scripts/benchmark_asr.py data/asr_eval/manifest.jsonl
+python scripts/bench/benchmark_asr.py data/asr_eval/manifest.jsonl
 ```
 
 Script so sánh model ASR hiện tại với `vinai/PhoWhisper-medium`, báo WER/CER và thời gian, rồi lưu kết quả vào `data/asr_eval/results.json`. Candidate chạy CPU theo mặc định vì venv core đang dùng PyTorch CPU; do đó chỉ so WER/CER, **không so tốc độ CPU candidate với baseline GPU**. Không đổi model mặc định cho đến khi kết quả trên audio bài giảng của bạn tốt hơn.
@@ -137,14 +137,14 @@ Sửa `configs/models.yaml`; venv đọc file này trực tiếp mỗi lần ch�
 
 ### Đo rebuild và thời gian chờ hỏi
 
-Với dữ liệu thật, `PYTHONPATH=backend/src python scripts/benchmark_rebuild.py --limits 1,5,20,all`
+Với dữ liệu thật, `PYTHONPATH=backend/src python scripts/bench/benchmark_rebuild.py --limits 1,5,20,all`
 đo wall time và embedding time ở các quy mô nguồn khác nhau. Script chỉ sao chép
 JSON transcript/tài liệu sang thư mục tạm, không ghi đè `data/index`; graph vẫn
 có thể gọi Ollama theo cấu hình hiện tại.
-`python scripts/benchmark_ask_lock.py --question "..." --hold-seconds 12 --ask-timeout 10`
+`python scripts/bench/benchmark_ask_lock.py --question "..." --hold-seconds 12 --ask-timeout 10`
 đo retrieval và thời gian chờ của `Service.ask` khi benchmark giữ shared lock.
 Lock trong script được giả lập, không đại diện cho thời lượng ASR hoặc GPU thực.
-`python scripts/benchmark_bm25_scopes.py --chunks 10000 --scopes 200 --repeats 3`
+`python scripts/bench/benchmark_bm25_scopes.py --chunks 10000 --scopes 200 --repeats 3`
 đo tốc độ chấm BM25 khi lọc theo nhiều tập quyền khác nhau; dùng dữ liệu tổng hợp,
 không đọc `data/`.
 
@@ -210,7 +210,7 @@ vskr/
 │   ├── requirements/      # dependencies chia theo nhóm; core.lock.txt ghim phiên bản core venv
 │   └── pyproject.toml     # metadata và entry point CLI
 ├── configs/models.yaml    # cấu hình model và pipeline
-├── scripts/               # tiện ích phát triển local (venv)
+├── scripts/               # activate-venv.sh; bench/ đo tốc độ, eval/ chấm chất lượng
 ├── tests/                 # unit/integration tests
 ├── docs/                  # ma trận quyền, trạng thái, quyết định, rà soát bảo mật
 ├── web/                   # giao diện demo MVP

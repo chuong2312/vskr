@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.benchmark_asr import edit_distance, normalize, score_text
+from scripts.bench.benchmark_asr import edit_distance, normalize, score_text
 
 
 class TestAsrBenchmarkMetrics(unittest.TestCase):

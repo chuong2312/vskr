@@ -5,8 +5,8 @@ tạm, dựng index ở đó, rồi chạy 5 chế độ tìm kiếm trên bộ 
 thật và không sửa file nào trong data/videos. Kết quả in ra là Recall@5 / MRR, chia theo nơi chứa
 đáp án (evidence). Bản đầy đủ được ghi vào data/eval/variants.json.
 
-    python scripts/eval_variants.py
-    python scripts/eval_variants.py --questions data/eval/drafts/spoken.jsonl --variants transcript
+    python scripts/eval/eval_variants.py
+    python scripts/eval/eval_variants.py --questions data/eval/drafts/spoken.jsonl --variants transcript
 
 Mặc định không gọi Ollama để trích quan hệ cho đồ thị (thêm --relations để bật), vì đầu ra của
 LLM thay đổi giữa các lần dựng và sẽ làm nhiễu phép so sánh giữa các biến thể.

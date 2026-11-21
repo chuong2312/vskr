@@ -34,7 +34,7 @@ Bộ nhỏ: chênh 1 câu ≈ 0.04 (lời giảng), 0.10 (màn hình), 0.33 (hì
 - Xoá 11 nhánh đã gộp trên GitHub (nội dung đều đã có trong `main`); nhánh `feat/vskr-hardening` còn 1 commit chưa gộp, giữ hay bỏ
 
 ## Việc tiếp theo (theo thứ tự)
-1. Sau khi chấm: tổng hợp bằng `scripts/summarize_answer_eval.py` và đưa vào báo cáo
+1. Sau khi chấm: tổng hợp bằng `scripts/eval/summarize_answer_eval.py` và đưa vào báo cáo
 2. Thêm video và câu hỏi: câu không có đáp án (để hiệu chỉnh `min_vector_score`), câu về đoạn code OCR đọc sai
 3. Cookie khách hết hạn phía server (`docs/SECURITY-REVIEW.md` #2)
 4. Tách `web/user/app.js` và `web/admin/admin.js` (cần thử tay trên trình duyệt); trang người học còn ghi cứng 500 ký tự

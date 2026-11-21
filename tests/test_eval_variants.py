@@ -1,4 +1,4 @@
-"""scripts/eval_variants.py: mỗi biến thể chỉ thấy đúng nguồn của nó và không đụng data/ thật."""
+"""scripts/eval/eval_variants.py: mỗi biến thể chỉ thấy đúng nguồn của nó và không đụng data/ thật."""
 import json
 import shutil
 import tempfile
@@ -7,7 +7,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from scripts.eval_variants import VARIANTS, apply_chunk_overrides, format_report, read_questions, run_variants
+from scripts.eval.eval_variants import VARIANTS, apply_chunk_overrides, format_report, read_questions, run_variants
 from tests.test_integration import FakeEmbedder
 from vskr.config import load_config, video_dir
 from vskr.util import write_json

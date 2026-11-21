@@ -1,7 +1,7 @@
 import unittest
 
-from scripts.calibrate_retrieval_threshold import percentile
-from scripts.summarize_answer_eval import (
+from scripts.eval.calibrate_retrieval_threshold import percentile
+from scripts.eval.summarize_answer_eval import (
     summarize_reviews,
     validate_ground_truth,
     validate_reviews,

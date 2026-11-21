@@ -1,6 +1,6 @@
-# Frozen after the VSKR core venv passed ASR GPU -> E5 index -> Ollama QA.
-# Target: CPython 3.12.16, Linux x86_64, torch CPU; CTranslate2 uses CUDA 12 wheels.
-# Install torch first from https://download.pytorch.org/whl/cpu as in README.md.
+# Ghim phiên bản sau khi core venv chạy qua đủ ASR trên GPU -> chỉ mục E5 -> hỏi đáp Ollama.
+# Môi trường: CPython 3.12.16, Linux x86_64, torch CPU; CTranslate2 dùng wheel CUDA 12.
+# Cài torch trước từ https://download.pytorch.org/whl/cpu như trong README.md.
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.16.0

@@ -1,5 +1,5 @@
-# faster-whisper releases currently installed call av.open(metadata_errors=...).
-# PyAV 19 removed that argument; cap PyAV until the installed faster-whisper release supports it.
+# Các bản faster-whisper đang cài gọi av.open(metadata_errors=...).
+# PyAV 19 đã bỏ tham số này; giữ PyAV dưới 19 cho tới khi bản faster-whisper đang cài hỗ trợ.
 av>=11,<19
 faster-whisper>=1.1.0
 nvidia-cublas-cu12

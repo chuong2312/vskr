@@ -212,7 +212,7 @@ vskr/
 ├── configs/models.yaml    # cấu hình model và pipeline
 ├── scripts/               # tiện ích phát triển local (venv)
 ├── tests/                 # unit/integration tests
-├── docs/                  # ma trận quyền truy cập
+├── docs/                  # ma trận quyền, trạng thái, quyết định, rà soát bảo mật
 ├── web/                   # giao diện demo MVP
 ├── data/                  # video, transcript, index (local, không commit)
 ├── cache/                 # model/download cache (local, không commit)

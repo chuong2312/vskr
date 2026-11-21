@@ -9,7 +9,7 @@
 - Video thứ 3 ("[Khóa học sử dụng SQL server] - Bài 2: Tạo database") đã chạy đủ ASR, khung hình, OCR, VLM; chỉ mục thật giờ có 196 đoạn từ 3 video
 - Đã sinh câu trả lời của hệ thống cho 36 câu (trung bình 1,8 giây/câu) và dựng trang chấm `data/eval/drafts/answers-review.md`
 - Đang chờ gộp:
-  - PR #17: giới hạn hỏi đáp vào `models.yaml`, cookie SameSite, import thừa, `doctor`; cập nhật nội dung `SECURITY-REVIEW.md`
+  - PR #17: giới hạn hỏi đáp vào `models.yaml`, cookie SameSite, import thừa, `doctor`; cập nhật nội dung `docs/SECURITY-REVIEW.md`
   - PR #18: quy tắc lọc chữ cố định ở giữa màn hình (`persistent_ratio`, đang tắt) + biến thể đo; file này
 
 ## Kết quả đo (36 câu, 3 video, 196 đoạn, Recall@5 / MRR)
@@ -36,7 +36,7 @@ Bộ nhỏ: chênh 1 câu ≈ 0.04 (lời giảng), 0.10 (màn hình), 0.33 (hì
 ## Việc tiếp theo (theo thứ tự)
 1. Sau khi chấm: tổng hợp bằng `scripts/summarize_answer_eval.py` và đưa vào báo cáo
 2. Thêm video và câu hỏi: câu không có đáp án (để hiệu chỉnh `min_vector_score`), câu về đoạn code OCR đọc sai
-3. Cookie khách hết hạn phía server (`SECURITY-REVIEW.md` #2)
+3. Cookie khách hết hạn phía server (`docs/SECURITY-REVIEW.md` #2)
 4. Tách `web/user/app.js` và `web/admin/admin.js` (cần thử tay trên trình duyệt); trang người học còn ghi cứng 500 ký tự
 5. CI chạy test tự động trên GitHub
 

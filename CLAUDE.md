@@ -13,7 +13,7 @@ VSKR (Video Semantic Knowledge Retrieval) turns lecture videos and documents int
 - A request marked read-only/report-only ends at the report.
 - Do not start the app or long jobs (`vskr serve`, `ingest`, `asr`, `frames`, `ocr`, `vlm`, `index`) on the owner's data unless asked. The owner runs them to watch the logs. Check readiness, then hand over the command.
 - Say "chưa chắc" instead of guessing; back claims with `file:line` evidence.
-- End of session: summarize and update `STATUS.md` (once it exists).
+- End of session: summarize and update `docs/STATUS.md`.
 
 ## Environment & commands
 Runs directly in `.venv` (Python 3.12, WSL2). There's no Docker. Always activate with the script, because it sets `PYTHONPATH=backend/src`, `HF_HOME=cache/huggingface` and the cuBLAS/cuDNN paths for faster-whisper:
@@ -73,4 +73,4 @@ Tests don't use Starlette's TestClient. Use `tests/asgi_client.ASGITestClient(ap
 `tests/__init__.py` points `VSKR__PATHS__DATA_DIR` at a temp dir for the whole suite. This is needed because `accounts`/`audit` call `load_config()` themselves and once rewrote the real `data/` from a test. `tests/test_data_isolation.py` fails if that breaks. Never build data paths as `ROOT / "data"`; use `data_dir(cfg)`.
 
 ## Security notes
-`SECURITY-REVIEW.md` tracks open findings. yt-dlp downloads are IP-pinned, redirects are re-checked and network FFmpeg/HLS downloaders are refused (`pipeline/safe_ytdlp.py`); egress firewalling is still required before exposing URL ingest to untrusted users. Guest cookie tokens have no server-side expiry yet. Keep SSRF/visibility/CSRF checks server-side when touching these paths.
+`docs/SECURITY-REVIEW.md` tracks open findings. yt-dlp downloads are IP-pinned, redirects are re-checked and network FFmpeg/HLS downloaders are refused (`pipeline/safe_ytdlp.py`); egress firewalling is still required before exposing URL ingest to untrusted users. Guest cookie tokens have no server-side expiry yet. Keep SSRF/visibility/CSRF checks server-side when touching these paths.

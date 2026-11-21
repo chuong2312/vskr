@@ -3,15 +3,17 @@
 accounts.py, audit.py... tự gọi load_config(), nên một test quên đổi thư mục dữ liệu sẽ ghi thẳng vào
 data/ thật (đã xảy ra: migration viết lại meta.json, tạo .guest-owner-key). tests/__init__.py đặt
 VSKR__PATHS__DATA_DIR sang thư mục tạm cho cả bộ test; các test dưới đây hỏng nếu ai đó bỏ cơ chế đó
-hoặc thêm code tự ghép đường dẫn data/ không qua cấu hình.
+hoặc thêm code tự ghép đường dẫn data/ không qua cấu hình. Bộ test cũng không được gọi tới Ollama thật
+đang chạy trên máy (xem tests/__init__.py).
 """
 import re
 import unittest
 from pathlib import Path
 
-from tests import TEST_DATA_DIR
+from tests import OFFLINE_OLLAMA_URL, TEST_DATA_DIR
 from vskr.access import accounts
 from vskr.config import ROOT, load_config
+from vskr.qa import ollama_url
 
 
 class TestDataIsolation(unittest.TestCase):
@@ -29,6 +31,12 @@ class TestDataIsolation(unittest.TestCase):
         offenders = [str(path.relative_to(ROOT)) for path in (ROOT / "backend" / "src" / "vskr").rglob("*.py")
                      if pattern.search(path.read_text(encoding="utf-8"))]
         self.assertEqual(offenders, [], "Dùng data_dir(cfg) thay vì ROOT / 'data' để test đổi được thư mục")
+
+    def test_suite_never_reaches_the_real_ollama(self):
+        # Test dựng chỉ mục gọi Ollama để trích quan hệ; phải rơi vào cổng chết chứ không phải localhost:11434.
+        lcfg = load_config()["llm"]
+        self.assertEqual(lcfg["base_url"], OFFLINE_OLLAMA_URL)
+        self.assertNotIn("11434", ollama_url(lcfg, "/api/chat"))
 
 
 if __name__ == "__main__":

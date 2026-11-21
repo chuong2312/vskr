@@ -7,7 +7,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from scripts.eval_variants import format_report, read_questions, run_variants
+from scripts.eval_variants import VARIANTS, apply_chunk_overrides, format_report, read_questions, run_variants
 from tests.test_integration import FakeEmbedder
 from vskr.config import load_config, video_dir
 from vskr.util import write_json
@@ -68,6 +68,14 @@ class TestEvalVariants(unittest.TestCase):
         self.assertEqual(results["ocr"]["files_found"], {"screen_text.json": 1, "ocr_info.json": 0})
         self.assertFalse((self.tmp / "work" / "ocr" / "videos" / "v1" / "video.mp4").exists())
         self.assertEqual(set(results["ocr"]["summary"]), {"vector", "bm25", "hybrid", "graph", "hybrid_graph"})
+
+    def test_variant_overrides_merge_into_the_configured_filter(self):
+        chunk = {"window_s": 50, "screen_text_filter": {"enabled": True, "frequent_ratio": 0.3}}
+        merged = apply_chunk_overrides(chunk, VARIANTS["ocr_vlm_persistent"][1])
+        self.assertEqual(merged["screen_text_filter"], {"enabled": True, "frequent_ratio": 0.3, "persistent_ratio": 0.6})
+        raw = apply_chunk_overrides(chunk, VARIANTS["ocr_raw"][1])
+        self.assertFalse(raw["screen_text_filter"]["enabled"])
+        self.assertEqual(chunk["screen_text_filter"], {"enabled": True, "frequent_ratio": 0.3}, "cấu hình gốc không bị sửa")
 
     def test_report_has_one_column_per_evidence_group(self):
         # Mốc thời gian nằm ngoài mọi chunk: báo cáo phải liệt kê câu này để người duyệt xem lại.

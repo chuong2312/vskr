@@ -4,7 +4,10 @@
 lặp lại ở gần như mọi frame, nằm ở mép trên/dưới màn hình, làm loãng từ khóa của mọi đoạn. OCR đọc
 chúng hơi khác nhau mỗi frame ("WECOMMIT.COM.VN" / "WECOMMIT COMVN"), nên đếm theo TỪ chứ không theo
 cả dòng: một dòng là rác nếu phần lớn từ của nó có mặt ở nhiều frame (đã lọc trùng dHash, nên một
-slide chiếu lâu chỉ còn vài frame) và nó nằm ở mép màn hình. Dòng ở giữa màn hình luôn được giữ.
+slide chiếu lâu chỉ còn vài frame) và nó nằm ở mép màn hình.
+
+Tuỳ chọn ``persistent_ratio`` (mặc định tắt) bỏ thêm dòng ở bất kỳ vị trí nào khi phần lớn từ của nó có
+mặt ở ít nhất tỉ lệ frame đó: watermark lọt vào giữa màn hình, nhãn cố định của khung phần mềm.
 
 Ngoài ra bỏ dòng có dãy số dài: thường là mã số sinh viên trong khung chat họp trực tuyến.
 """
@@ -22,6 +25,7 @@ DEFAULTS = {
     "bottom_band": 0.1,
     "min_frames": 20,
     "drop_long_numbers": True,
+    "persistent_ratio": None,
 }
 
 
@@ -52,7 +56,7 @@ def frame_height(rows, frame_size=None):
 def filter_screen_text(rows, frame_times, height, options=None):
     """Trả về (các dòng giữ lại, thống kê). rows là screen_text.json; frame_times là t của các frame đã OCR."""
     opts = {**DEFAULTS, **(options or {})}
-    stats = {"rows": len(rows), "kept": len(rows), "boilerplate": 0, "long_number": 0}
+    stats = {"rows": len(rows), "kept": len(rows), "boilerplate": 0, "long_number": 0, "persistent": 0}
     if not opts["enabled"] or not rows:
         return list(rows), stats
     times = sorted(frame_times)
@@ -78,6 +82,10 @@ def filter_screen_text(rows, frame_times, height, options=None):
                 at_edge = y <= opts["top_band"] or y >= 1 - opts["bottom_band"]
                 if share >= opts["frequent_share"] and at_edge:
                     stats["boilerplate"] += 1
+                    continue
+                persistent = opts["persistent_ratio"]
+                if persistent and sum(ratio.get(t, 0.0) >= persistent for t in tokens) / len(tokens) >= opts["frequent_share"]:
+                    stats["persistent"] += 1
                     continue
         kept.append(row)
     stats["kept"] = len(kept)

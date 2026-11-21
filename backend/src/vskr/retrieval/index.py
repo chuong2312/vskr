@@ -87,7 +87,8 @@ def _screen_text(video_id, vdir, filter_options):
     kept, stats = filter_screen_text(rows, frame_times, height, filter_options)
     if stats["kept"] != stats["rows"]:
         print(f"[index] {video_id}: OCR giữ {stats['kept']}/{stats['rows']} dòng "
-              f"(bỏ {stats['boilerplate']} dòng lặp ở mép màn hình, {stats['long_number']} dòng có dãy số dài)")
+              f"(bỏ {stats['boilerplate']} dòng lặp ở mép màn hình, {stats['persistent']} dòng lặp ở giữa màn hình, "
+              f"{stats['long_number']} dòng có dãy số dài)")
     return kept
 
 

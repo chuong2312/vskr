@@ -13,23 +13,23 @@ VSKR (Video Semantic Knowledge Retrieval) turns lecture videos and documents int
 - A request marked read-only/report-only ends at the report.
 - Do not start the app or long jobs (`vskr serve`, `ingest`, `asr`, `frames`, `ocr`, `vlm`, `index`) on the owner's data unless asked. The owner runs them to watch the logs. Check readiness, then hand over the command.
 - Say "chưa chắc" instead of guessing; back claims with `file:line` evidence.
-- End of session: summarize and update `STATUS.md` (once it exists).
+- End of session: summarize and update `docs/STATUS.md`.
 
 ## Environment & commands
 Runs directly in `.venv` (Python 3.12, WSL2). There's no Docker. Always activate with the script, because it sets `PYTHONPATH=backend/src`, `HF_HOME=cache/huggingface` and the cuBLAS/cuDNN paths for faster-whisper:
 
     source scripts/activate-venv.sh
 
-- Install: see README "Cài đặt venv" (uv + split requirement files in `backend/requirements/*.txt`; `uv pip install --editable backend --no-deps`). `requirements.lock.txt` pins the core venv. `docs.txt` adds PDF/DOCX reading for `vskr doc`.
+- Install: see README "Cài đặt venv" (uv + split requirement files in `backend/requirements/*.txt`; `uv pip install --editable backend --no-deps`). `backend/requirements/core.lock.txt` pins the core venv. `docs.txt` adds PDF/DOCX reading for `vskr doc`.
 - OCR (EasyOCR) and VLM share their **own venv** `.venv-vlm` (`backend/requirements/vlm.txt`; see README), because both need CUDA torch while `.venv` keeps CPU torch for the embedder. Never install CUDA torch into `.venv`. PaddleOCR was tried and dropped: its recognition dictionaries (incl. PP-OCRv6) lack Vietnamese two-diacritic letters (ấ, ữ, ệ, ớ…). Its GPU build also pins older cuDNN/cuBLAS/numpy than ASR uses and does not resolve together with torch 2.15.
 - Env check: `vskr doctor --gpu-test`
 - Pipeline CLI (`backend/src/vskr/cli.py`): `vskr ingest <url>` → `vskr asr --video <id>` → (`vskr frames` → `vskr ocr` → `vskr vlm`) → `vskr index`; `vskr doc <file>`; `vskr ask "..." [--mode hybrid|vector|bm25|graph|hybrid_graph]`; `vskr serve --host 127.0.0.1 --port 8000`; `vskr admin hash-password`.
 - Tests use stdlib `unittest` (pytest also works as a runner):
   - all: `python -m unittest discover -s tests -t .`
-  - one: `python -m unittest tests.test_access_control` or `tests.test_auth.TestX.test_y`
+  - one: `python -m unittest tests.access.test_access_control` or `tests.access.test_auth.TestX.test_y`
   - Without a local `.env`, set `VSKR_COOKIE_SECURE=false` or 2 project tests in `test_public_api` fail.
   - In a git worktree, point `PYTHONPATH` at that worktree's `backend/src`; the activate script points at `~/vskr`.
-  - Node: `node tests/test_admin_url_safety.cjs`; `node --check web/admin/admin.js` after editing frontend JS.
+  - Node: `node tests/web/test_admin_url_safety.cjs`; `node --check web/admin/admin.js` after editing frontend JS.
 - There's no linter or formatter config.
 
 External runtime deps: Ollama at `localhost:11434` (QA + typed-relation extraction; index still builds without it), FFmpeg, yt-dlp, NVIDIA GPU (RTX 4060 Laptop, 8 GB VRAM) for ASR/OCR/VLM.
@@ -42,7 +42,7 @@ External runtime deps: Ollama at `localhost:11434` (QA + typed-relation extracti
 - Upload, document and eval-import limits and the Ollama URL live only in models.yaml; code reads those keys directly, with no fallback numbers (`config.role_limit` falls back from `limits.<role>` to `ingest`). A partial config built in a test must set the keys the code under test reads.
 
 ## Architecture
-Package: `backend/src/vskr/`, grouped by stage: `pipeline/` (ingest, frames, ASR, OCR, VLM, documents), `retrieval/` (chunking, embedding, BM25, knowledge graph, search), `access/` (accounts, auth, audit, visibility) and `api/` (routes in `public.py`/`admin.py`, business logic in `api/handlers/`). `cli`, `config`, `util`, `service`, `qa` and `evaluation` stay at the top level.
+Package: `backend/src/vskr/`, grouped by stage: `pipeline/` (ingest, frames, ASR, OCR, VLM, documents), `retrieval/` (chunking, embedding, BM25, knowledge graph, search), `access/` (accounts, auth, audit, visibility) and `api/` (routes in `public.py`/`admin.py`, business logic in `api/handlers/`). `cli`, `config`, `util`, `service`, `qa` and `evaluation` stay at the top level. `docs/ARCHITECTURE.md` draws these flows and lists every folder; update it when a stage, folder or route count changes.
 
 - **Pipeline modules:** `ingest` (yt-dlp via `safe_ytdlp`; `url_safety` checks URLs and raises `UnsafeUrlError`, which the API maps to 400) → `frames.detect_scenes_only` (PySceneDetect, installed as `scenedetect-headless`) → `asr` (faster-whisper, 15-min segments, original timestamps kept) → visual steps → `index` (chunker + E5 `embedder` + `bm25` + `knowledge_graph`). `documents` handles TXT/MD/RST/PDF/DOCX sections.
 - **Visual steps** (`handlers.jobs._run_visual_steps`, after ASR, each under `_gpu_model_lock`; a failure only adds a job warning and indexing continues from the transcript):
@@ -62,15 +62,17 @@ Package: `backend/src/vskr/`, grouped by stage: `pipeline/` (ingest, frames, ASR
 - **Visibility:** `visibility.is_visible` is the single rule for the catalog, file access and retrieval. New content is `private` (owner only); an owner can propose `pending`, and an admin approves it to `public`. Legacy items without an owner are public. Learners and guests are always restricted to hybrid vector+BM25; a client-supplied mode is ignored outside `/api/admin/ask`.
 - **Access matrix:** `docs/ACCESS_MATRIX.md` lists the permission for every route. Classify any new `/api/*` route there, and enforce the permission on the server.
 - **Frontend:** plain HTML/CSS/JS with no build step. `web/user` is the learner PWA (`sw.js` caches static assets only, never the API), `web/admin` is the admin bundle (served only after admin auth through routes, not a public static mount), and `web/shared` holds `api.js` and `tokens.css`.
-- **Evaluation:** `evaluation.py` runs retrieval only (Recall@5, MRR), with questions from `data/eval/questions.jsonl`. That file is empty on purpose: the admin deleted the old set, per `audit.jsonl`.
+- **Evaluation:** `evaluation.py` runs retrieval only (Recall@5, MRR), with questions from `data/eval/questions.jsonl`. It holds the 36 questions the owner approved (23 spoken, 10 screen, 3 figure); the admin deleted the older set, per `audit.jsonl`. `scripts/eval/eval_variants.py` compares index variants (transcript only, with OCR, with OCR and VLM).
 
 ## Data
 `data/` holds videos, transcripts, frames/OCR/caption artifacts, the index, documents, eval data, `audit.jsonl` and the accounts DB. `cache/` holds HF (incl. the ~7.5 GB VLM model) and yt-dlp caches. Both are git-ignored and local (only `data/eval/*.schema.json` and `questions.jsonl` are tracked). Don't delete them. The C: drive hosting WSL has limited free space; check `df -h /mnt/c` before large downloads.
 
 ## Tests
+Tests mirror the package: `tests/pipeline/`, `retrieval/`, `access/`, `api/`, plus `web/` and `scripts/`; cross-stage tests (integration, risk probes, data isolation, evaluation) stay at the top of `tests/`. A test in a subfolder finds the repo root with `Path(__file__).parents[2]`.
+
 Tests don't use Starlette's TestClient. Use `tests/asgi_client.ASGITestClient(app, authenticated_learner=...)`, which overrides `optional_learner_or_admin`. Tests reset module-level state (e.g. `auth._sessions`, `auth._failures` under their locks) and use temp data dirs. Visual-step tests mock `vskr.pipeline.frames.run` / `vskr.pipeline.steps.run_step`, so they need neither GPU nor the step venvs.
 
 `tests/__init__.py` points `VSKR__PATHS__DATA_DIR` at a temp dir for the whole suite. This is needed because `accounts`/`audit` call `load_config()` themselves and once rewrote the real `data/` from a test. `tests/test_data_isolation.py` fails if that breaks. Never build data paths as `ROOT / "data"`; use `data_dir(cfg)`.
 
 ## Security notes
-`SECURITY-REVIEW.md` tracks open findings. yt-dlp downloads are IP-pinned, redirects are re-checked and network FFmpeg/HLS downloaders are refused (`pipeline/safe_ytdlp.py`); egress firewalling is still required before exposing URL ingest to untrusted users. Guest cookie tokens have no server-side expiry yet. Keep SSRF/visibility/CSRF checks server-side when touching these paths.
+`docs/SECURITY-REVIEW.md` tracks open findings. yt-dlp downloads are IP-pinned, redirects are re-checked and network FFmpeg/HLS downloaders are refused (`pipeline/safe_ytdlp.py`); egress firewalling is still required before exposing URL ingest to untrusted users. Guest cookie tokens have no server-side expiry yet. Keep SSRF/visibility/CSRF checks server-side when touching these paths.

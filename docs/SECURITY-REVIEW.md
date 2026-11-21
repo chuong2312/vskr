@@ -18,7 +18,7 @@ lại với code ngày 2026-11-20. Cột "Vị trí" ghi tên hàm thay cho số
 | 2 | 🟡 MEDIUM | `access/accounts.py` (`set_guest_cookie`, `guest_owner_id`, `optional_learner_or_admin`) | **Còn mở.** Cookie khách có `Max-Age` 30 ngày ở trình duyệt, nhưng server chỉ băm HMAC token và không kiểm tra hạn; token cũ bị sao chép vẫn được nhận. Sửa cần lưu thời điểm tạo danh tính khách và tính tới dữ liệu khách cũ. | 9/10 |
 | 3 | 🟡 MEDIUM | `retrieval/index.py` (`build`), `api/handlers/jobs.py` (`_rebuild_index`) | **Còn mở (thiết kế).** Mỗi lần dựng lại chỉ mục, toàn bộ đoạn được nhúng lại. Đo thật ngày 2026-11-20: 196 đoạn nhúng trong 15 giây trên CPU (E5-small). Ổn ở quy mô hiện tại; kho lớn hơn sẽ cần nhúng tăng dần. | 8/10 |
 | 4 | 🟡 MEDIUM | `api/handlers/ask.py` (`GPU_LOCK_TIMEOUT_S`, `ask`), `service.py` (`Service.ask`) | **Thiết kế có chủ đích.** Câu hỏi chờ khe GPU dùng chung tối đa 10 giây rồi trả 503 kèm `Retry-After`. Có test mô phỏng khoá bị giữ; chưa đo khi ASR/OCR thật đang chạy. | 8/10 |
-| 5 | ⚪ LOW | `configs/models.yaml` (`retrieval.min_vector_score: null`), `scripts/calibrate_retrieval_threshold.py` | **Còn mở.** Ngưỡng từ chối câu hỏi chưa bật. Đã có 36 câu hỏi đã duyệt trong `data/eval/questions.jsonl`, nên chạy được script hiệu chỉnh cho phía có đáp án; vẫn thiếu câu hỏi không có đáp án để đo tỉ lệ nhận nhầm. | 9/10 |
+| 5 | ⚪ LOW | `configs/models.yaml` (`retrieval.min_vector_score: null`), `scripts/eval/calibrate_retrieval_threshold.py` | **Còn mở.** Ngưỡng từ chối câu hỏi chưa bật. Đã có 36 câu hỏi đã duyệt trong `data/eval/questions.jsonl`, nên chạy được script hiệu chỉnh cho phía có đáp án; vẫn thiếu câu hỏi không có đáp án để đo tỉ lệ nhận nhầm. | 9/10 |
 | 6 | ⚪ LOW | repo | **Phần chính đã xử lý:** `vskr-ui-redesign.zip` và `:Zone.Identifier` đã gỡ khỏi repo (PR #6). Còn lại: chưa có CI (GitHub Actions) tự chạy test. | 10/10 |
 
 ### Đã xử lý thêm sau đợt review
@@ -50,20 +50,20 @@ Các test được thay đổi hoặc thêm so với HEAD lúc đó:
 
 | Test file | Lý do | Đánh giá độ chặt |
 |---|---|---|
-| `tests/test_access_control.py` | Đưa `/api/projects` vào danh sách route được phân loại; cô lập state auth giữa test. | Không bỏ assertion quyền. |
-| `tests/test_accounts.py` | Quota project/guest, HMAC migration, retrieval theo owner; vòng 3 thêm token opacity và cookie Max-Age. | Migration chạy lặp được kiểm tra byte-for-byte; không nới quyền. |
-| `tests/test_admin_url_safety.cjs` | Test URL không cho phép `javascript:` và chỉ chấp nhận path cùng origin. | File test mới. |
-| `tests/test_api_ingest.py` | Cập nhật test theo guest/learner ingest cần `project_id`; thêm cleanup, quota, concurrent active-job và document quota. | Test “unauthenticated upload denied” được thay bằng test guest upload vì guest ingest là route public theo hợp đồng; admin bị từ chối URL ingest được kiểm tra riêng. |
-| `tests/test_ask_limits.py` | Fixture Service có `index.chunks` cho lọc visibility mới. | Chỉ bổ sung fixture. |
-| `tests/test_auth.py` | Trusted proxy, IPv6 và tách learner/admin failure counters. | Thêm coverage, không xóa kiểm tra cũ. |
+| `tests/access/test_access_control.py` | Đưa `/api/projects` vào danh sách route được phân loại; cô lập state auth giữa test. | Không bỏ assertion quyền. |
+| `tests/access/test_accounts.py` | Quota project/guest, HMAC migration, retrieval theo owner; vòng 3 thêm token opacity và cookie Max-Age. | Migration chạy lặp được kiểm tra byte-for-byte; không nới quyền. |
+| `tests/web/test_admin_url_safety.cjs` | Test URL không cho phép `javascript:` và chỉ chấp nhận path cùng origin. | File test mới. |
+| `tests/api/test_api_ingest.py` | Cập nhật test theo guest/learner ingest cần `project_id`; thêm cleanup, quota, concurrent active-job và document quota. | Test “unauthenticated upload denied” được thay bằng test guest upload vì guest ingest là route public theo hợp đồng; admin bị từ chối URL ingest được kiểm tra riêng. |
+| `tests/api/test_ask_limits.py` | Fixture Service có `index.chunks` cho lọc visibility mới. | Chỉ bổ sung fixture. |
+| `tests/access/test_auth.py` | Trusted proxy, IPv6 và tách learner/admin failure counters. | Thêm coverage, không xóa kiểm tra cũ. |
 | `tests/test_integration.py` | Metadata fixture khai báo `public`; cập nhật kỳ vọng câu trả lời không citation thành `sources=[]`. | Đây là thay đổi hợp đồng có chủ đích; đã ghi vào ACCESS_MATRIX. |
-| `tests/test_logic.py` | Kiểm tra BM25 IDF chỉ dùng tài liệu được phép. | Thêm kiểm tra riêng. |
-| `tests/test_public_api.py` | Project/API contract, guest owner HMAC, visibility, hybrid mode và rate limit. | `shared_only=True` đổi thành `False` cho ask guest để hỗ trợ private của chính guest; test guest khác vẫn bị từ chối. |
-| `tests/test_retriever.py` | LRU cache giới hạn và phân biệt tập quyền. | Vòng 3 siết assertion từ `<513` thành `==512`; không làm yếu kiểm tra. |
+| `tests/retrieval/test_bm25_fusion.py` | Kiểm tra BM25 IDF chỉ dùng tài liệu được phép. | Thêm kiểm tra riêng. |
+| `tests/api/test_public_api.py` | Project/API contract, guest owner HMAC, visibility, hybrid mode và rate limit. | `shared_only=True` đổi thành `False` cho ask guest để hỗ trợ private của chính guest; test guest khác vẫn bị từ chối. |
+| `tests/retrieval/test_retriever.py` | LRU cache giới hạn và phân biệt tập quyền. | Vòng 3 siết assertion từ `<513` thành `==512`; không làm yếu kiểm tra. |
 | `tests/test_risk_probes.py` | Mock probes cho C3/C4, B1/B4/B7, C1 và D2/D4. | Mọi kết luận từ mocks được ghi rõ; không coi là đo GPU/Ollama/proxy/network thật. |
-| `tests/test_answer_evaluation.py` | Kiểm tra percentile candidate và validation/tổng hợp nhãn người đánh giá. | File mới, không chứa dữ liệu ground truth. |
-| `tests/test_safe_ytdlp.py` | DNS rebinding, IP pinning, redirect/private IP, IPv6/CGNAT và không có HTTP fallback không pin. | Mock DNS/socket, không có truy cập mạng ngoài. |
-| `tests/test_visibility.py` | Ma trận anonymous/guest/learner/admin × public/private. | File mới. |
+| `tests/scripts/test_answer_evaluation.py` | Kiểm tra percentile candidate và validation/tổng hợp nhãn người đánh giá. | File mới, không chứa dữ liệu ground truth. |
+| `tests/pipeline/test_safe_ytdlp.py` | DNS rebinding, IP pinning, redirect/private IP, IPv6/CGNAT và không có HTTP fallback không pin. | Mock DNS/socket, không có truy cập mạng ngoài. |
+| `tests/access/test_visibility.py` | Ma trận anonymous/guest/learner/admin × public/private. | File mới. |
 
 ## Kiểm chứng
 
@@ -79,8 +79,8 @@ Các test được thay đổi hoặc thêm so với HEAD lúc đó:
 ## Chưa đo trên môi trường thật
 
 - SSRF: không gọi mạng thật; firewall egress chưa được triển khai/xác minh.
-- B1: đã có số đo dựng lại thật ở phát hiện #3; muốn đo theo nhiều cỡ kho thì chạy `PYTHONPATH=backend/src python scripts/benchmark_rebuild.py --limits 1,5,20,all` trên máy có dữ liệu, embedding model và Ollama thật.
-- B4/GPU: `PYTHONPATH=backend/src python scripts/benchmark_ask_lock.py --question "..." --hold-seconds 12 --ask-timeout 10` chỉ mô phỏng lock. Đo ASR thật cần chạy ingest video hợp lệ trong khi gửi ask đồng thời và thu latency/error rate trên GPU đích.
+- B1: đã có số đo dựng lại thật ở phát hiện #3; muốn đo theo nhiều cỡ kho thì chạy `PYTHONPATH=backend/src python scripts/bench/benchmark_rebuild.py --limits 1,5,20,all` trên máy có dữ liệu, embedding model và Ollama thật.
+- B4/GPU: `PYTHONPATH=backend/src python scripts/bench/benchmark_ask_lock.py --question "..." --hold-seconds 12 --ask-timeout 10` chỉ mô phỏng lock. Đo ASR thật cần chạy ingest video hợp lệ trong khi gửi ask đồng thời và thu latency/error rate trên GPU đích.
 - D2: cấu hình `VSKR_TRUSTED_PROXIES` bằng IP/CIDR của reverse proxy thật; kiểm thử HTTPS GET không có Origin qua proxy và một request từ peer không tin cậy.
 - 200 người dùng: chưa có load-test scenario với 200 identity/IP profile; không dùng một IP để giả lập 200 guest vì rate limit sẽ làm sai kết quả.
 - C1/C2: đã có 36 câu hỏi có đáp án (đã duyệt); vẫn cần câu hỏi không có đáp án và nhãn đánh giá câu trả lời/trích dẫn do người hiểu học liệu chấm.

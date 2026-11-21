@@ -1,2 +1,2 @@
-# Add in retrieval/QA upgrade stage; the current MVP uses NumPy for vector search.
+# Để dành cho giai đoạn nâng cấp tìm kiếm/hỏi đáp; bản hiện tại tìm vector bằng NumPy.
 faiss-cpu

@@ -15,7 +15,7 @@ TEST_HASH = hash_password(secrets.token_urlsafe(24))
 
 class TestUserBundle(unittest.TestCase):
     def test_public_bundle_has_no_admin_or_management_routes(self):
-        web_root = Path(__file__).parents[1] / "web" / "user"
+        web_root = Path(__file__).parents[2] / "web" / "user"
         forbidden = ("/api/eval", "/api/graph", "/api/reload", "/admin")
         for path in web_root.rglob("*"):
             if path.is_file() and path.suffix in {".html", ".js", ".css", ".webmanifest"}:
@@ -24,7 +24,7 @@ class TestUserBundle(unittest.TestCase):
                     self.assertNotIn(value, contents, f"{value} leaked into {path.relative_to(web_root)}")
 
     def test_chat_scroll_stays_in_thread_and_does_not_force_follow_manual_scroll(self):
-        web_root = Path(__file__).parents[1] / "web" / "user"
+        web_root = Path(__file__).parents[2] / "web" / "user"
         styles = (web_root / "styles.css").read_text(encoding="utf-8")
         app = (web_root / "app.js").read_text(encoding="utf-8")
 
@@ -38,7 +38,7 @@ class TestUserBundle(unittest.TestCase):
         self.assertIn("if (followThread) scrollThreadToEnd()", app)
 
     def test_conversation_history_has_search_grouping_rename_and_deep_link_controls(self):
-        web_root = Path(__file__).parents[1] / "web" / "user"
+        web_root = Path(__file__).parents[2] / "web" / "user"
         page = (web_root / "index.html").read_text(encoding="utf-8")
         app = (web_root / "app.js").read_text(encoding="utf-8")
 
@@ -54,7 +54,7 @@ class TestUserBundle(unittest.TestCase):
         self.assertIn("state.currentVideo?.video_id || state.preferredConversationVideoId", app)
 
     def test_video_stage_has_resizing_and_mobile_controls_without_old_video_navigation(self):
-        web_root = Path(__file__).parents[1] / "web" / "user"
+        web_root = Path(__file__).parents[2] / "web" / "user"
         page = (web_root / "index.html").read_text(encoding="utf-8")
         app = (web_root / "app.js").read_text(encoding="utf-8")
         styles = (web_root / "styles.css").read_text(encoding="utf-8")

@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { safeHttpUrl, safeSameOriginPath } = require("../web/admin/url-safety.js");
+const { safeHttpUrl, safeSameOriginPath } = require("../../web/admin/url-safety.js");
 
 test("safeHttpUrl rejects script schemes while preserving ordinary web links", () => {
   assert.equal(safeHttpUrl("javascript:alert(1)", "https://vskr.example"), "");

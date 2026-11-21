@@ -543,14 +543,14 @@ def request_visibility(kind: str, item_id: str, payload: VisibilityPayload,
 def ask(request: Request, payload: PublicAskRequest, user=Depends(accounts.optional_learner_or_admin)):
     """Hỏi đáp cho người học, khách và admin, chỉ trên phần người gọi được phép xem.
 
-    Câu hỏi tối đa 500 ký tự; giới hạn số câu theo IP và số câu xử lý đồng thời. Người học đã đăng
+    Độ dài câu hỏi tối đa theo ``limits.max_question_chars``; giới hạn số câu theo IP và số câu xử lý đồng thời. Người học đã đăng
     nhập được lưu lịch sử hội thoại.
     """
     question = payload.question
     if not question.strip():
         raise HTTPException(422, "Câu hỏi không được để trống.")
-    if len(question) > 500:
-        raise HTTPException(422, "Câu hỏi tối đa 500 ký tự.")
+    if len(question) > handlers.ask.MAX_QUESTION_CHARS:
+        raise HTTPException(422, f"Câu hỏi tối đa {handlers.ask.MAX_QUESTION_CHARS} ký tự.")
     enter_ask_slot()
     client_ip = auth.client_ip(request)
     attempt_id = None

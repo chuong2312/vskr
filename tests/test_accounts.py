@@ -58,6 +58,16 @@ class TestLearnerAccounts(unittest.TestCase):
         self.assertEqual(cookie[accounts.GUEST_COOKIE_NAME]["max-age"], str(30 * 24 * 60 * 60))
         self.assertTrue(cookie[accounts.GUEST_COOKIE_NAME]["httponly"])
 
+    def test_logout_cookie_deletion_uses_the_same_attributes_as_login(self):
+        login, logout = Response(), Response()
+        accounts.set_cookie(login, "token")
+        accounts.clear_cookie(logout)
+        set_header = login.headers["set-cookie"].lower()
+        clear_header = logout.headers["set-cookie"].lower()
+        self.assertIn("samesite=strict", set_header)
+        self.assertIn("samesite=strict", clear_header)
+        self.assertIn("max-age=0", clear_header)
+
     def test_self_registration_ignores_legacy_invite_setting_and_logout_revokes_session(self):
         with mock.patch.dict(os.environ, self.env):
             with ASGITestClient(app, authenticated_learner=False) as client:

@@ -1,6 +1,7 @@
 """Giới hạn tần suất câu hỏi công khai, lưu trong RAM theo cửa sổ trượt.
 
-Mỗi IP tối đa 10 câu mỗi phút và 100 câu mỗi giờ; cả server xử lý tối đa 3 câu cùng lúc.
+Mỗi IP tối đa ``limits.ask_per_minute`` câu mỗi phút và ``limits.ask_per_hour`` câu mỗi giờ; cả server
+xử lý tối đa ``limits.ask_concurrent`` câu cùng lúc (các giá trị nằm trong configs/models.yaml).
 """
 
 from __future__ import annotations
@@ -12,16 +13,19 @@ from collections import OrderedDict, deque
 
 from fastapi import HTTPException
 
+from ..config import load_config
+
 _lock = threading.Lock()
 _ask_attempts: OrderedDict[str, deque[tuple[int, float]]] = OrderedDict()
 _attempt_ids = itertools.count(1)
-_ask_slots = threading.BoundedSemaphore(3)
+_ask_slots = threading.BoundedSemaphore(int(load_config()["limits"]["ask_concurrent"]))
 
 
 def check_ask_rate(ip: str, now: float | None = None) -> int:
-    """Ghi nhận một câu hỏi của IP; vượt 10 câu/phút hoặc 100 câu/giờ thì báo 429 kèm Retry-After. Trả về id lượt để hoàn lại nếu cần."""
+    """Ghi nhận một câu hỏi của IP; vượt ``ask_per_minute`` câu/phút hoặc ``ask_per_hour`` câu/giờ thì báo 429 kèm Retry-After. Trả về id lượt để hoàn lại nếu cần."""
     now = time.time() if now is None else now
-    limits = ((60.0, 10), (3600.0, 100))
+    cfg = load_config()["limits"]
+    limits = ((60.0, int(cfg["ask_per_minute"])), (3600.0, int(cfg["ask_per_hour"])))
     with _lock:
         attempts = _ask_attempts.setdefault(ip, deque())
         _ask_attempts.move_to_end(ip)

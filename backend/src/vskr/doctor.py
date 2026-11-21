@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 from .config import data_dir
+from .qa import ollama_url
 
 
 def _run(cmd):
@@ -89,7 +90,7 @@ def main(cfg, gpu_test=False):
         import httpx
 
         lc = cfg["llm"]
-        r = httpx.get(lc["base_url"].rstrip("/") + "/api/tags", timeout=5)
+        r = httpx.get(ollama_url(lc, "/api/tags"), timeout=5)
         names = [m["name"] for m in r.json().get("models", [])]
         has = any(n == lc["model"] or n.split(":")[0] == lc["model"] for n in names)
         print(f"Ollama      : chạy tại {lc['base_url']}, {len(names)} model; '{lc['model']}' {'đã có' if has else 'CHƯA pull'}")

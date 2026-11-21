@@ -9,7 +9,6 @@ from .retrieval import index as index_mod
 from .retrieval.embedder import Embedder
 from .qa import answer_question
 from .retrieval.retriever import Retriever
-from .retrieval.bm25 import BM25, tokenize
 from .util import fmt_time, source_link
 from .access.visibility import is_visible
 

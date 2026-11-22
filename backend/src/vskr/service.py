@@ -102,7 +102,8 @@ class Service:
         if llm_lock is not None and not llm_lock.acquire(timeout=lock_timeout):
             raise ModelBusyError("Shared GPU slot did not become available before the request deadline.")
         try:
-            res = answer_question(question, hits, self.cfg["llm"])
+            # IDF của BM25 trên toàn chỉ mục giúp qa giữ đúng phần liên quan khi phải rút gọn nguồn.
+            res = answer_question(question, hits, self.cfg["llm"], term_weights=retriever.index.bm25.idf)
         finally:
             if llm_lock is not None:
                 llm_lock.release()

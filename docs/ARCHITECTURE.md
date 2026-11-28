@@ -173,18 +173,18 @@ Hạn mức lấy từ mục `limits` trong `configs/models.yaml`. Khách chỉ 
 
 | Đường dẫn | Việc |
 |---|---|
-| `backend/src/vskr/cli.py` | lệnh `vskr`: ingest, asr, frames, ocr, vlm, index, doc, ask, serve, doctor, admin |
+| `backend/src/vskr/cli.py` | lệnh `vskr`: ingest, asr, frames, slides, ocr, vlm, index, doc, ask, serve, doctor, admin |
 | `backend/src/vskr/config.py`, `util.py` | đọc cấu hình (`models.yaml`, `.env`, biến `VSKR__*`); hàm dùng chung |
 | `backend/src/vskr/service.py`, `qa.py` | giữ chỉ mục và bộ tìm kiếm; dựng prompt, gọi Ollama, tách trích dẫn |
 | `backend/src/vskr/evaluation.py`, `doctor.py` | chấm Recall@5, MRR; kiểm tra môi trường |
-| `backend/src/vskr/pipeline/` | ingest, safe_ytdlp, url_safety, frames, asr, ocr, vlm, steps, documents |
+| `backend/src/vskr/pipeline/` | ingest, safe_ytdlp, url_safety, frames, slide_change (thử nghiệm, chạy tay), asr, ocr, vlm, steps, documents |
 | `backend/src/vskr/retrieval/` | chunker, screen_filter, embedder, bm25, fusion, knowledge_graph, index, retriever |
 | `backend/src/vskr/access/` | auth, accounts, visibility, audit |
 | `backend/src/vskr/api/` | app FastAPI và middleware; route trong `public.py`, `admin.py`; `limits.py`; logic trong `handlers/` |
 | `backend/requirements/` | thư viện chia nhóm; `core.lock.txt` là phiên bản đã chốt cho `.venv` |
 | `web/user/`, `web/admin/`, `web/shared/` | trang người học (PWA), trang quản trị, file dùng chung |
 | `configs/models.yaml` | file cấu hình duy nhất |
-| `scripts/` | `activate-venv.sh`; `bench/` đo hiệu năng; `eval/` đánh giá truy hồi và câu trả lời |
+| `scripts/` | `activate-venv.sh`; `bench/` đo hiệu năng; `eval/` đánh giá truy hồi, câu trả lời và bộ dò trạng thái slide |
 | `tests/` | chia thư mục giống backend (`pipeline/`, `retrieval/`, `access/`, `api/`), thêm `web/` và `scripts/`; test chạy xuyên nhiều khâu nằm ở gốc `tests/` |
-| `docs/` | tài liệu này; [STATUS.md](./STATUS.md), [DECISIONS.md](./DECISIONS.md), [SECURITY-REVIEW.md](./SECURITY-REVIEW.md), [ACCESS_MATRIX.md](./ACCESS_MATRIX.md) |
+| `docs/` | tài liệu này; [STATUS.md](./STATUS.md), [DECISIONS.md](./DECISIONS.md), [SECURITY-REVIEW.md](./SECURITY-REVIEW.md), [ACCESS_MATRIX.md](./ACCESS_MATRIX.md), [ROADMAP.md](./ROADMAP.md) (lộ trình nâng cấp, chưa triển khai) |
 | `data/`, `cache/` | video, transcript, chỉ mục, tài khoản; model đã tải. Chỉ có trên máy, không đưa lên git |

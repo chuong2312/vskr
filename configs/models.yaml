@@ -54,6 +54,19 @@ frames:                      # dò phân cảnh và lấy frame cho OCR/VLM; c�
   max_width: 1280
   workers: 6                 # số ffmpeg trích frame song song (máy 20 luồng; để dư CPU cho server/Ollama)
 
+slide_change:                # dò trạng thái slide (thử nghiệm): chưa dùng khi ingest/lập chỉ mục, chạy tay `vskr slides`
+  sample_fps: 1.0            # số ảnh lấy mỗi giây video để so
+  work_width: 256            # thu ảnh xám về chiều rộng này trước khi so (1 giờ video ≈ 133 MB RAM)
+  pixel_threshold: 25        # điểm ảnh coi là "đổi" khi độ sáng lệch hơn mức này (thang 0–255)
+  min_blob_area: 0.0015      # bỏ đốm đổi nhỏ hơn tỉ lệ này của khung hình (con trỏ chuột, nhiễu nén)
+  min_change_area: 0.002     # trạng thái mới khi vùng đổi so với trạng thái đã giữ ≥ tỉ lệ này (cỡ một node nhỏ)
+  stable_frames: 3           # màn hình phải đứng yên chừng này mẫu liên tiếp mới chốt (bỏ animation, chớp sáng)
+  stable_area: 0.001         # hai mẫu liền nhau lệch dưới tỉ lệ này thì coi là đứng yên
+  busy_ratio: 0.2            # điểm ảnh đổi ở ≥20% số cặp mẫu liền nhau bị bỏ khỏi phép so (webcam, khung chat)
+  slide_area: 0.3            # khung bao vùng đổi phủ ≥30% màn hình là slide mới; nhỏ hơn là đổi một phần (thêm node, thêm dòng)
+  ignore_top: 0.0            # bỏ dải phía trên màn hình, theo tỉ lệ chiều cao (0 = không bỏ)
+  ignore_bottom: 0.0         # bỏ dải phía dưới màn hình (ví dụ 0.1 cho thanh tác vụ)
+
 ocr:
   enabled: true              # job ingest tự chạy frames → OCR sau ASR; false để ingest nhanh hơn
   python: .venv-vlm/bin/python   # chạy chung venv với VLM (torch CUDA); để trống = chạy trong venv hiện tại

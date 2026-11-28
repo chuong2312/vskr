@@ -1,3 +1,4 @@
 yt-dlp[default]
 scenedetect-headless>=0.7,<0.8
 Pillow
+opencv-python-headless  # cv2 cho `vskr slides`; đã đi kèm scenedetect-headless, ghi rõ vì code dùng trực tiếp

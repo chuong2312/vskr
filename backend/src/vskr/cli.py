@@ -5,7 +5,7 @@ from .config import load_config
 
 
 def main():
-    """Đọc tham số dòng lệnh và chạy lệnh tương ứng: doctor, ingest, asr, frames, ocr, vlm, index, doc, ask, serve, admin."""
+    """Đọc tham số dòng lệnh và chạy lệnh tương ứng: doctor, ingest, asr, frames, slides, ocr, vlm, index, doc, ask, serve, admin."""
     ap = argparse.ArgumentParser(prog="vskr")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("doctor", help="kiểm tra môi trường")
@@ -17,6 +17,9 @@ def main():
     p.add_argument("--video", action="append", help="video_id (mặc định: tất cả)")
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("frames", help="trích frame (PySceneDetect + lấy mẫu định kỳ + lọc trùng)")
+    p.add_argument("--video", action="append", help="video_id (mặc định: tất cả)")
+    p.add_argument("--force", action="store_true")
+    p = sub.add_parser("slides", help="dò trạng thái slide (thử nghiệm): ghi slide_states.json, chưa dùng khi lập chỉ mục")
     p.add_argument("--video", action="append", help="video_id (mặc định: tất cả)")
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("ocr", help="đọc chữ trên frame bằng EasyOCR (chạy trong .venv-vlm, xem README)")
@@ -80,6 +83,12 @@ def main():
 
         for vid in args.video or list_video_ids(cfg):
             frames.run(cfg, vid, force=args.force)
+    elif args.cmd == "slides":
+        from .pipeline import slide_change
+        from .retrieval.index import list_video_ids
+
+        for vid in args.video or list_video_ids(cfg):
+            slide_change.run(cfg, vid, force=args.force)
     elif args.cmd in ("ocr", "vlm"):
         from .pipeline.steps import run_step
 

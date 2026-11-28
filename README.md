@@ -59,6 +59,7 @@ Vẫn chạy lệnh bằng `.venv` chính; `vskr ocr` và `vskr vlm` tự gọi 
 Khi `ocr.enabled`/`vlm.enabled` bật, job ingest chạy thêm trích frame → OCR → VLM sau ASR. Bước nào lỗi (ví dụ chưa cài `.venv-vlm`) chỉ thành cảnh báo, video vẫn được lập chỉ mục bằng transcript. Tắt hai cờ này để ingest nhanh hơn. Chạy tay cho video đã có: `vskr frames --video <id>`, `vskr ocr --video <id>`, `vskr vlm --video <id>`, rồi `vskr index`.
 
 - `frames` dùng lại `scenes.json` nếu đã dò cảnh với cùng tham số, trích frame song song theo `frames.workers` và bỏ frame trùng bằng dHash.
+- `vskr slides --video <id>` (thử nghiệm, chưa dùng khi ingest hay lập chỉ mục) dò **trạng thái nội dung**: mỗi lần slide đổi hoặc giảng viên thêm node, dòng chữ, dòng code lên cùng slide. Lệnh lấy 1 ảnh xám mỗi giây, bỏ vùng đổi liên tục như webcam hay khung chat, so với trạng thái đã giữ để cộng dồn thay đổi nhỏ, bỏ đốm cỡ con trỏ chuột, và chỉ chốt khi màn hình đứng yên 3 giây. Kết quả nằm trong `slide_states.json`, kèm các lần đổi bị loại và lý do; tham số ở mục `slide_change` trong `configs/models.yaml`. Để đo, chạy `python scripts/eval/label_slide_changes.py --video <id>` để tạo trang gán nhãn (mở trên máy, bấm vào ảnh có nội dung mới, tải file nhãn về `data/eval/slides/<id>.json`), rồi `python scripts/eval/eval_slide_states.py --video <id>` để in Precision, Recall, F1 và các chỗ dò thừa, dò thiếu.
 - OCR ghép các từ cùng hàng thành dòng, gộp dòng lặp lại qua các frame liên tiếp thành một khoảng thời gian, và ghi tỷ lệ diện tích chữ của từng frame vào `ocr_info.json`.
 - VLM chỉ mô tả frame **ít chữ**: frame mà chữ chiếm từ `vlm.max_text_area` (mặc định 15%) trở lên là slide/code đã được OCR đọc nên bị bỏ qua; frame gần giống frame đã chọn (`vlm.min_hash_dist`) cũng bị bỏ; số còn lại rải đều tối đa `vlm.max_frames`. Chữ OCR của frame được đưa vào prompt làm ngữ cảnh, và frame chỉ có người nói bị loại khỏi chỉ mục.
 
@@ -203,7 +204,7 @@ Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/Instruct
 
 ## Cấu trúc dự án
 
-Sơ đồ các khối, luồng nạp video, luồng hỏi đáp và bảng thư mục chi tiết nằm ở [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Sơ đồ các khối, luồng nạp video, luồng hỏi đáp và bảng thư mục chi tiết nằm ở [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Lộ trình nâng cấp đã đề xuất (chưa triển khai) nằm ở [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ```text
 vskr/
@@ -213,7 +214,7 @@ vskr/
 │   ├── requirements/      # dependencies chia theo nhóm; core.lock.txt ghim phiên bản core venv
 │   └── pyproject.toml     # metadata và entry point CLI
 ├── configs/models.yaml    # file cấu hình duy nhất
-├── docs/                  # ARCHITECTURE, STATUS, DECISIONS, SECURITY-REVIEW, ACCESS_MATRIX
+├── docs/                  # ARCHITECTURE, STATUS, DECISIONS, SECURITY-REVIEW, ACCESS_MATRIX, ROADMAP
 ├── scripts/               # activate-venv.sh; bench/ đo tốc độ, eval/ chấm chất lượng
 ├── tests/                 # chia theo khâu giống backend, thêm web/ và scripts/
 ├── web/                   # user/ (PWA người học), admin/, shared/

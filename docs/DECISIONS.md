@@ -21,3 +21,4 @@
 | 2026-11-20 | Quy tắc lọc chữ cố định ở giữa màn hình (`persistent_ratio`) đưa vào code nhưng để tắt | Chế độ mặc định gần như không đổi (0.92/0.79 → 0.92/0.80); bật cần dựng lại chỉ mục |
 | 2026-11-20 | Không lọc chữ trên poster trong vùng camera | Chỉ 7 dòng; quy tắc theo tần suất không phân biệt được với slide, dễ xoá nhầm |
 | 2026-11-20 | Câu trả lời của LLM do chủ dự án chấm, AI không tự chấm | Kết quả chấm phải do người hiểu học liệu đánh giá mới đáng tin để đưa vào báo cáo |
+| 2026-11-28 | Dò trạng thái slide bằng tỉ lệ vùng đổi, chưa kiểm bằng OCR, chạy tay bằng `vskr slides` | SSIM cả khung gần như không đổi khi chỉ thêm 1 node; muốn OCR chạy đúng tại các trạng thái thì phải sửa bước frames và OCR, nên để sang bước gắn vào luồng chính |

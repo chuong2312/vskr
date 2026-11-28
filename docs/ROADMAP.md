@@ -160,7 +160,7 @@ tests/pipeline|retrieval|packaging|llm/…   [mới]
 
 | Thành phần | Bản ý tưởng chọn | Đề xuất |
 |---|---|---|
-| Đổi slide | OCR diff + SSIM | **Giữ.** OCR chạy trước, SSIM 0,85 làm dự phòng, như bài MDPI 2026 |
+| Đổi slide | OCR diff + SSIM | Bản 1 (2026-11-28) dùng **tỉ lệ vùng đổi** thay SSIM, vì SSIM cả khung gần như không đổi khi chỉ thêm 1 node; kiểm bằng chữ OCR để sang bước 3. Bài MDPI 2026 vẫn là mốc tham khảo |
 | Cắt cảnh | PERSIST | Tuỳ chọn. Có thật (BMVC 2026) nhưng học trên video thông thường; ý "thay đổi phải bền" lấy được bằng debounce |
 | Mốc cắt cảnh | PySceneDetect | Giữ |
 | Đối chứng | OmniShotCut | Bỏ: nhắm YouTube/TikTok, không phải bài giảng |
@@ -232,7 +232,7 @@ tests/pipeline|retrieval|packaging|llm/…   [mới]
    - Lưu `answers-review.md`.
    - Duyệt 18 câu nháp; trong đó có 5 câu nhiều bước và 2 câu liên video, cần cho bước 7.
 1. **Tài liệu này.**
-2. **Dò trạng thái slide:** viết `slide_change.py`, dùng lại `candidate_times`, `dhash`, `grab_frame` ([frames.py](../backend/src/vskr/pipeline/frames.py)) và `merge_runs` ([ocr.py](../backend/src/vskr/pipeline/ocr.py)). Đo F1 trên 1 video.
+2. **Dò trạng thái slide:** bản 1 đã có, chưa đo trên video thật. Gồm [slide_change.py](../backend/src/vskr/pipeline/slide_change.py) và lệnh `vskr slides`, chạy tay, tắt khỏi ingest và lập chỉ mục; cách dò dùng tỉ lệ vùng đổi, chưa kiểm bằng OCR. Có trang gán nhãn `scripts/eval/label_slide_changes.py` và phép đo `scripts/eval/eval_slide_states.py`. Việc còn lại: chủ dự án gán nhãn 10 phút đầu "[Hệ điều hành] Bài 01", đo F1, chỉnh ngưỡng.
 3. **Đồ thị trạng thái v2, chỉ gồm các cạnh do thuật toán tạo.** Ranh giới trạng thái đưa vào `make_scene_chunks` ([chunker.py](../backend/src/vskr/retrieval/chunker.py)). Dùng lại `_add_edge`.
 4. **Khái niệm kiểu LinearRAG + PPR + `graph_weight`.**
 5. **Tầng đóng gói**, sau khi PR #24 đã chốt.

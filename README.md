@@ -203,7 +203,7 @@ Knowledge Graph là baseline nghiên cứu, chưa phải bản SceneRAG/Instruct
 
 ## Cấu trúc dự án
 
-Sơ đồ các khối, luồng nạp video, luồng hỏi đáp và bảng thư mục chi tiết nằm ở [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Sơ đồ các khối, luồng nạp video, luồng hỏi đáp và bảng thư mục chi tiết nằm ở [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Lộ trình nâng cấp đã đề xuất (chưa triển khai) nằm ở [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ```text
 vskr/
@@ -213,7 +213,7 @@ vskr/
 │   ├── requirements/      # dependencies chia theo nhóm; core.lock.txt ghim phiên bản core venv
 │   └── pyproject.toml     # metadata và entry point CLI
 ├── configs/models.yaml    # file cấu hình duy nhất
-├── docs/                  # ARCHITECTURE, STATUS, DECISIONS, SECURITY-REVIEW, ACCESS_MATRIX
+├── docs/                  # ARCHITECTURE, STATUS, DECISIONS, SECURITY-REVIEW, ACCESS_MATRIX, ROADMAP
 ├── scripts/               # activate-venv.sh; bench/ đo tốc độ, eval/ chấm chất lượng
 ├── tests/                 # chia theo khâu giống backend, thêm web/ và scripts/
 ├── web/                   # user/ (PWA người học), admin/, shared/

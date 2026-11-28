@@ -185,5 +185,5 @@ Hạn mức lấy từ mục `limits` trong `configs/models.yaml`. Khách chỉ 
 | `configs/models.yaml` | file cấu hình duy nhất |
 | `scripts/` | `activate-venv.sh`; `bench/` đo hiệu năng; `eval/` đánh giá truy hồi và câu trả lời |
 | `tests/` | chia thư mục giống backend (`pipeline/`, `retrieval/`, `access/`, `api/`), thêm `web/` và `scripts/`; test chạy xuyên nhiều khâu nằm ở gốc `tests/` |
-| `docs/` | tài liệu này; [STATUS.md](./STATUS.md), [DECISIONS.md](./DECISIONS.md), [SECURITY-REVIEW.md](./SECURITY-REVIEW.md), [ACCESS_MATRIX.md](./ACCESS_MATRIX.md) |
+| `docs/` | tài liệu này; [STATUS.md](./STATUS.md), [DECISIONS.md](./DECISIONS.md), [SECURITY-REVIEW.md](./SECURITY-REVIEW.md), [ACCESS_MATRIX.md](./ACCESS_MATRIX.md), [ROADMAP.md](./ROADMAP.md) (lộ trình nâng cấp, chưa triển khai) |
 | `data/`, `cache/` | video, transcript, chỉ mục, tài khoản; model đã tải. Chỉ có trên máy, không đưa lên git |

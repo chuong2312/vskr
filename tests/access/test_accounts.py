@@ -309,7 +309,7 @@ class TestLearnerAccounts(unittest.TestCase):
         service.retriever = None
         observed = {}
 
-        def answer(_question, hits, _cfg):
+        def answer(_question, hits, _cfg, **_kwargs):
             observed["chunks"] = [hit["chunk"]["chunk_id"] for hit in hits]
             return {"answer": "ok", "found": True, "cited": False, "source_ns": []}
 
@@ -345,7 +345,7 @@ class TestLearnerAccounts(unittest.TestCase):
         service.retriever = None
         observed = {}
 
-        def answer(_question, hits, _cfg):
+        def answer(_question, hits, _cfg, **_kwargs):
             observed["chunks"] = [hit["chunk"]["chunk_id"] for hit in hits]
             return {"answer": "ok", "found": True, "cited": False, "source_ns": []}
 
@@ -379,7 +379,7 @@ class TestLearnerAccounts(unittest.TestCase):
         service.retriever = None
         observed = {}
 
-        def answer(_question, hits, _cfg):
+        def answer(_question, hits, _cfg, **_kwargs):
             observed["chunks"] = [hit["chunk"]["chunk_id"] for hit in hits]
             return {"answer": "ok", "found": bool(hits), "cited": False, "source_ns": []}
 

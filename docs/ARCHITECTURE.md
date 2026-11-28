@@ -115,6 +115,7 @@ flowchart LR
 - Ba kiểm tra đầu nằm ở `api/public.py` và `api/limits.py`, các con số lấy từ mục `limits` trong `configs/models.yaml`; lọc nguồn, tìm kiếm và gọi LLM nằm ở `service.py`, `retrieval/retriever.py`, `qa.py`.
 - Người học và khách luôn dùng chế độ `hybrid`. Admin hỏi qua `/api/admin/ask` và chọn được cả 5 chế độ.
 - LLM chỉ nhận 5 đoạn đã lọc, và prompt không chứa mốc thời gian.
+- Khi 5 đoạn vượt `llm.num_ctx`, `qa.build_messages` chia đều chỗ cho từng đoạn và giữ các mẩu chứa từ hiếm của câu hỏi (theo IDF của BM25), chỗ bị lược ghi "…" (`llm.context_packing: extract`). Cách cũ `prefix` cắt đuôi và có thể bỏ hẳn các đoạn cuối.
 
 Vì sao mặc định là `hybrid`: đo ngày 20/11/2026 trên 36 câu hỏi đã duyệt, 3 video, 196 đoạn (chỉ mục có cả chữ OCR và mô tả VLM).
 

@@ -133,5 +133,9 @@ llm:
   model: qwen3.5:4b             # mặc định nhẹ hơn cho máy 24 GB RAM; 9b vẫn có thể chọn lại
   temperature: 0.1
   num_ctx: 4096
+  # Cách thu gọn nguồn khi vượt num_ctx. extract: mỗi nguồn được một phần ngang nhau, nguồn dài
+  # giữ các mẩu chứa từ của câu hỏi (chỗ lược ghi "…"). prefix: cách cũ, cắt đuôi và có thể bỏ hẳn
+  # các nguồn cuối (đo 2026-11-22: 17/36 câu đánh giá bị bỏ ít nhất 1 nguồn).
+  context_packing: extract
   keep_alive: 30s              # nhả RAM/VRAM sớm sau khi trả lời
   timeout_s: 300
